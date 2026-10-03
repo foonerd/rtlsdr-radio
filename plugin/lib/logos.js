@@ -97,6 +97,11 @@ Logos.prototype.fetchDab = function(station, regionSetting) {
 
   var eid = clean(station.ensembleId);
   var candidates = radiodns.dabCandidates(eid, clean(station.serviceId), regionSetting, self.index.gcc[eid]);
+  // Once the ensemble's country is known from another of its services, that is the
+  // only name worth asking for: a service not registered under it has no logo
+  if (self.index.gcc[eid]) {
+    candidates = candidates.filter(function(candidate) { return candidate.gcc === self.index.gcc[eid]; });
+  }
 
   self.pending[key] = self.lookup.find(candidates).then(function(found) {
     if (found) {

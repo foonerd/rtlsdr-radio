@@ -481,7 +481,16 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.14 (Current)
+### v1.3.15 (Current)
+- DAB text is put together only from pieces that arrive intact. On a weak signal a text
+  used to appear with letters missing or with two texts run together; it now appears
+  whole, a little later, or not at all
+- The artist and title a DAB station marks in its text (DL Plus) are read as the
+  standard lays them out
+- The pictures a DAB station sends with its programme (slideshow) are shown on the
+  player screen: the newest one, as it arrives, before any artwork that is looked up
+
+### v1.3.14
 - Station logos and the plugin's own icons no longer turn into the player's default
   picture on a screen after a plugin update. Volumio lets a screen keep what an artwork
   address gave it for a month, its default picture included, which is what it gives

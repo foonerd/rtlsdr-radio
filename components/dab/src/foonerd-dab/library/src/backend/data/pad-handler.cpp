@@ -47,6 +47,9 @@
 	segmentNumber	= -1;
 	currentSlide	= nullptr;
 	dynamicLabelText. clear ();
+	resetLabel (-1);
+	dlPlusToggle	= -1;
+	shortPadLabel	= false;
 //
 //	DL Plus state initialization
 	dlPlusNumTags	= 0;
@@ -94,73 +97,31 @@ uint8_t	fpadType	= (L1 >> 6) & 03;
 //	on the vector address and the offset of the last element
 //	in that vector
 void	padHandler::handle_shortPAD (uint8_t *b, int16_t last, uint8_t CIf) {
+//	The short X-PAD is four bytes in every audio frame. With a contents
+//	indicator, the first names the application and three bytes of it follow;
+//	without one, all four continue the application of the frame before.
+//	The dynamic label travels this way on stations with little room for data:
+//	its bytes go to the same collector as those of the variable X-PAD, where a
+//	data group is used only if it arrives whole and its checksum holds.
+uint8_t	data [4];
 int16_t	i;
 
-	if (CIf) { // Has CI
-	   uint8_t CI = b [last];
-	   firstSegment = (b [last - 1] & 0x40) != 0;
-	   lastSegment  = (b [last - 1] & 0x20) != 0;
-	   uint8_t AcTy = CI & 037; // application type
-	   switch (AcTy) {
-	      default:
-//	         fprintf(stderr, "AcTy: %d\n", AcTy);
-	         break;
-
-	      case 0:		// end marker
-	         break;
-
-	      case 2:   // start of new fragment, extract the length
-	         if (firstSegment && !lastSegment) {
-                    segmentNumber   = b [last - 2] >> 4;
-                    if ((dataOut != nullptr) && (dynamicLabelText. size () > 0))
-                       dataOut (dynamicLabelText. c_str (), ctx);
-                    dynamicLabelText. clear ();
-                 }
-	
-	         still_to_go	 = b [last - 1] & 0x0F;
-	         shortpadData. resize (0);
-                 dynamicLabelText. push_back (b [last - 3]);
-	         break;
-
-	      case 3:   // continuation of fragment
-                 for (i = 0; (i < 3) && (still_to_go > 0); i ++) {
-                    still_to_go --;
-                    shortpadData. push_back (b [last - 1 - i]);
-                 }
-
-                 if ((still_to_go <= 0) && (shortpadData. size () > 1)) {
-                    shortpadData. push_back (0);
-	            std::string segmentText =
-	                          toStringUsingCharset (
-	                                (const char *)(shortpadData. data ()),
-	                                (CharacterSet) charSet,
-	                                shortpadData. size ());
-	            dynamicLabelText. append (segmentText);
-                    shortpadData. resize (0);
-                 }
-                 break;
+	if (CIf) {
+	   uint8_t AcTy = b [last] & 037;	// application type
+	   if ((AcTy == 2) || (AcTy == 3)) {	// dynamic label: start, continuation
+	      for (i = 0; i < 3; i ++)
+	         data [i] = b [last - 1 - i];
+	      shortPadLabel	= true;
+	      dynamicLabel (data, 3, AcTy);
 	   }
+	   else				// another application, or the end marker
+	      shortPadLabel	= false;
 	}
-	else {	// No CI
-           for (i = 0; (i < 4) && (still_to_go > 0); i ++) {
-               dynamicLabelText. push_back (b [last - i]);
-               still_to_go --;
-           }
-//	iff we are at the end of the last segment, show the message
-//	(but only if there is something to show) and clear the message
-	   if ((still_to_go <= 0) && (shortpadData. size () > 0)) {
-	      shortpadData. push_back (0);
-	      std::string segmentText =
-	                          toStringUsingCharset (
-	                                (const char *)(shortpadData. data ()),
-                                        (CharacterSet) charSet,
-                                        shortpadData. size ());
-                    dynamicLabelText. append (segmentText);
-	      shortpadData. resize (0);
-              if ((dataOut != nullptr) && (dynamicLabelText. length () > 0))
-                 dataOut (dynamicLabelText. c_str (), ctx);
-              dynamicLabelText. clear ();
-           }
+	else
+	if (shortPadLabel) {
+	   for (i = 0; i < 4; i ++)
+	      data [i] = b [last - i];
+	   dynamicLabel (data, 4, 3);
 	}
 }
 ///////////////////////////////////////////////////////////////////////
@@ -261,216 +222,181 @@ std::vector<uint8_t> data;
 //	Called when Cflag=1 in dynamic label segment
 //	Parses DL Plus tags and stores them for later callback
 void	padHandler::handleDLPlusCommand (uint8_t *data, int16_t length) {
-	if (length < 2) {
+//	The command field of a DL Plus command (ETSI TS 102 980, 7.4):
+//	  byte 0: CId (4 bits; 0000 = the tags of the label), IT (item toggle),
+//	          IR (item running), NT (2 bits: the number of tags, less one)
+//	  then three bytes for each tag, each with a spare bit in front:
+//	          content type (7 bits), start marker (7 bits), length marker (7 bits)
+//	The markers count characters of the label; the length marker is the length less one.
+	if (length < 1)
+	   return;
+	if ((data [0] >> 4) != 0)	// another command: not the tags
+	   return;
+
+	uint8_t numTags	= (data [0] & 0x03) + 1;
+	if (length < 1 + 3 * numTags) {	// cut short: no tags rather than wrong ones
 	   dlPlusValid = false;
 	   return;
 	}
 
-	// First byte: [command type 4 bits] [link] [toggle] [running] [N1 bit0]
-	uint8_t cmdByte = data[0];
-	uint8_t cmdType = (cmdByte >> 4) & 0x0F;
-	
-	// Command type 0000 = DL Plus Tags
-	if (cmdType != 0) {
-	   // Other command types (like clear display) - not DL Plus Tags
-	   if (cmdType == 1) {
-	      // Command type 0001 = Item clear/delete
-	      dlPlusValid = false;
-	   }
-	   return;
+	dlPlusItemToggle	= (data [0] >> 3) & 0x01;
+	dlPlusItemRunning	= (data [0] >> 2) & 0x01;
+	for (int t = 0; t < numTags; t ++) {
+	   dlPlusTags [t]. contentType	= data [1 + 3 * t] & 0x7F;
+	   dlPlusTags [t]. startMarker	= data [2 + 3 * t] & 0x7F;
+	   dlPlusTags [t]. length	= data [3 + 3 * t] & 0x7F;
 	}
-
-	// Parse DL Plus Tags command
-	// bool linkBit = (cmdByte >> 3) & 0x01;  // unused for now
-	dlPlusItemToggle = (cmdByte >> 2) & 0x01;
-	dlPlusItemRunning = (cmdByte >> 1) & 0x01;
-	uint8_t n1_bit0 = cmdByte & 0x01;
-
-	// Second byte: [N1 bit1] [content type bits 6-0]
-	uint8_t byte1 = data[1];
-	uint8_t n1_bit1 = (byte1 >> 7) & 0x01;
-	uint8_t numTags = ((n1_bit1 << 1) | n1_bit0) + 1;  // 1-4 tags
-
-	if (numTags > 4) numTags = 4;
-	dlPlusNumTags = numTags;
-
-	// First tag content type is in bits 6-0 of byte 1
-	dlPlusTags[0].contentType = byte1 & 0x7F;
-
-	// Parse remaining tag data
-	// Each tag after the first byte needs: start marker (7 bits) + length (6 bits) = 13 bits
-	// First tag: contentType already parsed, need start (7) + length (6) = 13 bits
-	// Total bits needed: 13 bits per tag
-	
-	// Bit stream parsing from byte 2 onwards
-	// First tag: start[6:0] in bits 7-1 of byte2, length[5:0] in bits 0 of byte2 + bits 7-3 of byte3
-	
-	int bitPos = 16;  // Start after first 2 bytes (16 bits)
-	
-	for (int t = 0; t < numTags; t++) {
-	   int byteIdx, bitIdx;
-	   
-	   if (t == 0) {
-	      // First tag: content type already parsed
-	      // Start marker: 7 bits starting at bit 16
-	      if (length < 3) { dlPlusValid = false; return; }
-	      byteIdx = bitPos / 8;
-	      bitIdx = bitPos % 8;
-	      
-	      // Get start marker (7 bits)
-	      uint16_t twoBytes = (data[byteIdx] << 8);
-	      if (byteIdx + 1 < length) twoBytes |= data[byteIdx + 1];
-	      dlPlusTags[0].startMarker = (twoBytes >> (9 - bitIdx)) & 0x7F;
-	      bitPos += 7;
-	      
-	      // Get length marker (6 bits)
-	      byteIdx = bitPos / 8;
-	      bitIdx = bitPos % 8;
-	      twoBytes = (data[byteIdx] << 8);
-	      if (byteIdx + 1 < length) twoBytes |= data[byteIdx + 1];
-	      dlPlusTags[0].length = (twoBytes >> (10 - bitIdx)) & 0x3F;
-	      bitPos += 6;
-	   }
-	   else {
-	      // Subsequent tags: content type (7) + start (7) + length (6) = 20 bits
-	      int bytesNeeded = (bitPos + 20 + 7) / 8;
-	      if (bytesNeeded > length) { 
-	         dlPlusNumTags = t;  // Truncate to tags we could parse
-	         break;
-	      }
-	      
-	      // Content type (7 bits)
-	      byteIdx = bitPos / 8;
-	      bitIdx = bitPos % 8;
-	      uint32_t threeBytes = (data[byteIdx] << 16);
-	      if (byteIdx + 1 < length) threeBytes |= (data[byteIdx + 1] << 8);
-	      if (byteIdx + 2 < length) threeBytes |= data[byteIdx + 2];
-	      dlPlusTags[t].contentType = (threeBytes >> (17 - bitIdx)) & 0x7F;
-	      bitPos += 7;
-	      
-	      // Start marker (7 bits)
-	      byteIdx = bitPos / 8;
-	      bitIdx = bitPos % 8;
-	      threeBytes = (data[byteIdx] << 16);
-	      if (byteIdx + 1 < length) threeBytes |= (data[byteIdx + 1] << 8);
-	      if (byteIdx + 2 < length) threeBytes |= data[byteIdx + 2];
-	      dlPlusTags[t].startMarker = (threeBytes >> (17 - bitIdx)) & 0x7F;
-	      bitPos += 7;
-	      
-	      // Length marker (6 bits)
-	      byteIdx = bitPos / 8;
-	      bitIdx = bitPos % 8;
-	      uint16_t twoBytes = (data[byteIdx] << 8);
-	      if (byteIdx + 1 < length) twoBytes |= data[byteIdx + 1];
-	      dlPlusTags[t].length = (twoBytes >> (10 - bitIdx)) & 0x3F;
-	      bitPos += 6;
-	   }
-	}
-
-	dlPlusValid = (dlPlusNumTags > 0);
+	dlPlusNumTags	= numTags;
+	dlPlusValid	= true;
 }
 //
 //	A dynamic label is created from a sequence of (dynamic) xpad
 //	fields, starting with CI = 2, continuing with CI = 3
+//
+//	The dynamic label (ETSI EN 300 401, 7.4.5.2). A label is sent as up to eight
+//	segments, each in a data group of its own: two bytes of prefix, the characters,
+//	and a checksum over both. A data group may arrive in several X-PAD subfields: a
+//	first one (application type 2) and continuations (type 3).
+//
+//	A group is used only when it has arrived whole and its checksum holds, and a label
+//	is shown only when every one of its segments is there. With a weak signal that
+//	means a label arrives later or not at all; it never arrives with pieces missing
+//	or with the pieces of two labels mixed.
 void	padHandler::dynamicLabel (uint8_t *data, int16_t length, uint8_t CI) {
-static int16_t segmentno           = 0;
-static int16_t remainDataLength    = 0;
-static bool    isLastSegment       = false;
-static bool moreXPad	= false;
-int16_t  dataLength	= 0;
+	if ((CI & 037) == 02)		// the first subfield of a data group
+	   dlGroup. clear ();
+	else
+	if (dlGroup. empty ())		// a continuation of a group whose start was missed
+	   return;
 
-	(void)segmentno;
-	if ((CI & 037) == 02) {	// start of segment
-	   uint16_t prefix = (data [0] << 8) | data [1];
-	   uint8_t field_1 = (prefix >> 8) & 017;
-	   uint8_t Cflag   = (prefix >> 12) & 01;
-	   uint8_t first   = (prefix >> 14) & 01;
-	   uint8_t last    = (prefix >> 13) & 01;
-	   dataLength	   = length - 2; // The length with header removed
+	if (length <= 0)
+	   return;
+	if (dlGroup. size () + length > 96) {	// no group is as long as that
+	   dlGroup. clear ();
+	   return;
+	}
+	dlGroup. insert (dlGroup. end (), data, data + length);
+	if (dlGroup. size () < 2)
+	   return;
 
-	   if (first) { 
-	      segmentno = 1;
-	      charSet = (prefix >> 4) & 017;
+//	The prefix says what the group is and how long
+	bool	command		= (dlGroup [0] & 0x10) != 0;
+	bool	removeLabel	= false;
+	bool	plusCommand	= false;
+	size_t	fieldLength	= 0;
+	if (command) {
+	   switch (dlGroup [0] & 0x0F) {
+	      case 0x01:		// remove the label from the display
+	         removeLabel	= true;
+	         break;
+	      case 0x02:		// DL Plus
+	         plusCommand	= true;
+	         fieldLength	= (dlGroup [1] & 0x0F) + 1;
+	         break;
+	      default:			// a command not known here
+	         dlGroup. clear ();
+	         return;
+	   }
+	}
+	else
+	   fieldLength	= (dlGroup [0] & 0x0F) + 1;
+
+	size_t groupLength = 2 + fieldLength;
+	if (dlGroup. size () < groupLength + 2)	// the checksum is not there yet
+	   return;
+
+	if (!check_crc_bytes (dlGroup. data (), groupLength)) {
+	   dlGroup. clear ();		// damaged on the way: not used
+	   return;
+	}
+
+	std::vector<uint8_t> group (dlGroup. begin (),
+	                            dlGroup. begin () + groupLength);
+	dlGroup. clear ();
+	int16_t	toggle	= (group [0] & 0x80) ? 1 : 0;
+
+	if (removeLabel) {
+	   resetLabel (-1);
+	   if (!dynamicLabelText. empty ()) {
 	      dynamicLabelText. clear ();
+	      if (dataOut != nullptr)
+	         dataOut (dynamicLabelText. c_str (), ctx);
 	   }
-	   else 
-	      segmentno = ((prefix >> 4) & 07) + 1;
-
-	   if (Cflag) {		// DL Plus command (ETSI TS 102 980)
-	      // Parse DL Plus command - data after prefix contains tags
-	      handleDLPlusCommand (&data[2], length - 2);
-	   }
-	   else {		// Dynamic text length
-	      int16_t totalDataLength = field_1 + 1;
-	      if (length - 2 < totalDataLength) {
-	         dataLength = length - 2; // the length is shortened by header
-	         moreXPad   = true;
-	      }
-	      else {
-	         dataLength = totalDataLength;  // no more xpad app's 3
-	         moreXPad   = false;
-	      }
-
-//	convert dynamic label
-	      std::string segmentText = toStringUsingCharset (
-	                                 (const char *)&data [2],
-	                                 (CharacterSet) charSet,
-	                                 dataLength);
-
-	      dynamicLabelText. append (segmentText);
-
-//	if at the end, show the label
-	      if (last) {
-	         if ((dataOut != nullptr) && !moreXPad) {
-	            dataOut (dynamicLabelText. c_str (), ctx);
-	            // Send DL Plus tags if we have them
-	            if (dlPlusValid && dlPlusOut != nullptr) {
-	               dlPlusOut (dynamicLabelText. c_str (),
-	                          dlPlusNumTags,
-	                          dlPlusTags,
-	                          dlPlusItemToggle,
-	                          dlPlusItemRunning,
-	                          ctx);
-	            }
-	         }
-	         else
-	            isLastSegment = true;
-	      }
-	      else 
-	         isLastSegment = false;
-//	calculate remaining data length
-	      remainDataLength = totalDataLength - dataLength;
-	   }
+	   return;
 	}
-	else 
-	if (((CI & 037) == 03) && moreXPad) {
-	   if (remainDataLength > length) {
-	      dataLength = length;
-	      remainDataLength -= length;
-	   }
-	   else {
-	      dataLength = remainDataLength;
-	      moreXPad   = false;
-	   }
-	   
-	   std::string segmentText = toStringUsingCharset (
-	                                     (const char *) data,
-	                                     (CharacterSet) charSet,
-	                                     dataLength);
-	   dynamicLabelText. append(segmentText);
-	   if ((dataOut != nullptr) && !moreXPad && isLastSegment) {
+
+	if (plusCommand) {
+//	   The tags belong to the label that carries the same toggle
+	   handleDLPlusCommand (&group [2], (int16_t)fieldLength);
+	   dlPlusToggle	= toggle;
+	   if (dlComplete && dlToggle == toggle)
+	      showLabel (true);
+	   return;
+	}
+
+//	A segment of the text. Another toggle means another label
+	if (toggle != dlToggle)
+	   resetLabel (toggle);
+	if (dlComplete)			// the label is known; this is its repetition
+	   return;
+
+	bool	first	= (group [0] & 0x40) != 0;
+	bool	last	= (group [0] & 0x20) != 0;
+	int16_t	segment	= first ? 0 : ((group [1] >> 4) & 0x07);
+	if (first)
+	   charSet	= (group [1] >> 4) & 0x0F;
+	if (dlHave [segment])
+	   return;
+	dlSegments [segment]. assign (group. begin () + 2, group. end ());
+	dlHave [segment]	= true;
+	if (last)
+	   dlLast	= segment;
+
+	if (dlLast < 0)
+	   return;
+	for (int16_t i = 0; i <= dlLast; i ++)
+	   if (!dlHave [i])
+	      return;
+	dlComplete	= true;
+	showLabel (false);
+}
+
+//	Forget the label being collected; the next one carries the given toggle
+void	padHandler::resetLabel (int16_t toggle) {
+	for (int i = 0; i < 8; i ++) {
+	   dlSegments [i]. clear ();
+	   dlHave [i]	= false;
+	}
+	dlToggle	= toggle;
+	dlLast		= -1;
+	dlComplete	= false;
+}
+
+//	The label is complete: hand it on, and with it the tags that belong to it.
+//	tagsOnly: the text was handed on before, the tags have arrived since.
+void	padHandler::showLabel (bool tagsOnly) {
+	if (!tagsOnly) {
+	   std::vector<uint8_t> raw;
+	   for (int16_t i = 0; i <= dlLast; i ++)
+	      raw. insert (raw. end (), dlSegments [i]. begin (),
+	                                dlSegments [i]. end ());
+	   std::string text = toStringUsingCharset ((const char *)raw. data (),
+	                                            (CharacterSet) charSet,
+	                                            (int)raw. size ());
+	   if (text == dynamicLabelText && !dlPlusValid)
+	      return;			// the same label sent again
+	   bool changed	= text != dynamicLabelText;
+	   dynamicLabelText = text;
+	   if (changed && dataOut != nullptr)
 	      dataOut (dynamicLabelText. c_str (), ctx);
-	      // Send DL Plus tags if we have them
-	      if (dlPlusValid && dlPlusOut != nullptr) {
-	         dlPlusOut (dynamicLabelText. c_str (),
-	                    dlPlusNumTags,
-	                    dlPlusTags,
-	                    dlPlusItemToggle,
-	                    dlPlusItemRunning,
-	                    ctx);
-	      }
-	   }
 	}
+	if (dlPlusValid && dlPlusToggle == dlToggle && dlPlusOut != nullptr)
+	   dlPlusOut (dynamicLabelText. c_str (),
+	              dlPlusNumTags,
+	              dlPlusTags,
+	              dlPlusItemToggle,
+	              dlPlusItemRunning,
+	              ctx);
 }
 
 //

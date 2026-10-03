@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.3.14",
+  "version": "1.3.15",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.14 - Station logos and icons stay visible on screens after a plugin update"
+    "changelog": "v1.3.15 - DAB text no longer garbled on a weak signal; a station's own pictures are shown; artist and title tags read correctly"
   },
   "engines": {
     "node": ">=20",

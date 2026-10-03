@@ -272,6 +272,29 @@ void	dataOut_Handler (const char *label, void *ctx) {
 //	DL Plus callback - receives semantic tags for dynamic label
 //	Content types from ETSI TS 102 980:
 //	1 = ITEM.TITLE, 4 = ITEM.ARTIST, 31 = STATIONNAME.LONG, etc.
+
+//	The characters of a UTF-8 string from the given one on: count of them, or
+//	as many as there are
+static
+std::string utf8Characters (const std::string &text, int start, int count) {
+	size_t	at	= 0;
+	int	seen	= 0;
+	size_t	from	= std::string::npos;
+	while (at < text. size ()) {
+	   if (seen == start)
+	      from	= at;
+	   if (seen == start + count)
+	      return text. substr (from, at - from);
+	   at ++;				// the first byte of a character
+	   while (at < text. size () && (((unsigned char)text [at]) & 0xC0) == 0x80)
+	      at ++;				// and the bytes that continue it
+	   seen ++;
+	}
+	if (from == std::string::npos)
+	   return (seen == start && count == 0) ? std::string () : std::string ();
+	return text. substr (from);
+}
+
 static
 void	dlPlusOut_Handler (const char *label, uint8_t numTags, 
                            dlPlusTag_t *tags, bool itemToggle, 
@@ -305,8 +328,9 @@ void	dlPlusOut_Handler (const char *label, uint8_t numTags,
 			// Extract tagged text from label
 			int start = tags[i].startMarker;
 			int len = tags[i].length + 1;  // length field is actual length - 1
-			if (start >= 0 && start < (int)strLabel.length()) {
-				std::string tagText = strLabel.substr(start, len);
+			// The markers count characters of the label, not bytes of its UTF-8 form
+			std::string tagText = utf8Characters (strLabel, start, len);
+			if (!tagText.empty()) {
 				
 				// Content type names for common types
 				const char* typeName = "UNKNOWN";

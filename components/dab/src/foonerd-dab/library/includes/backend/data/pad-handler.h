@@ -73,6 +73,18 @@ private:
 	bool		dlPlusItemToggle;
 	bool		dlPlusItemRunning;
 	bool		dlPlusValid;		// true if we have DL Plus tags
+//	The dynamic label being collected: the data group as it arrives, the segments
+//	whose checksum held, and which label (by its toggle) they belong to
+	std::vector<uint8_t>	dlGroup;
+	std::vector<uint8_t>	dlSegments [8];
+	bool		dlHave [8];
+	int16_t		dlToggle;
+	int16_t		dlLast;
+	bool		dlComplete;
+	int16_t		dlPlusToggle;
+	bool		shortPadLabel;		// the short X-PAD is carrying a label
+	void		resetLabel	(int16_t);
+	void		showLabel	(bool);
 };
 
 #endif

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Fetch every upstream source named in a lock file into .cache/src/<name>,
-# at exactly the commit the lock names. Runs on the host; the build itself is offline.
+# at exactly the commit the lock names. Runs on the host, and only when a build image
+# has to be made: the image carries the sources, and the build itself is offline.
 #
 # A lock file (components/<component>/<name>.lock) holds:
 #   URL=<git repository>

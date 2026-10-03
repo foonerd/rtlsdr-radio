@@ -10,7 +10,7 @@ echo "[+] dab: against libfn-rtlsdr $(pkg-config --modversion libfn-rtlsdr)"
 common=(
   -DCMAKE_BUILD_TYPE=Release
   -DCMAKE_SYSTEM_NAME=Linux
-  -DCMAKE_SYSTEM_PROCESSOR="$(uname -m)"
+  -DCMAKE_SYSTEM_PROCESSOR="$TARGET_MACHINE"
   -DCMAKE_C_COMPILER=/usr/bin/gcc
   -DCMAKE_CXX_COMPILER=/usr/bin/g++
   -DRTLSDR=ON

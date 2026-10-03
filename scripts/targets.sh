@@ -38,6 +38,26 @@ target_cflags() {
   esac
 }
 
+# The machine the build tools are told they build for. They would otherwise ask the
+# kernel, whose answer depends on where the build runs: a 32-bit ARM container says
+# "armv7l" under emulation and "aarch64" on a 64-bit ARM machine that runs it natively.
+target_machine() {
+  case "$1" in
+    arm|armv7) echo "armv7l" ;;
+    armv8)     echo "aarch64" ;;
+    x64)       echo "x86_64" ;;
+    *)         return 1 ;;
+  esac
+}
+
+# The same for configure scripts, which want a triplet; empty where their own guess is right.
+target_triplet() {
+  case "$1" in
+    arm|armv7) echo "armv7l-unknown-linux-gnueabihf" ;;
+    *)         echo "" ;;
+  esac
+}
+
 # What `readelf -A` (32-bit ARM) or `file` must report for a binary of this target.
 target_elf_rule() {
   case "$1" in

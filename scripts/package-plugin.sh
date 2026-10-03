@@ -11,9 +11,11 @@ scripts/assemble-plugin.sh "$@"
 dist="dist/rtlsdr_radio"
 version="$(sed -n 's/^ *"version": *"\(.*\)",*/\1/p' "$dist/package.json" | head -1)"
 
-# The node modules, installed by the Node version Volumio ships
-docker run --rm -v "$PWD/$dist:/plugin" -w /plugin node:20-bookworm-slim sh -c \
-  "npm ci --omit=dev --no-audit --no-fund --loglevel=error && chown -R $(id -u):$(id -g) node_modules"
+# The node modules, as the Node image holds them (docker/Dockerfile.node): installed
+# once from the lock file by the Node version Volumio ships, not fetched again here
+image="$(scripts/node-image.sh)"
+docker run --rm --network none -v "$PWD/$dist:/plugin" "$image" sh -c \
+  "cp -a /opt/plugin/node_modules /plugin/ && chown -R $(id -u):$(id -g) /plugin/node_modules"
 
 printf '{\n  "version": "%s",\n  "commit": "%s",\n  "built": "%s"\n}\n' \
   "$version" "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dist/build.json"

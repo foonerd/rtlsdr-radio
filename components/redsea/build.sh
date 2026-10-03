@@ -26,6 +26,10 @@ liquid_options=(--enable-fftoverride)
 case "$TARGET" in
   arm|x64) liquid_options+=(--enable-simdoverride) ;;
 esac
+# Which processor it builds for is the target's to say, not the building machine's
+if [ -n "$TARGET_TRIPLET" ]; then
+  liquid_options+=(--build="$TARGET_TRIPLET")
+fi
 CFLAGS="$TARGET_CFLAGS -fPIC" ./configure --prefix="$prefix" "${liquid_options[@]}"
 make -j"$(nproc)"
 make install

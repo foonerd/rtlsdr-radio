@@ -27,7 +27,7 @@ def git(*args):
 
 files = {}
 for path in sorted(out.rglob("*")):
-    if path.is_file() and path.name != "manifest.json":
+    if path.is_file() and path.name not in ("manifest.json", "build.log"):
         files[str(path.relative_to(out))] = {
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "size": path.stat().st_size,

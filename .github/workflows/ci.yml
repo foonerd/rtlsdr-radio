@@ -1,7 +1,8 @@
 name: ci
 
 # Every change: the plugin's JavaScript checked and its tests run, in the Node version
-# Volumio ships.
+# Volumio ships. The image they run in comes from the registry with the plugin's node
+# modules in it; the run fetches nothing else.
 on:
   push:
     branches: [main]
@@ -9,6 +10,11 @@ on:
 
 permissions:
   contents: read
+  packages: write
+
+env:
+  BUILDER_REGISTRY: ghcr.io/${{ github.repository }}-builder
+  BUILDER_PUSH: 1
 
 jobs:
   test:
@@ -16,4 +22,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Log in to the registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - run: scripts/test-plugin.sh

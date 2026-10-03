@@ -4,6 +4,6 @@
 # every build of the plugin until one of the sources changes.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-git ls-files -s -- build.sh components docker \
-  scripts/build-target.sh scripts/check-elf.sh scripts/check-warnings.py \
+git ls-files -s -- build.sh components docker/Dockerfile.build docker/Dockerfile.raspbian \
+  scripts/build-target.sh scripts/builder-key.sh scripts/check-elf.sh scripts/check-warnings.py \
   scripts/fetch-sources.sh scripts/targets.sh scripts/write-manifest.py | sha256sum | cut -c1-16

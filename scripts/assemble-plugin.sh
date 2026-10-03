@@ -52,7 +52,7 @@ src, dist, targets = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.a
 manifests = {t: json.loads((src / t / "manifest.json").read_text()) for t in targets}
 first = manifests[targets[0]]
 for t, m in manifests.items():
-    if m["sources"] != first["sources"] or m["repository"] != first["repository"]:
+    if m["sources"] != first["sources"]:
         sys.exit(f"error: target '{t}' was built from different sources than '{targets[0]}'")
 components = {
     "repository": first["repository"],

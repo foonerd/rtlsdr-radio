@@ -3,8 +3,12 @@ name: components
 # The compiled parts of the plugin (the RTL-SDR tools, the DAB and RDS decoders), for
 # each target, kept in the registry under a key made of everything they are built from
 # (scripts/components-key.sh). A target whose key is already there is not built again:
-# the emulated builds run once per change of a source, and every build of the plugin
-# after that only fetches what they made.
+# the builds run once per change of a source, and every build of the plugin after that
+# only fetches what they made.
+#
+# Nothing is emulated: the three ARM targets are built on an ARM runner, whose processor
+# runs 32-bit ARM programs as well. The images the builds run in (docker/) are kept in
+# the registry too and are built only when docker/ changes.
 on:
   workflow_call:
     outputs:
@@ -19,6 +23,8 @@ on:
       - components/**
       - docker/**
       - scripts/build-target.sh
+      - scripts/builder-key.sh
+      - scripts/node-image.sh
       - scripts/check-elf.sh
       - scripts/check-warnings.py
       - scripts/fetch-sources.sh
@@ -53,13 +59,19 @@ jobs:
   build:
     name: ${{ matrix.target }}
     needs: key
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target: [arm, armv7, armv8, x64]
+        include:
+          - { target: arm, runner: ubuntu-24.04-arm }
+          - { target: armv7, runner: ubuntu-24.04-arm }
+          - { target: armv8, runner: ubuntu-24.04-arm }
+          - { target: x64, runner: ubuntu-24.04 }
     env:
       IMAGE: ghcr.io/${{ github.repository }}-components:${{ matrix.target }}-${{ needs.key.outputs.key }}
+      BUILDER_REGISTRY: ghcr.io/${{ github.repository }}-builder
+      BUILDER_PUSH: 1
     steps:
       - uses: actions/checkout@v7
       - name: Log in to the registry
@@ -74,13 +86,12 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "${{ matrix.target }}: built in this run" >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: docker/setup-qemu-action@v4
-        if: steps.have.outputs.found == 'false'
       - name: Build
         if: steps.have.outputs.found == 'false'
         run: ./build.sh ${{ matrix.target }}
+      # Files only, so the image is the same whatever machine made it
       - name: Keep in the registry
         if: steps.have.outputs.found == 'false'
         run: |
-          printf 'FROM scratch\nCOPY . /out/\n' | docker build -q -t "$IMAGE" -f - "out/${{ matrix.target }}"
+          printf 'FROM scratch\nCOPY . /out/\n' | docker build -q --platform linux/amd64 -t "$IMAGE" -f - "out/${{ matrix.target }}"
           docker push -q "$IMAGE"

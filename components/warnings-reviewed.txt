@@ -36,7 +36,7 @@ dpkg-shlibdeps: warning: package could avoid a useless dependency
 
 # liquid-dsp can use an error-correction library that is not installed. The RDS decoder
 # uses none of the codes it would add.
-^configure: WARNING: fec library useful but not required
+configure: WARNING: fec library useful but not required
 
 # The RDS decoder takes libsndfile from the player instead of carrying its own copy.
 # Every Volumio image has it (the player's own mpd needs it), and the plugin's

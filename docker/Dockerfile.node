@@ -1,0 +1,8 @@
+# Node as Volumio ships it, with the plugin's node modules installed. The tests run in
+# this image and a packed plugin takes its modules from it, so neither reaches for the
+# package registry. Built with plugin/ as its context.
+FROM node:20-bookworm-slim
+
+WORKDIR /opt/plugin
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund --loglevel=error

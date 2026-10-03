@@ -32,7 +32,7 @@ The `arm` target is built inside a Raspbian root because Volumio's Pi image take
 
 ## Building
 
-Requirements: Docker with emulation for foreign architectures (qemu binfmt), git, Python 3.
+Requirements: Docker, git, Python 3, and a machine that can run the targets' programs: an x86-64 one with emulation for the ARM targets (qemu binfmt), or a 64-bit ARM one, which runs the three ARM targets natively.
 
 ```bash
 ./build.sh              # all targets
@@ -41,10 +41,11 @@ Requirements: Docker with emulation for foreign architectures (qemu binfmt), git
 
 For each target this
 
-1. fetches the upstream sources at the commits named in `components/*/*.lock`,
-2. builds the library packages, then the DAB decoder against them, then the RDS decoder,
+1. makes the target's build image if it is not there yet: the build tools, and the upstream sources at the commits named in `components/*/*.lock`,
+2. in that image, with no network, builds the library packages, then the DAB decoder against them, then the RDS decoder,
 3. checks every binary: it must be built for the target's architecture (for `arm`: ARMv6, no Thumb-2) and must start,
-4. writes `out/<target>/` with `bin/`, `packages/` and a `manifest.json` naming the sources and the checksum of every file.
+4. checks the build's output for warnings nobody has reviewed (`components/warnings-reviewed.txt`),
+5. writes `out/<target>/` with `bin/`, `packages/`, the build's output in `build.log`, and a `manifest.json` naming the sources and the checksum of every file.
 
 ### Sources
 
@@ -80,11 +81,22 @@ assembles the folder, installs its node modules with the Node version Volumio sh
 | `components` | a change of anything the components are built from | builds the components for each target and keeps them in the registry |
 | `release` | a tag `v<version>` | tests, fetches the components, packs the zip, publishes it as a pre-release |
 
-The compiled components change rarely and take long to build under emulation, so they are built once per change. `scripts/components-key.sh` makes a key from everything they are built from; the `components` workflow keeps each target's output in `ghcr.io/foonerd/rtlsdr-radio-components` under that key and skips a target whose key is already there. A release therefore only fetches them:
+**Nothing is downloaded from third parties while a build runs.** What a build needs is put into an image once, when what the image is made of changes, and kept in the project's registry (`ghcr.io/foonerd/rtlsdr-radio-builder`) under a key made of its inputs (`scripts/builder-key.sh`):
+
+| Image | Holds | Made again when |
+| --- | --- | --- |
+| `<target>-<key>` | the build tools for the target and the upstream sources at their locked commits | `docker/Dockerfile.build`, `docker/Dockerfile.raspbian` or a lock file changes |
+| `node-<key>` | Node as Volumio ships it, with the plugin's node modules | `plugin/package-lock.json` changes |
+
+The component builds and the tests run in these images with the network switched off. Nothing is emulated either: the three ARM targets are built on an ARM runner, whose processor runs 32-bit ARM programs as well.
+
+The compiled components themselves are kept the same way, in `ghcr.io/foonerd/rtlsdr-radio-components` under `scripts/components-key.sh`, a key made of everything they are built from. The `components` workflow skips a target whose key is already there, so a release only fetches them:
 
 ```bash
 scripts/fetch-components.sh      # out/<target>/ from the registry, for the sources as checked out
 ```
+
+Every build keeps its output in `out/<target>/build.log` and checks it against `components/warnings-reviewed.txt`: a compiler or tool warning that is not listed there, with the reason it is harmless, fails the build.
 
 A release is made by setting the version in `plugin/package.json`, writing its notes under "Version History" in `plugin/README.md`, and pushing the tag `v<version>`. The tag must name the version the plugin carries. The release's text is that version's notes (`scripts/release-notes.sh <version>`). Run by hand, the `release` workflow builds the zip and publishes nothing.
 

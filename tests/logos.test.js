@@ -285,6 +285,25 @@ test('a station nobody answers for is tried under the other country codes, then 
   assert.ok(rig.logos.index.misses['dab-1234-5678']);
 });
 
+test('one station found settles the country code for all that share its country digit', async function() {
+  // Three stations nobody answers for, on ensembles of which nothing is known yet
+  var strangers = ['C5F0', 'C5F1', 'C5F2'].map(function(sid) { return { ensembleId: 'C1BC', serviceId: sid, name: sid }; });
+  var rig = make([ABSOLUTE].concat(strangers));
+  rig.logos.sweep();
+  await idle(rig);
+  assert.strictEqual(rig.asked(/^dns/).length, 4, 'one name each, not a search through every code');
+  assert.deepStrictEqual(rig.asked(/^dns .*c5f/), ['dns 0.c5f0.c1bc.ce1.dab.radiodns.org', 'dns 0.c5f1.c1bc.ce1.dab.radiodns.org',
+    'dns 0.c5f2.c1bc.ce1.dab.radiodns.org']);
+  assert.strictEqual(Object.keys(rig.logos.index.misses).length, 3);
+
+  // A station of another country digit is still searched for
+  rig.stations = rig.stations.concat([NOBODY]);
+  rig.log.length = 0;
+  rig.logos.sweep();
+  await idle(rig);
+  assert.strictEqual(rig.asked(/^dns/).length, 21);
+});
+
 // --- without a network ------------------------------------------------------------------
 
 test('without a network nothing is asked, nothing is concluded and nothing is reported as an error', async function() {

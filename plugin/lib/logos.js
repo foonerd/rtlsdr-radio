@@ -448,10 +448,9 @@ Logos.prototype._fetchStation = function(job) {
   var eid = clean(job.station.ensembleId);
   var sid = clean(job.station.serviceId);
 
-  var known = self.index.gcc[eid];
+  var known = self._country(eid, sid);
   var candidates = radiodns.dabCandidates(eid, sid, self.region(), known);
-  // Once the ensemble's country is known from another of its services, that is the
-  // only name worth asking for
+  // Once the country is known, that is the only name worth asking for
   if (known) {
     candidates = candidates.filter(function(candidate) { return candidate.gcc === known; });
   }
@@ -493,11 +492,38 @@ Logos.prototype._fetchStation = function(job) {
   });
 };
 
+// The country code of a service, as far as it is known: from another service of its
+// ensemble, failing that from any service that shares its country digit. Countries
+// within reach of one another never share a digit, so one station found settles the
+// code for all that start with the same digit, and spares each of them a search
+// through every code there is.
+Logos.prototype._country = function(eid, sid) {
+  var codes = this.index.gcc;
+  if (codes[eid]) {
+    return codes[eid];
+  }
+  if (sid.length === 8) {
+    return null;   // the service id itself carries the code
+  }
+  var count = {};
+  var best = null;
+  Object.keys(codes).forEach(function(ensemble) {
+    var code = codes[ensemble];
+    if (code[0] === sid[0]) {
+      count[code] = (count[code] || 0) + 1;
+      if (!best || count[code] > count[best]) {
+        best = code;
+      }
+    }
+  });
+  return best;
+};
+
 // The logo a broadcaster lists for a service on whatever ensemble: a service id names
 // the same station everywhere in its country.
 Logos.prototype._listed = function(eid, sid) {
   var directory = this.index.directory;
-  var gcc = sid.length === 8 ? sid[2] + sid.slice(0, 2) : this.index.gcc[eid];
+  var gcc = sid.length === 8 ? sid[2] + sid.slice(0, 2) : this._country(eid, sid);
   if (gcc) {
     return directory[gcc + '.' + sid] || null;
   }

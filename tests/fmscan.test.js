@@ -1,9 +1,10 @@
 'use strict';
 
 // Which channels of a band survey are stations. The surveys are what fn-rtl-gain
-// printed for recordings of the FM band made with an RTL-SDR Blog V4 where one station
-// (89.6 MHz) arrives far stronger than the rest: tests/fixtures/fm-survey.txt at gains
-// the tuner can take, fm-survey-overloaded.txt the lowest slice with the gain too high
+// printed with an RTL-SDR Blog V4 where one station (89.6 MHz) arrives far stronger
+// than the rest: tests/fixtures/fm-survey-live.txt from the dongle itself;
+// fm-survey.txt from recordings of the band at gains the tuner can take;
+// fm-survey-overloaded.txt from a recording of the lowest slice with the gain too high
 // for the tuner, though not for the converter.
 
 var test = require('node:test');
@@ -51,6 +52,23 @@ test('the stations of the band are found, and nothing beside them', function() {
   var weak = found.find(function(s) { return s.freq === 105800000; });
   assert.strictEqual(strong.level, 5);
   assert.strictEqual(weak.level, 2);
+});
+
+test('a survey made by the dongle: the gain taken down next to the strong station, and the stations found', function() {
+  var survey = fmscan.parse(fixture('fm-survey-live.txt'));
+  assert.strictEqual(survey.slices.length, 11);
+  assert.strictEqual(survey.channels.length, 206);
+  // the lowest slice lies next to the strong station: its gain was taken down, no other's was
+  assert.deepStrictEqual(survey.slices.map(function(s) { return s.backoff; }), [10.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.strictEqual(survey.slices[0].gain, 32.8);
+
+  var found = mhz(fmscan.stations(survey, { sensitivity: 8 }));
+  assert.deepStrictEqual(found, ['88.8', '89.1', '89.6', '91.0', '91.3', '93.2', '93.5', '94.9', '95.8', '97.3',
+    '98.5', '98.8', '100.0', '100.6', '100.9', '101.4', '102.2', '103.6', '104.9', '105.4', '105.8', '106.2', '107.8']);
+  // nothing where the overloaded tuner had made signals
+  assert.deepStrictEqual(fmscan.ghosts(survey, { sensitivity: 3 }), []);
+  var most = mhz(fmscan.stations(survey, { sensitivity: 3 }));
+  ['87.8', '88.2', '88.3'].forEach(function(f) { assert.ok(most.indexOf(f) === -1, f); });
 });
 
 test('the channels next to a station are not stations, though the pilot is heard there', function() {

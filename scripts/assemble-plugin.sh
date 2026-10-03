@@ -7,13 +7,24 @@
 #   out/<target>/packages/*.deb  -> dist/rtlsdr_radio/packages/<target>/
 #   out/<target>/manifest.json   -> dist/rtlsdr_radio/components.json (all targets)
 #
-#   scripts/assemble-plugin.sh [--from <dir>]    <dir> holds <target>/ trees (default: out)
+#   scripts/assemble-plugin.sh [--from <dir>] [--store]
+#
+#   --from <dir>   <dir> holds the <target>/ trees (default: out)
+#   --store        the folder as it goes into the plugins repository for the store:
+#                  no lock file (and never node modules; the store builds those)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . scripts/targets.sh
 
 from="out"
-if [[ "${1:-}" == "--from" ]]; then from="$2"; fi
+store=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from) from="$2"; shift 2 ;;
+    --store) store=1; shift ;;
+    *) echo "error: unknown option '$1'" >&2; exit 1 ;;
+  esac
+done
 
 for t in $TARGETS; do
   for f in bin/fn-dab bin/fn-dab-scanner bin/fn-redsea manifest.json; do
@@ -48,5 +59,10 @@ components = {
 }
 (dist / "components.json").write_text(json.dumps(components, indent=2) + "\n")
 PY
+
+if [[ "$store" -eq 1 ]]; then
+  rm -f "$dist/package-lock.json"
+  rm -rf "$dist/node_modules"
+fi
 
 echo "[OK] $dist: plugin $(sed -n 's/^ *"version": *"\(.*\)",*/\1/p' "$dist/package.json" | head -1), targets: $TARGETS"

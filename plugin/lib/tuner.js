@@ -51,7 +51,10 @@ Tuner.prototype.busy = function() {
 // Ask for the tuner. Resolves with a new job once the tuner is free for it.
 // Rejects with an error marked `superseded` when a later request (or a stop) came
 // before this one got its turn: the caller then has nothing to do.
-Tuner.prototype.acquire = function(name) {
+//
+// options.keepOpen: the job runs several processes one after another (the antenna
+// tools) and ends only when it is stopped, not when a process of it has ended.
+Tuner.prototype.acquire = function(name, options) {
   var self = this;
   var ticket = ++self.requested;
   var defer = libQ.defer();
@@ -72,7 +75,7 @@ Tuner.prototype.acquire = function(name) {
         superseded();
         return;
       }
-      var job = new Job(self, name);
+      var job = new Job(self, name, options);
       self.current = job;
       self.log('"' + name + '" has the tuner');
       defer.resolve(job);
@@ -115,14 +118,19 @@ Tuner.prototype._release = function(reason) {
     }
     return self._removeStrays();
   }).then(function() {
-    var wait = self.lastRelease + self.settle - Date.now();
-    if (wait <= 0) {
-      return;
-    }
-    var settled = libQ.defer();
-    setTimeout(function() { settled.resolve(); }, wait);
-    return settled.promise;
+    return self._settled();
   });
+};
+
+// Resolves when the dongle has had its moment since it was last let go.
+Tuner.prototype._settled = function() {
+  var wait = this.lastRelease + this.settle - Date.now();
+  if (wait <= 0) {
+    return libQ.resolve();
+  }
+  var settled = libQ.defer();
+  setTimeout(function() { settled.resolve(); }, wait);
+  return settled.promise;
 };
 
 // Processes named like a holder of the dongle that are still running.
@@ -220,9 +228,10 @@ function staged(signal, countLeft, grace, killWait) {
 }
 
 // A job: the processes that together use the tuner for one purpose.
-function Job(tuner, name) {
+function Job(tuner, name, options) {
   this.tuner = tuner;
   this.name = name;
+  this.keepOpen = !!(options && options.keepOpen);
   this.children = [];
   this.stopping = false;      // true from the moment the job is told to stop
   this.finished = false;      // true when the job was stopped or all its processes have gone
@@ -257,7 +266,19 @@ Job.prototype.spawn = function(command, args, options) {
     }
     entry.exited = true;
     self._childGone(entry);
+    if (child.pid === undefined) {
+      ended();
+    }
   }
+  // Told once, when the process has ended and everything it wrote has been read
+  function ended() {
+    if (entry.done) {
+      var done = entry.done;
+      entry.done = null;
+      done(entry);
+    }
+  }
+  child.on('close', ended);
   child.on('exit', function(code, signal) {
     entry.code = code;
     entry.signal = signal;
@@ -272,6 +293,27 @@ Job.prototype.spawn = function(command, args, options) {
   });
 
   return child;
+};
+
+// Start a process and be told once when it has ended, however it ended, and after all
+// its output has been delivered: done({ command, code, signal, error }).
+Job.prototype.run = function(command, args, options, done) {
+  var child = this.spawn(command, args, options);
+  this.children[this.children.length - 1].done = done;
+  if (child.pid === undefined) {
+    // It could not be started; the error event follows and reports it
+    return child;
+  }
+  return child;
+};
+
+// Between two processes of a job that runs them one after another: resolves when the
+// one that ended has let the dongle go and the dongle has had its moment.
+Job.prototype.settle = function() {
+  var tuner = this.tuner;
+  return tuner._removeStrays().then(function() {
+    return tuner._settled();
+  });
 };
 
 // Be told when a process of the job ends without the job having been stopped:
@@ -309,7 +351,10 @@ Job.prototype._childGone = function(entry) {
     });
   }
   if (self._alive().length === 0) {
-    self._finish();
+    self.tuner.lastRelease = Date.now();
+    if (!self.keepOpen) {
+      self._finish();
+    }
   }
 };
 

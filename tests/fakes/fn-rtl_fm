@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stand-in for the FM receiver: a steady stream of silence on stdout.
+echo "$@" > /tmp/fake-args-fn-rtl_fm
+while true; do head -c 6840 /dev/zero; sleep 0.02; done

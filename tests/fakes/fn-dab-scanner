@@ -1,0 +1,14 @@
+#!/bin/bash
+# Stand-in for the DAB scanner: says what the real one says for one channel.
+echo "$@" >> /tmp/fake-args-fn-dab-scanner
+ch=""; while [ $# -gt 0 ]; do [ "$1" = "-C" ] && ch="$2"; shift; done
+if [ -n "$ch" ]; then
+  echo "checking data in channel $ch" >&2
+  echo "ensemble TEST MUX is (C181) recognized" >&2
+  echo "audioservice;Test One        ;C1C0"
+  echo "audioservice;Test Two        ;C2A1"
+  echo "ensemble TEST MUX; channel $ch; 2 services"
+  sleep 30
+else
+  echo '{}'
+fi

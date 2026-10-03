@@ -1,0 +1,6 @@
+#!/bin/bash
+# Stand-in for aplay: swallows its input, and ends when asked.
+cat <&0 > /dev/null &
+child=$!
+trap 'kill $child 2>/dev/null; exit 0' TERM
+wait $child

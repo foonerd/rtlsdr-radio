@@ -1,0 +1,8 @@
+#!/bin/bash
+# Stand-in for the spectrum tool: one line of readings, to a file when the last
+# argument is one, to stdout otherwise.
+echo "$@" >> /tmp/fake-args-fn-rtl_power
+sleep "${FAKE_POWER_SECONDS:-0.2}"
+line="2026-10-03, 06:00:00, 174000000, 240000000, 1000000, 10, -30.0, -29.5, -10.2, -31.0"
+last="${@: -1}"
+case "$last" in /*) echo "$line" > "$last" ;; *) echo "$line" ;; esac

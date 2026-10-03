@@ -1,0 +1,8 @@
+#!/bin/bash
+# Stand-in for the DAB decoder: records its arguments one per line, announces the
+# audio format on stderr as the real one does, then streams silence.
+printf '%s\n' "$@" > /tmp/fake-args-fn-dab
+[ "$FAKE_DAB_FAILS" = "1" ] && exit 22
+sleep 0.1
+echo "PCM: rate=48000 stereo=1 size=3840" >&2
+while true; do head -c 3840 /dev/zero; sleep 0.02; done

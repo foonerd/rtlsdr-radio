@@ -23,6 +23,18 @@ function running(pid) {
   }
 }
 
+// The ids of the running processes with this name
+function named(name) {
+  return fs.readdirSync('/proc').filter(function(entry) {
+    try {
+      return /^\d+$/.test(entry) && fs.readFileSync('/proc/' + entry + '/comm', 'utf8').trim() === name &&
+        running(parseInt(entry, 10));
+    } catch (e) {
+      return false;
+    }
+  });
+}
+
 function sleep(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
 }
@@ -166,4 +178,57 @@ test('nothing can be started in a job that has been stopped', async function() {
   var job = await t.acquire('ended');
   await t.stop();
   assert.throws(function() { job.spawn('sleep', ['1']); }, /has ended/);
+});
+
+test('run reports the end of a process once, after its output', async function() {
+  var t = tuner();
+  var job = await t.acquire('tool');
+  var output = '';
+  var ends = [];
+  var child = job.run('bash', ['-c', 'echo one; echo two; exit 4'], { stdio: ['ignore', 'pipe', 'ignore'] }, function(entry) {
+    ends.push(entry.code + ':' + output.trim().split('\n').length);
+  });
+  child.stdout.on('data', function(data) { output += data; });
+  await sleep(300);
+  assert.deepStrictEqual(ends, ['4:2']);
+});
+
+test('run reports a program that cannot be started, once', async function() {
+  var t = tuner();
+  var job = await t.acquire('tool');
+  var ends = [];
+  job.run('/no/such/program', [], {}, function(entry) { ends.push(entry.error && entry.error.code); });
+  await sleep(300);
+  assert.deepStrictEqual(ends, ['ENOENT']);
+});
+
+test('a job kept open runs processes one after another and ends when stopped', async function() {
+  var t = tuner();
+  var job = await t.acquire('antenna tool', { keepOpen: true });
+  job.spawn('bash', ['-c', 'exit 0']);
+  await sleep(200);
+  assert.strictEqual(job.finished, false);
+  assert.strictEqual(t.busy(), 'antenna tool');
+  var before = Date.now();
+  await job.settle();
+  assert.ok(Date.now() - before < 400);
+  var second = job.spawn('sleep', ['30']);
+  await t.stop('done');
+  assert.ok(!running(second.pid));
+  assert.strictEqual(job.finished, true);
+  assert.strictEqual(t.busy(), null);
+});
+
+test('settle removes what a wrapper left holding the dongle', async function() {
+  fs.copyFileSync('/bin/sleep', '/tmp/fn-dab-scanner');
+  fs.chmodSync('/tmp/fn-dab-scanner', 0o755);
+  var t = tuner();
+  var job = await t.acquire('validation', { keepOpen: true });
+  // A wrapper that ends while the program it started lives on in a session of its own
+  job.spawn('bash', ['-c', 'setsid /tmp/fn-dab-scanner 30 & sleep 0.1']);
+  await sleep(400);
+  assert.ok(named('fn-dab-scanner').length > 0, 'the scanner outlived its wrapper');
+  await job.settle();
+  assert.deepStrictEqual(named('fn-dab-scanner'), []);
+  await t.stop();
 });

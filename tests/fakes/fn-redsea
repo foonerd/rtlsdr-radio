@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stand-in for the RDS decoder: one group, then it reads on.
+echo '{"pi":"0xC201","ps":"TEST FM ","bler":0}'
+cat > /dev/null

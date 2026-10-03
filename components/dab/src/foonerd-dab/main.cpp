@@ -964,7 +964,6 @@ deviceHandler	*theDevice;
 	sleep (3);
 	run. store (true);
 	if (serviceIdentifier != -1) {
-	   char temp [255];
 	   programName = dab_getserviceName (theRadio, serviceIdentifier);
 	}
 

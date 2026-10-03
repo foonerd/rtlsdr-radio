@@ -208,7 +208,7 @@ fi
 
 # Install runtime dependencies for DAB (no build tools)
 echo "Installing DAB runtime dependencies..."
-apt-get install -y libfftw3-single3 libsamplerate0 libfaad2
+apt-get install -y libfftw3-single3 libsamplerate0 libfaad2 libsndfile1
 
 # Install sox for RDS audio resampling
 echo "Installing sox for RDS audio processing..."

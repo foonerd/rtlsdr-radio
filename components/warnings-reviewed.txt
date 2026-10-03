@@ -1,0 +1,44 @@
+# The warnings a build of the components may show, each with the reason it is harmless.
+# One regular expression a line; a build's warning that matches none fails the build
+# (scripts/check-warnings.py). Reviewed against the builds of all four targets.
+
+# liquid-dsp's header declares functions the library itself has deprecated (eqlms_*,
+# eqrls_*, gmskframesync, dsssframe*). The compiler says so wherever the header is
+# included. The RDS decoder calls none of them.
+liquid/liquid\.h:\d+:\d+: warning: .* is deprecated.*\[-Wdeprecated-declarations\]
+
+# Notes of the build tools about their own input files in the upstream sources:
+# old names of autoconf and automake macros that still work.
+configure\.ac:\d+: warning: The macro `AC_[A-Z_]+' is obsolete
+configure\.ac:\d+: warning: AC_OUTPUT should be used without arguments
+Makefile\.am:\d+: warning: 'INCLUDES' is the old name for 'AM_CPPFLAGS'
+
+# The linker's note that it optimises the program's parts one after another instead of
+# side by side. About build time only.
+lto-wrapper: warning: using serial compilation of \d+ LTRANS jobs
+
+# The packaging tool's note that the tools' package depends on a library not every tool
+# in it uses. The dependency is right for the package as a whole.
+dpkg-shlibdeps: warning: package could avoid a useless dependency
+
+# Not from the build: the RDS decoder's own message when it is started without a
+# sample rate, as the check that it runs at all starts it.
+^warning: raw MPX sample rate not defined, assuming 171000 Hz
+
+# The Debian packaging of the RTL-SDR library hands CMake settings of its own that this
+# library's build has no use for.
+^CMake Warning: Manually-specified variables were not used by the project: CMAKE_EXPORT_NO_PACKAGE_REGISTRY
+
+# The DAB programs' modules that look for their libraries (FFTW, PortAudio, pkg-config)
+# report what they found under another name than the module's own. The libraries are
+# found; the build fails if one is not.
+^CMake Warning \(dev\) at .*FindPackageHandleStandardArgs\.cmake.*The package name passed to .find_package_handle_standard_args. \(\w+\) does not match the name of the calling package \(\w+\)
+
+# liquid-dsp can use an error-correction library that is not installed. The RDS decoder
+# uses none of the codes it would add.
+^configure: WARNING: fec library useful but not required
+
+# The RDS decoder takes libsndfile from the player instead of carrying its own copy.
+# Every Volumio image has it (the player's own mpd needs it), and the plugin's
+# installer names it.
+^WARNING: Static library '(sndfile|mpg123)' not found for dependency 'sndfile', may not be statically linked

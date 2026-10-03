@@ -101,7 +101,7 @@ cacheElement *tiiHandler::lookup (tiiData &tii) {
 void	tiiHandler::print	() {
 	if (tiiTable. size () == 0)
 	   return;
-	fprintf (stderr, "We could identify %d transmitters\n",
+	fprintf (stderr, "We could identify %zu transmitters\n",
 	                                           tiiTable. size ());
 	for (auto &ce : tiiTable) 
 	   fprintf (stderr, " %X %d %d\t-> %f %s %s %s %s %f %f (%.2f %d %d)\n",

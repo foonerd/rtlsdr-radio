@@ -1,7 +1,11 @@
 cmake_minimum_required( VERSION 3.5 )
+project (foonerd-dab C CXX)
 set (objectName dab_cmdline-3)
 # Volumio optimization flags for professional audio quality
-set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -std=c++11 -O3 -ffast-math -funroll-loops")
+# -faligned-new: the Viterbi decoder's tables are aligned to 16 bytes, and so is every
+# object that holds one. Plain "new" gives 8 on 32-bit ARM; with this the objects are
+# allocated with the alignment their type asks for.
+set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -std=c++11 -faligned-new -O3 -ffast-math -funroll-loops")
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -O3 -ffast-math -funroll-loops")
 set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ")
 

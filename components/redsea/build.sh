@@ -12,6 +12,10 @@ mkdir -p "$work" "$prefix"
 echo "[+] redsea: building liquid-dsp (static)"
 cp -a "$SRC_CACHE/liquid-dsp" "$work/liquid-dsp"
 cd "$work/liquid-dsp"
+# On 32-bit ARM with NEON its configure adds -mcpu=cortex-a7, which contradicts the
+# architecture the target names and has the compiler say so at every file. The
+# architecture is the target's to name; the Cortex-A7 is kept as what to tune for.
+sed -i 's/-mcpu=cortex-a7 /-mtune=cortex-a7 /' configure.ac
 ./bootstrap.sh
 
 # liquid-dsp picks its vector code from the machine that builds it, not from the target:

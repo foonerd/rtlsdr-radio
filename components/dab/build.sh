@@ -18,24 +18,22 @@ common=(
 
 # On 64-bit ARM the project's find modules miss the multiarch directory.
 lib=/usr/lib/aarch64-linux-gnu
+# Only the names the find modules read are given: CMake says so when it is handed one
+# that nothing reads, and the build stops on a warning nobody has reviewed.
 explicit_decoder=(
-  -DFFTW3F_INCLUDE_DIR=/usr/include -DFFTW3F_LIBRARIES=$lib/libfftw3f.so
+  -DFFTW3F_LIBRARIES=$lib/libfftw3f.so
   -DFAAD_INCLUDE_DIR=/usr/include -DFAAD_LIBRARY=$lib/libfaad.so
   -DLIBSAMPLERATE_INCLUDE_DIR=/usr/include -DLIBSAMPLERATE_LIBRARY=$lib/libsamplerate.so
-  -DPORTAUDIO_INCLUDE_DIR=/usr/include -DPORTAUDIO_LIBRARIES=$lib/libportaudio.so
-  -DRTLSDR_INCLUDE_DIR=/usr/include -DRTLSDR_LIBRARY=$lib/libfn-rtlsdr.so -DRTLSDR_LIBRARIES=$lib/libfn-rtlsdr.so
-  -DLIBRTLSDR_INCLUDE_DIR=/usr/include -DLIBRTLSDR_LIBRARY=$lib/libfn-rtlsdr.so -DLIBRTLSDR_LIBRARIES=$lib/libfn-rtlsdr.so
+  -DPORTAUDIO_LIBRARIES=$lib/libportaudio.so
+  -DLIBRTLSDR_INCLUDE_DIR=/usr/include -DLIBRTLSDR_LIBRARIES=$lib/libfn-rtlsdr.so
   -DLIBSNDFILE_INCLUDE_DIR=/usr/include -DLIBSNDFILE_LIBRARY=$lib/libsndfile.so
-  -DSNDFILE_INCLUDE_DIR=/usr/include -DSNDFILE_LIBRARY=$lib/libsndfile.so
   -DZLIB_INCLUDE_DIR=/usr/include -DZLIB_LIBRARY=$lib/libz.so
 )
 explicit_scanner=(
-  -DFFTW3F_INCLUDE_DIR=/usr/include -DFFTW3F_LIBRARIES=$lib/libfftw3f.so
+  -DFFTW3F_LIBRARIES=$lib/libfftw3f.so
   -DFAAD_INCLUDE_DIR=/usr/include -DFAAD_LIBRARY=$lib/libfaad.so
-  -DRTLSDR_INCLUDE_DIR=/usr/include -DRTLSDR_LIBRARY=$lib/libfn-rtlsdr.so -DRTLSDR_LIBRARIES=$lib/libfn-rtlsdr.so
-  -DLIBRTLSDR_INCLUDE_DIR=/usr/include -DLIBRTLSDR_LIBRARY=$lib/libfn-rtlsdr.so -DLIBRTLSDR_LIBRARIES=$lib/libfn-rtlsdr.so
+  -DLIBRTLSDR_INCLUDE_DIR=/usr/include -DLIBRTLSDR_LIBRARIES=$lib/libfn-rtlsdr.so
   -DLIBSNDFILE_INCLUDE_DIR=/usr/include -DLIBSNDFILE_LIBRARY=$lib/libsndfile.so
-  -DSNDFILE_INCLUDE_DIR=/usr/include -DSNDFILE_LIBRARY=$lib/libsndfile.so
   -DZLIB_INCLUDE_DIR=/usr/include -DZLIB_LIBRARY=$lib/libz.so
 )
 

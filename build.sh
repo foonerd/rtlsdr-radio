@@ -30,7 +30,9 @@ for t in "${targets[@]}"; do
   docker run --rm --platform "$platform" \
     -v "$PWD:/src:ro" -v "$PWD/out/$t:/out" \
     -e TARGET="$t" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-    "rtlsdr-radio/build:$t" bash /src/scripts/build-target.sh
+    "rtlsdr-radio/build:$t" bash /src/scripts/build-target.sh 2>&1 | tee "out/$t/build.log"
+  # No warning passes unread: each one is on the reviewed list, or the build fails
+  python3 scripts/check-warnings.py "out/$t/build.log"
   python3 scripts/write-manifest.py "$t"
 done
 

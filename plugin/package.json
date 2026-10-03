@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.3.24",
+  "version": "1.3.25",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.24 - A stations backup carries the logos you chose yourself, and a restore puts them back"
+    "changelog": "v1.3.25 - FM gains kept with stations are measured again when the dongle is changed; the overload check verifies the gain it compares with"
   },
   "engines": {
     "node": ">=20",

@@ -659,34 +659,47 @@ static int step_below(const struct tuner *tuner, int index, int tenths)
 /*
  * The highest step, from index down, at which the slice looks as it does with a gain
  * far below. Returns the step to use.
+ *
+ * The gain far below is taken to be sound. Where the step found is that gain itself or
+ * the one next to it, nothing says so: a very strong station can overload the tuner
+ * there too. That gain is then tried in its turn against one further down, until a
+ * step is found that stands clear of what it was compared with, or the steps run out.
  */
 static int not_overloaded(struct tuner *tuner, const struct slice *slice, int index)
 {
 	double reference[MAX_CHANNELS], level[MAX_CHANNELS];
-	int far = step_below(tuner, index, REFERENCE_DOWN);
-	int low, high;
+	int top = index;	/* the step under test */
+	int found = -1;		/* a step that looked like a reference still in doubt */
 
-	if (far < 0)
-		far = 0;		/* the steps do not reach that far: the lowest */
-	if (far == index || !levels_at(tuner, slice, far, reference) ||
-	    !levels_at(tuner, slice, index, level))
-		return index;
-	if (departure(level, reference, slice->count) <= DEPARTURE)
-		return index;
+	for (;;) {
+		int far = step_below(tuner, top, REFERENCE_DOWN);
+		int low, high;
 
-	/* overloaded at index, taken to be sound at far: the highest sound step between */
-	low = far;
-	high = index - 1;
-	while (low < high) {
-		int middle = (low + high + 1) / 2;
+		if (far < 0)
+			far = 0;	/* the steps do not reach that far: the lowest */
+		if (far == top || !levels_at(tuner, slice, far, reference) ||
+		    !levels_at(tuner, slice, top, level))
+			return found >= 0 ? found : top;
+		if (departure(level, reference, slice->count) <= DEPARTURE)
+			return found >= 0 ? found : top;
 
-		if (levels_at(tuner, slice, middle, level) &&
-		    departure(level, reference, slice->count) <= DEPARTURE)
-			low = middle;
-		else
-			high = middle - 1;
+		/* overloaded at top: the highest step between that looks like far */
+		low = far;
+		high = top - 1;
+		while (low < high) {
+			int middle = (low + high + 1) / 2;
+
+			if (levels_at(tuner, slice, middle, level) &&
+			    departure(level, reference, slice->count) <= DEPARTURE)
+				low = middle;
+			else
+				high = middle - 1;
+		}
+		if (low > far + 1 || far == 0)
+			return low;
+		found = low;
+		top = far;
 	}
-	return low;
 }
 
 /* The gain for one slice: not cut off, not overloaded. Returns the step or -1. */

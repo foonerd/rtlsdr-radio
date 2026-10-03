@@ -386,7 +386,7 @@ The plugin includes diagnostic tools to test your USB dongle before scanning:
 
 **Understanding Gain Settings**:
 - Gain controls the RTL-SDR RF amplifier, affecting signal-to-noise ratio and overload threshold
-- By default the plugin measures it: for FM once per station (kept for a week, then measured again), for DAB at every tuning. It sets the highest step at which the signal is not cut off in the receiver's converter
+- By default the plugin measures it: for FM once per station (kept for a week, then measured again, and measured anew when another dongle is plugged in or the dongle is moved to another port), for DAB at every tuning. It sets the highest step at which the signal is not cut off in the receiver's converter
 - For FM the tuner is checked for overload as well. A very strong station can overload it from outside the part of the band being received, without the converter showing it; the stations near it are then held down and signals appear that are not on the air. The part of the band in view is compared with how it looks at a gain 20 dB lower, where the tuner has room to spare, and the highest gain is taken at which it still looks the same
 - "Automatic FM gain" and "Automatic DAB gain" in the settings switch this off; the gain set by hand is then used
 - Setting it by hand: lower it if the audio is distorted or stations appear where there are none, raise it if there is no signal
@@ -535,7 +535,17 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.24 (Current)
+### v1.3.25 (Current)
+- An FM gain kept with a station is used only with the dongle it was measured with.
+  After a dongle is changed for another, or moved to another USB port, each station's
+  gain is measured again at its next play. Before, the gains of the dongle before were
+  used for up to a week, and what suits one tuner overloads another
+- The check for an overloaded tuner no longer takes the gain it compares with on trust:
+  where the gain found lies right next to it, that gain is checked in its turn against
+  one further down. Found on an RTL-SDR Blog V3, whose tuner next to a very strong
+  station is still pressed at 20 dB below the highest gain
+
+### v1.3.24
 - A stations backup carries the logos you chose for stations yourself, and a restore
   puts them back: from the backup history, from an uploaded backup, or when the plugin
   takes its station list from a backup at start. Before, a restore on another player or

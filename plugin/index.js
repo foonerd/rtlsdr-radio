@@ -6795,6 +6795,36 @@ ControllerRtlsdrRadio.prototype.measureGain = function(job, frequencies, rate) {
   });
 };
 
+// What is plugged into the player's USB ports, as a short mark: every device that is no
+// hub, by its port, its ids and the names it gives itself. A dongle taken out for
+// another, or moved to another port, changes the mark; nothing is opened to read it.
+// "none" where the player's USB devices cannot be listed.
+ControllerRtlsdrRadio.prototype.usbMark = function() {
+  var base = '/sys/bus/usb/devices';
+  try {
+    var devices = [];
+    fs.readdirSync(base).forEach(function(port) {
+      if (!/^\d+-[\d.]+$/.test(port)) {
+        return;                       // an interface or a root hub, not a device
+      }
+      function read(file) {
+        try {
+          return fs.readFileSync(base + '/' + port + '/' + file, 'utf8').trim();
+        } catch (e) {
+          return '';
+        }
+      }
+      if (read('bDeviceClass') === '09') {
+        return;                       // a hub
+      }
+      devices.push([port, read('idVendor'), read('idProduct'), read('manufacturer'), read('product'), read('serial')].join(':'));
+    });
+    return require('crypto').createHash('sha1').update(devices.sort().join('|')).digest('hex').slice(0, 12);
+  } catch (e) {
+    return 'none';
+  }
+};
+
 // The gain an FM station is received with: measured at its frequency and kept with the
 // station, so that it is measured once and not at every play; or, with automatic gain
 // switched off, the value set by hand.
@@ -6804,8 +6834,11 @@ ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
   if (!self.config.get('fm_gain_auto', true)) {
     return Promise.resolve(manual);
   }
-  // A gain measured by an earlier rule counts as not measured
-  var measured = station && typeof station.gain === 'number' && station.gainMeasured && station.gainRule === self.GAIN_RULE ?
+  // A gain measured by an earlier rule, or with another dongle, counts as not measured:
+  // what suits one tuner overloads another
+  var dongle = self.usbMark();
+  var measured = station && typeof station.gain === 'number' && station.gainMeasured &&
+    station.gainRule === self.GAIN_RULE && station.gainOn === dongle ?
     Date.now() - new Date(station.gainMeasured).getTime() : Infinity;
   if (measured < self.FM_GAIN_KEEP) {
     return Promise.resolve(station.gain);
@@ -6822,6 +6855,7 @@ ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
     if (station) {
       station.gain = found.gain;
       station.gainRule = self.GAIN_RULE;
+      station.gainOn = dongle;
       station.gainMeasured = new Date().toISOString();
       self.saveStations();
     }

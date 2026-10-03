@@ -239,6 +239,22 @@ test('FM: the gain is measured at the station\'s frequency before the receiver s
   }
   assert.strictEqual(gainRuns(), before + 3);
   assert.strictEqual(plugin.stationsDb.fm[0].gainRule, plugin.GAIN_RULE);
+
+  // And one made with another dongle: what is plugged in is noted with the gain
+  assert.strictEqual(plugin.stationsDb.fm[0].gainOn, plugin.usbMark());
+  await plugin.clearAddPlayTrack(fmTrack('94.9'));
+  await sleep(300);
+  assert.strictEqual(gainRuns(), before + 3, 'the same dongle: the gain kept is used');
+  var mark = plugin.usbMark;
+  plugin.usbMark = function() { return 'another-dongle'; };
+  try {
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(300);
+    assert.strictEqual(gainRuns(), before + 4);
+    assert.strictEqual(plugin.stationsDb.fm[0].gainOn, 'another-dongle');
+  } finally {
+    plugin.usbMark = mark;
+  }
   assert.ok(logs.some(function(m) { return /taken down 7\.4 dB: the tuner was overloaded/.test(m); }));
 });
 

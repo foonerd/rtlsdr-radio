@@ -537,7 +537,15 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.27 (Current)
+### v1.3.28 (Current)
+- DAB with a dongle whose crystal runs more than about 45 ppm fast: the sound came
+  in bursts with about a quarter of it missing, as if speeded up. Such a crystal
+  also makes every frame some samples too long, and the decoder looked for the next
+  frame only 9 samples late; it lost the frame several times a second. It now looks
+  40 samples either way, which follows a crystal up to 200 ppm off. Setting the PPM
+  correction was the way round it before, and still works
+
+### v1.3.27
 - FM plays at the level of DAB and of music tracks. Before, an FM station came out
   7 to 11 dB quieter than the same station on DAB, and the difference changed with
   the receiver sample rate; the volume had to be turned up for FM and down again for

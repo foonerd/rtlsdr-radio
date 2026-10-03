@@ -73,6 +73,8 @@ float	Phi_k;
   *	we believe that that indicates the first sample we were
   *	looking for.
   */
+#define	SEARCH_EARLY	40
+#define	SEARCH_LATE	40
 int32_t	phaseReference::findIndex (std::complex<float> *v, int threshold) {
 int32_t	i;
 int32_t	maxIndex	= -1;
@@ -95,10 +97,16 @@ float	Max		= -10000;
 
 	sum /= (T_u / 2);
 
-	for (i = 0; i < 50; i ++) {
-	   float absValue = abs (fft_buffer [T_g - 40 + i]);
+//	The first sample is looked for around the place it would have with a perfect
+//	clock. The dongle's sample clock is off with its crystal: at 50 ppm a frame is
+//	10 samples longer or shorter than it should be, and the start of the next one
+//	lies that much later or earlier. 40 samples either way follow a crystal up to
+//	200 ppm off. (It was 40 early and 9 late: a dongle more than 45 ppm fast lost
+//	the frame again and again, and with each loss a frame of sound.)
+	for (i = 0; i <= SEARCH_EARLY + SEARCH_LATE; i ++) {
+	   float absValue = abs (fft_buffer [T_g - SEARCH_EARLY + i]);
 	   if (absValue > Max) {
-	      maxIndex = T_g - 40 + i;
+	      maxIndex = T_g - SEARCH_EARLY + i;
 	      Max = absValue;
 	   }
 	}

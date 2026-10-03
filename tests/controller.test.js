@@ -55,7 +55,8 @@ plugin.tuner.grace = 400;
 // and the restart are stood in for.
 var updateDid = [];
 plugin.updater.network = {
-  json: function() { return Promise.reject(new Error('no network in this test')); },
+  // GitHub, with no release of the plugin on it
+  json: function() { return Promise.resolve([]); },
   download: function() { return Promise.reject(new Error('no network in this test')); }
 };
 plugin.updater.zip = function(folder, file) {
@@ -375,7 +376,19 @@ test('plugin update through the manager: the store is asked through the player, 
   assert.strictEqual(view.available, false, 'the stable channel offers nothing newer');
 
   assert.strictEqual((await post('/api/update/channel', { channel: 'nightly' })).status, 400);
+
+  // A test channel is chosen, but the player is not in Volumio's plugin test mode
+  fs.removeSync('/data/testplugins');
   view = JSON.parse((await post('/api/update/channel', { channel: 'beta' })).text);
+  assert.strictEqual(view.chosen, 'beta');
+  assert.strictEqual(view.testMode, false);
+  assert.strictEqual(view.channel, 'stable', 'so the stable channel stays in force');
+  assert.strictEqual(view.available, false);
+
+  // The switch on the player's /dev page, as Volumio sets it: the choice applies
+  fs.writeFileSync('/data/testplugins', ' ');
+  view = JSON.parse((await get('/api/update')).text);
+  assert.strictEqual(view.testMode, true);
   assert.strictEqual(view.channel, 'beta');
   assert.strictEqual(view.offer.version, '9.9.9');
   assert.strictEqual(view.offer.source, 'store');

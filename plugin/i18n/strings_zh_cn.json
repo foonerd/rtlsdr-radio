@@ -566,7 +566,7 @@
   "UPDATE_STORE_LOGIN": "插件商店只响应已登录 MyVolumio 的播放器。",
   "UPDATE_STORE_UNREACHABLE": "插件商店没有响应。",
   "UPDATE_GITHUB_UNREACHABLE": "GitHub 没有响应。",
-  "UPDATE_BETA_NEEDS_TEST_MODE": "此播放器未开启插件测试模式，因此商店不会显示测试版。",
+  "UPDATE_BETA_NEEDS_TEST_MODE": "此播放器未开启插件测试模式，因此保持在稳定版通道。要使用测试版或预览版，请在播放器的 /dev 页面开启。",
   "UPDATE_NOTES": "更新内容",
   "UPDATE_LAST_CHECKED": "上次检查：{0}",
   "UPDATE_ERR_CHECKSUM": "下载内容与发布的校验和不符，已被丢弃",

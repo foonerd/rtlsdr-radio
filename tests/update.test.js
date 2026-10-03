@@ -44,6 +44,7 @@ function make(options) {
     did: [],
     lines: [],
     channel: options.channel || 'preview',
+    testMode: options.testMode === undefined ? true : options.testMode,
     store: options.store === undefined ? STORE : options.store,
     releases: options.releases || [release('1.3.12')],
     body: ZIP,
@@ -87,7 +88,7 @@ function make(options) {
           rig.did.push('store');
           return rig.store instanceof Error ? Promise.reject(rig.store) : Promise.resolve(rig.store);
         },
-        testMode: function() { return true; },
+        testMode: function() { return rig.testMode; },
         backup: function(label) { rig.did.push('backup ' + label); },
         apply: function(url) {
           rig.did.push('apply ' + url);
@@ -135,30 +136,77 @@ test('a release is read for the plugin\'s zip, its size and its digest', functio
   assert.strictEqual(Updater.parseRelease({ assets: [{ name: 'rtlsdr_radio-1.0.0.zip', size: 1 }] }).sha256, null);
 });
 
-test('the newest release is the one with the highest version, whatever order they come in', function() {
-  var newest = Updater.newestRelease([release('1.3.11'), release('1.3.13'), release('1.4.0', { draft: true }), release('1.3.12')]);
-  assert.strictEqual(newest.version, '1.3.13');
-  assert.strictEqual(Updater.newestRelease([]), null);
-  assert.throws(function() { Updater.newestRelease({ message: 'rate limited' }); }, /not a list/);
+test('the newest release of each kind is found, whatever order they come in', function() {
+  var newest = Updater.newestReleases([release('1.3.11'), release('1.3.13'), release('1.4.0', { draft: true }),
+    release('1.3.10', { prerelease: false }), release('1.3.12'), release('1.3.9', { prerelease: false })]);
+  assert.strictEqual(newest.preview.version, '1.3.13', 'the newest pre-release');
+  assert.strictEqual(newest.released.version, '1.3.10', 'the newest that is not one: the stable version');
+  assert.strictEqual(newest.released.channel, 'stable');
+
+  // A pre-release older than what is released is no preview of anything
+  newest = Updater.newestReleases([release('1.3.11'), release('1.3.12', { prerelease: false })]);
+  assert.strictEqual(newest.preview, null);
+  assert.deepStrictEqual(Updater.newestReleases([]), { released: null, preview: null });
+  assert.throws(function() { Updater.newestReleases({ message: 'rate limited' }); }, /not a list/);
 });
 
 test('each channel offers what it should', function() {
-  var github = Updater.parseRelease(release('1.3.12'));
+  var github = Updater.newestReleases([release('1.3.12')]);
   assert.strictEqual(Updater.offerFor('stable', STORE, github).version, '1.3.9');
   assert.strictEqual(Updater.offerFor('beta', STORE, github).version, '1.3.11');
   assert.strictEqual(Updater.offerFor('preview', STORE, github).version, '1.3.12');
   assert.strictEqual(Updater.offerFor('preview', STORE, github).source, 'github');
 
   // The same version in the store and on GitHub: the store's
-  var same = Updater.offerFor('preview', STORE, Updater.parseRelease(release('1.3.11')));
+  var same = Updater.offerFor('preview', STORE, Updater.newestReleases([release('1.3.11')]));
   assert.strictEqual(same.source, 'store');
-  assert.strictEqual(Updater.offerFor('stable', [], null), null);
+  assert.strictEqual(Updater.offerFor('stable', [], { released: null, preview: null }), null);
   assert.deepStrictEqual(Updater.newestPerChannel(STORE, github), { stable: '1.3.9', beta: '1.3.11', preview: '1.3.12' });
+});
+
+test('a release on GitHub that is not a pre-release is the stable version, and stands in for the store', function() {
+  var github = Updater.newestReleases([release('1.3.12'), release('1.3.10', { prerelease: false })]);
+  // The store does not answer (a player not signed in): GitHub's released version is offered
+  var offer = Updater.offerFor('stable', [], github);
+  assert.strictEqual(offer.version, '1.3.10');
+  assert.strictEqual(offer.source, 'github');
+  assert.strictEqual(offer.channel, 'stable');
+  // The store answers with the same version: the store's copy
+  assert.strictEqual(Updater.offerFor('stable', [{ version: '1.3.10', channel: 'stable', url: 'u' }], github).source, 'store');
+  // A pre-release is never offered on the stable channel, nor on beta
+  assert.strictEqual(Updater.offerFor('beta', [], github).version, '1.3.10');
+  assert.strictEqual(Updater.offerFor('preview', [], github).version, '1.3.12');
+});
+
+test('the player\'s plugin test mode decides whether a test channel applies', async function() {
+  var rig = make({ channel: 'preview', testMode: false });
+  var view = await rig.updater.check(true);
+  assert.strictEqual(view.chosen, 'preview', 'what was chosen is remembered');
+  assert.strictEqual(view.channel, 'stable', 'and does not apply: the player is not in test mode');
+  assert.strictEqual(view.testMode, false);
+  assert.strictEqual(view.offer.version, '1.3.9');
+  assert.strictEqual(view.available, false);
+  await assert.rejects(rig.updater.install(), function(e) { return e.code === 'up-to-date'; });
+
+  // Test mode switched on at the player: the choice applies, and is looked for at once
+  rig.testMode = true;
+  rig.did.length = 0;
+  view = await rig.updater.check(false);
+  assert.strictEqual(view.channel, 'preview');
+  assert.strictEqual(view.offer.version, '1.3.12');
+  assert.ok(rig.did.length > 0, 'another channel is another question');
+
+  // And off again: back on stable, nothing else touched
+  rig.testMode = false;
+  view = await rig.updater.check(false);
+  assert.strictEqual(view.channel, 'stable');
+  assert.strictEqual(view.chosen, 'preview');
+  assert.strictEqual(view.available, false);
 });
 
 // --- looking ----------------------------------------------------------------------------
 
-test('a look asks the store and, on the preview channel only, GitHub; and is not repeated within the day', async function() {
+test('a look asks the store and GitHub, and is not repeated within the day', async function() {
   var rig = make();
   var view = await rig.updater.check(false);
   assert.strictEqual(view.current, '1.3.10');
@@ -176,7 +224,7 @@ test('a look asks the store and, on the preview channel only, GitHub; and is not
   rig.channel = 'stable';
   rig.did.length = 0;
   view = await rig.updater.check(false);
-  assert.deepStrictEqual(rig.did, ['store'], 'GitHub is not asked on the store\'s channels');
+  assert.strictEqual(rig.did.length, 2);
   assert.strictEqual(view.offer.version, '1.3.9');
   assert.strictEqual(view.available, false, 'older than what is installed');
 

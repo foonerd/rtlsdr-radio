@@ -489,13 +489,14 @@ data: {"status":"complete","measurements":[...],"summary":{"12A":{"optimalGain":
 
 **Endpoint:** `GET /api/update`
 
-**Description:** Returns the installed version, what the chosen channel offers, and how an update under way is doing. The store and, on the preview channel, GitHub are asked when the last look is older than a day.
+**Description:** Returns the installed version, what the channel in force offers, and how an update under way is doing. The store and GitHub are asked when the last look is older than a day.
 
 **Response:**
 ```json
 {
   "current": "1.3.10",
   "channel": "preview",
+  "chosen": "preview",
   "testMode": true,
   "checkedAt": "2026-10-03T10:00:00.000Z",
   "offer": {
@@ -517,8 +518,9 @@ data: {"status":"complete","measurements":[...],"summary":{"12A":{"optimalGain":
 ```
 
 **Fields:**
-- `channel`: `stable`, `beta` or `preview`
-- `testMode`: whether the player is in Volumio's plugin test mode (the store names beta versions only then)
+- `channel`: the channel in force: `stable`, `beta` or `preview`
+- `chosen`: the channel chosen in the Station Manager; it is in force only while the player is in plugin test mode
+- `testMode`: whether the player is in Volumio's plugin test mode (the file `/data/testplugins`, switched on the player's `/dev` page); without it the channel in force is `stable`
 - `offer`: the newest version the channel offers, or `null`; `source` is `store` or `github`
 - `available`: whether the offer is newer than the installed version
 - `newest`: the newest version of each channel by itself
@@ -542,7 +544,7 @@ data: {"status":"complete","measurements":[...],"summary":{"12A":{"optimalGain":
 { "channel": "preview" }
 ```
 
-**Description:** Sets the channel, checks it, and returns the state. Any other value than `stable`, `beta` or `preview` is answered with 400.
+**Description:** Sets the channel chosen, checks, and returns the state. The choice is kept on a player that is not in plugin test mode, and applies once it is. Any other value than `stable`, `beta` or `preview` is answered with 400.
 
 ### Install, Go Back
 

@@ -100,7 +100,17 @@ Every build keeps its output in `out/<target>/build.log` and checks it against `
 
 A release is made by setting the version in `plugin/package.json`, writing its notes under "Version History" in `plugin/README.md`, and pushing the tag `v<version>`. The tag must name the version the plugin carries. The release's text is that version's notes (`scripts/release-notes.sh <version>`). Run by hand, the `release` workflow builds the zip and publishes nothing.
 
-Releases on GitHub are previews: a version is tried from here before it is submitted to the Volumio plugin store.
+```bash
+scripts/set-version.sh 1.3.11 "v1.3.11 - what this version brings, in one line"
+```
+
+sets the version wherever the plugin states it.
+
+A release is published as a pre-release: a preview, tried from GitHub before it is submitted to the Volumio plugin store. The plugin's own updater offers pre-releases on its Preview channel only. When a version becomes the stable one in the store, its release here is marked as released, and from then on stands for the stable version:
+
+```bash
+gh release edit v<version> --prerelease=false --latest
+```
 
 ## Licences
 

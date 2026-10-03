@@ -4,12 +4,20 @@
 //
 // A version comes from one of two places. The Volumio plugin store carries the stable
 // versions and, for players in Volumio's plugin test mode, the beta ones. The project's
-// releases on GitHub are previews: versions to be tried before they go to the store.
-// The channel the user chooses says which of them are offered:
+// releases on GitHub come in two kinds: a pre-release is a preview, a version to be
+// tried before it goes to the store; a release that is not a pre-release is the version
+// that is stable in the store, so it stands in for the store where the store does not
+// answer. The channel says which of them are offered:
 //
-//   stable    the newest stable version of the store
+//   stable    the newest stable version: the store's, or the one released on GitHub
 //   beta      the newest version of the store, beta or stable
-//   preview   the newest of all, the releases on GitHub among them
+//   preview   the newest of all, the pre-releases on GitHub among them
+//
+// The player's own switch decides whether a test channel applies at all: Volumio's
+// plugin test mode (Plugins Test Mode on the player's /dev page, the file
+// /data/testplugins). With it off the player is on the stable channel, whatever was
+// chosen; with it on, the channel chosen in the Station Manager applies. Switching it
+// off again puts the player back on stable without anything else being touched.
 //
 // Whatever the source, the player's own plugin manager installs the version, the way
 // it installs any update, and the backend is then restarted so that the new code loads.
@@ -32,6 +40,8 @@ var SERVED_FROM = 'http://127.0.0.1:3000/plugin-serve/';
 var CHANNELS = ['stable', 'beta', 'preview'];
 
 var CHECK_TTL = 24 * 3600 * 1000;
+// The shape of what a look found, as kept between starts; raised when it changes
+var FOUND_FORM = 2;
 var MAX_JSON_BYTES = 1024 * 1024;
 var MAX_ZIP_BYTES = 128 * 1024 * 1024;
 var REQUEST_TIMEOUT = 20000;
@@ -93,6 +103,7 @@ function parseRelease(body) {
       url: String(asset.browser_download_url || ''),
       bytes: Number(asset.size) || 0,
       sha256: digest ? digest[1] : null,
+      prerelease: !!body.prerelease,
       notes: String(body.body || '').slice(0, 20000),
       page: String(body.html_url || ''),
       publishedAt: body.published_at || null
@@ -101,42 +112,59 @@ function parseRelease(body) {
   return null;
 }
 
-// The newest of the releases GitHub lists, by version
-function newestRelease(list) {
+// The newest of the releases GitHub lists, by version: { released, preview }.
+// released: the newest that is not a pre-release, the version stable in the store.
+// preview: the newest pre-release, if it is newer than that.
+function newestReleases(list) {
   if (!Array.isArray(list)) {
     throw UpdateError('bad-answer', 'the releases answer is not a list');
   }
-  var best = null;
+  var newest = { released: null, preview: null };
   list.forEach(function(body) {
     var release = parseRelease(body);
-    if (release && (!best || compareVersions(release.version, best.version) > 0)) {
-      best = release;
-    }
-  });
-  return best;
-}
-
-// The version offered on a channel: store: [{ version, channel, url }], github: a
-// release or null. The store's version is taken when both carry the same one.
-function offerFor(channel, store, github) {
-  var best = null;
-  (store || []).forEach(function(version) {
-    if (version.channel !== 'stable' && channel === 'stable') {
+    if (!release) {
       return;
     }
-    if (!best || compareVersions(version.version, best.version) > 0) {
-      best = { source: 'store', channel: version.channel, version: version.version, url: version.url };
+    var kind = release.prerelease ? 'preview' : 'released';
+    release.channel = release.prerelease ? 'preview' : 'stable';
+    if (!newest[kind] || compareVersions(release.version, newest[kind].version) > 0) {
+      newest[kind] = release;
     }
   });
-  if (channel === 'preview' && github && (!best || compareVersions(github.version, best.version) > 0)) {
-    best = github;
+  if (newest.preview && newest.released && compareVersions(newest.preview.version, newest.released.version) <= 0) {
+    newest.preview = null;
+  }
+  return newest;
+}
+
+// The version offered on a channel. store: [{ version, channel, url }]; github:
+// { released, preview }. The store's copy is taken when both carry the same version.
+function offerFor(channel, store, github) {
+  var best = null;
+  function consider(candidate) {
+    if (candidate && (!best || compareVersions(candidate.version, best.version) > 0)) {
+      best = candidate;
+    }
+  }
+  (store || []).forEach(function(version) {
+    if (version.channel === 'stable' || channel !== 'stable') {
+      consider({ source: 'store', channel: version.channel, version: version.version, url: version.url });
+    }
+  });
+  consider(github && github.released);
+  if (channel === 'preview') {
+    consider(github && github.preview);
   }
   return best;
 }
 
 // The newest version each channel carries by itself, for the page to show
 function newestPerChannel(store, github) {
-  var newest = { stable: null, beta: null, preview: github ? github.version : null };
+  var newest = {
+    stable: github && github.released ? github.released.version : null,
+    beta: null,
+    preview: github && github.preview ? github.preview.version : null
+  };
   (store || []).forEach(function(version) {
     var channel = version.channel === 'stable' ? 'stable' : 'beta';
     if (!newest[channel] || compareVersions(version.version, newest[channel]) > 0) {
@@ -253,7 +281,7 @@ function sleep(ms) {
 // options.dir: where the kept zip and the state live
 // options.version: the version running
 // options.pluginPath: the installed plugin's folder
-// options.channel(): the channel chosen
+// options.channel(): the channel chosen for when the player is in plugin test mode
 // options.plugin: what the plugin does for the updater:
 //   storeVersions(): Promise of [{ version, channel, url }]   the store's versions for this player
 //   testMode(): whether the player is in Volumio's plugin test mode
@@ -279,7 +307,7 @@ function Updater(options) {
   try {
     fs.ensureDirSync(this.dir);
     var found = fs.readJsonSync(path.join(this.dir, 'found.json'));
-    if (found && found.checkedAt) {
+    if (found && found.checkedAt && found.form === FOUND_FORM) {
       this.found = found;
     }
   } catch (e) {
@@ -321,14 +349,20 @@ Updater.prototype._saveState = function() {
   this._write('state.json', this.state);
 };
 
-Updater.prototype.currentChannel = function() {
+// The channel chosen in the Station Manager
+Updater.prototype.chosenChannel = function() {
   var channel = this.channel();
   return CHANNELS.indexOf(channel) === -1 ? 'stable' : channel;
 };
 
-// Look at the store and, on the preview channel, at GitHub: when the last look is
-// older than a day, or when asked to. A source that does not answer is noted and
-// leaves what the other one says standing. Resolves with the view.
+// The channel in force: the one chosen on a player in plugin test mode, stable on any other
+Updater.prototype.currentChannel = function() {
+  return this.plugin.testMode() ? this.chosenChannel() : 'stable';
+};
+
+// Look at the store and at GitHub: when the last look is older than a day, or when
+// asked to. A source that does not answer is noted and leaves what the other one says
+// standing. Resolves with the view.
 Updater.prototype.check = function(force) {
   var self = this;
   var fresh = self.found && Date.now() - new Date(self.found.checkedAt).getTime() < CHECK_TTL &&
@@ -341,7 +375,7 @@ Updater.prototype.check = function(force) {
   }
 
   var channel = self.currentChannel();
-  var found = { checkedAt: new Date().toISOString(), channel: channel, store: [], github: null, problems: {} };
+  var found = { form: FOUND_FORM, checkedAt: new Date().toISOString(), channel: channel, store: [], github: { released: null, preview: null }, problems: {} };
 
   var store = Promise.resolve().then(function() {
     return self.plugin.storeVersions();
@@ -352,8 +386,8 @@ Updater.prototype.check = function(force) {
     self.logger.info('[RTL-SDR Radio] Update: the store did not answer: ' + (error && error.message || error));
   });
 
-  var github = channel !== 'preview' ? Promise.resolve() : self.network.json(RELEASES_URL).then(function(list) {
-    found.github = newestRelease(list);
+  var github = self.network.json(RELEASES_URL).then(function(list) {
+    found.github = newestReleases(list);
   }).catch(function(error) {
     found.problems.github = error && error.code || 'network';
     self.logger.info('[RTL-SDR Radio] Update: GitHub did not answer: ' + (error && error.message || error));
@@ -390,6 +424,7 @@ Updater.prototype.view = function() {
   return {
     current: this.version,
     channel: this.currentChannel(),
+    chosen: this.chosenChannel(),
     testMode: !!this.plugin.testMode(),
     checkedAt: found.checkedAt || null,
     offer: offer ? {
@@ -567,7 +602,7 @@ module.exports = Updater;
 module.exports.CHANNELS = CHANNELS;
 module.exports.compareVersions = compareVersions;
 module.exports.parseRelease = parseRelease;
-module.exports.newestRelease = newestRelease;
+module.exports.newestReleases = newestReleases;
 module.exports.offerFor = offerFor;
 module.exports.newestPerChannel = newestPerChannel;
 module.exports.UpdateError = UpdateError;

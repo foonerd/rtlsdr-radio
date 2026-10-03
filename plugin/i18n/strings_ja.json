@@ -566,7 +566,7 @@
   "UPDATE_STORE_LOGIN": "プラグインストアは、MyVolumio にサインインしているプレーヤーにのみ応答します。",
   "UPDATE_STORE_UNREACHABLE": "プラグインストアから応答がありませんでした。",
   "UPDATE_GITHUB_UNREACHABLE": "GitHub から応答がありませんでした。",
-  "UPDATE_BETA_NEEDS_TEST_MODE": "このプレーヤーではプラグインのテストモードが無効のため、ストアはベータ版を表示しません。",
+  "UPDATE_BETA_NEEDS_TEST_MODE": "このプレーヤーではプラグインのテストモードが無効のため、安定版チャンネルのままです。ベータ版またはプレビュー版を使うには、プレーヤーの /dev ページで有効にしてください。",
   "UPDATE_NOTES": "新機能",
   "UPDATE_LAST_CHECKED": "最終確認: {0}",
   "UPDATE_ERR_CHECKSUM": "ダウンロードがリリースのチェックサムと一致しなかったため破棄されました",

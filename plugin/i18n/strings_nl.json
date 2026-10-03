@@ -566,7 +566,7 @@
   "UPDATE_STORE_LOGIN": "De pluginwinkel antwoordt alleen aan spelers die bij MyVolumio zijn aangemeld.",
   "UPDATE_STORE_UNREACHABLE": "De pluginwinkel gaf geen antwoord.",
   "UPDATE_GITHUB_UNREACHABLE": "GitHub gaf geen antwoord.",
-  "UPDATE_BETA_NEEDS_TEST_MODE": "De testmodus voor plugins staat uit op deze speler, dus de winkel toont geen bètaversies.",
+  "UPDATE_BETA_NEEDS_TEST_MODE": "De testmodus voor plugins staat uit op deze speler, dus hij blijft op het stabiele kanaal. Schakel hem in op de /dev-pagina van de speler om Bèta of Voorvertoning te gebruiken.",
   "UPDATE_NOTES": "Wat is er nieuw",
   "UPDATE_LAST_CHECKED": "Laatst gecontroleerd: {0}",
   "UPDATE_ERR_CHECKSUM": "de download kwam niet overeen met de controlesom van de release en is weggegooid",

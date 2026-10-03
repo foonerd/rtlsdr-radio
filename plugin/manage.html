@@ -3966,8 +3966,9 @@
       const working = !!job && job.state !== 'failed';
       
       document.getElementById('update-installed').textContent = t('UPDATE_INSTALLED', view.current);
-      document.getElementById('update-channel').value = view.channel;
-      document.getElementById('update-channel').disabled = working;
+      // The choice is the user's; it applies while the player is in plugin test mode
+      document.getElementById('update-channel').value = view.chosen || view.channel;
+      document.getElementById('update-channel').disabled = working || !view.testMode;
       document.getElementById('update-channel-desc').textContent = t('UPDATE_CHANNEL_' + view.channel.toUpperCase() + '_DESC');
       
       let status = '';
@@ -3989,7 +3990,8 @@
         details.push(t('UPDATE_STORE_LOGIN'));
       } else if (problems.store) {
         details.push(t('UPDATE_STORE_UNREACHABLE'));
-      } else if (view.channel !== 'stable' && !view.testMode) {
+      }
+      if (!view.testMode) {
         details.push(t('UPDATE_BETA_NEEDS_TEST_MODE'));
       }
       if (problems.github) {

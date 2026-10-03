@@ -566,7 +566,7 @@
   "UPDATE_STORE_LOGIN": "Il negozio dei plugin risponde solo ai lettori che hanno effettuato l'accesso a MyVolumio.",
   "UPDATE_STORE_UNREACHABLE": "Il negozio dei plugin non ha risposto.",
   "UPDATE_GITHUB_UNREACHABLE": "GitHub non ha risposto.",
-  "UPDATE_BETA_NEEDS_TEST_MODE": "La modalità di test dei plugin è disattivata su questo lettore, quindi il negozio non gli mostra versioni beta.",
+  "UPDATE_BETA_NEEDS_TEST_MODE": "La modalità di test dei plugin è disattivata su questo lettore, che quindi resta sul canale stabile. Attivarla nella pagina /dev del lettore per usare Beta o Anteprima.",
   "UPDATE_NOTES": "Novità",
   "UPDATE_LAST_CHECKED": "Ultimo controllo: {0}",
   "UPDATE_ERR_CHECKSUM": "il download non corrispondeva al checksum della pubblicazione ed è stato scartato",

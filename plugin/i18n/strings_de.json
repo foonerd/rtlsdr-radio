@@ -566,7 +566,7 @@
   "UPDATE_STORE_LOGIN": "Der Plugin-Store antwortet nur Playern, die bei MyVolumio angemeldet sind.",
   "UPDATE_STORE_UNREACHABLE": "Der Plugin-Store hat nicht geantwortet.",
   "UPDATE_GITHUB_UNREACHABLE": "GitHub hat nicht geantwortet.",
-  "UPDATE_BETA_NEEDS_TEST_MODE": "Der Plugin-Testmodus ist auf diesem Player ausgeschaltet, daher zeigt der Store keine Beta-Versionen.",
+  "UPDATE_BETA_NEEDS_TEST_MODE": "Der Plugin-Testmodus ist auf diesem Player ausgeschaltet, daher bleibt er im stabilen Kanal. Auf der /dev-Seite des Players einschalten, um Beta oder Vorschau zu nutzen.",
   "UPDATE_NOTES": "Neuerungen",
   "UPDATE_LAST_CHECKED": "Zuletzt geprüft: {0}",
   "UPDATE_ERR_CHECKSUM": "der Download stimmte nicht mit der Prüfsumme der Veröffentlichung überein und wurde verworfen",

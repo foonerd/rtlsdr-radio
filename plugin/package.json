@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.10 - Station list survives plugin updates; reliable station switching and stopping; binaries for every supported processor"
+    "changelog": "v1.3.10 - Station list survives plugin updates; reliable station switching and stopping; DAB station logos; plugin update from the Station Manager; binaries for every supported processor"
   },
   "engines": {
     "node": ">=20",

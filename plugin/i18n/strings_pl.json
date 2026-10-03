@@ -566,7 +566,7 @@
   "UPDATE_STORE_LOGIN": "Sklep z wtyczkami odpowiada tylko odtwarzaczom zalogowanym do MyVolumio.",
   "UPDATE_STORE_UNREACHABLE": "Sklep z wtyczkami nie odpowiedział.",
   "UPDATE_GITHUB_UNREACHABLE": "GitHub nie odpowiedział.",
-  "UPDATE_BETA_NEEDS_TEST_MODE": "Tryb testowy wtyczek jest na tym odtwarzaczu wyłączony, więc sklep nie pokazuje mu wersji beta.",
+  "UPDATE_BETA_NEEDS_TEST_MODE": "Tryb testowy wtyczek jest na tym odtwarzaczu wyłączony, więc pozostaje on w kanale stabilnym. Włącz go na stronie /dev odtwarzacza, aby korzystać z kanału Beta lub Podgląd.",
   "UPDATE_NOTES": "Co nowego",
   "UPDATE_LAST_CHECKED": "Ostatnie sprawdzenie: {0}",
   "UPDATE_ERR_CHECKSUM": "pobrany plik nie zgadzał się z sumą kontrolną wydania i został odrzucony",

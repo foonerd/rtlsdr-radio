@@ -246,14 +246,23 @@ The plugin can be updated from the Station Manager (Maintenance > Plugin Update)
 
 | Channel | Where the versions come from | For |
 | --- | --- | --- |
-| Stable | Volumio plugin store, released versions | everyday use (default) |
+| Stable | Volumio plugin store, released versions | everyday use |
 | Beta | Volumio plugin store, versions in testing | trying a version before it is released |
-| Preview | the project's releases on GitHub | trying a version before it goes to the store; may have faults |
+| Preview | the project's pre-releases on GitHub | trying a version before it goes to the store; may have faults |
 
-The section shows the installed version and the newest version the chosen channel offers. A channel includes the ones above it: Beta offers stable versions too, Preview offers whatever is newest.
+A channel includes the ones above it: Beta offers stable versions too, Preview offers whatever is newest.
 
-- The plugin store answers only players signed in to MyVolumio, and shows beta versions only to players with Volumio's plugin test mode switched on. Without them the section says so; the Preview channel works regardless.
-- A preview is downloaded by the plugin and checked against the size and SHA-256 checksum GitHub publishes for it. A download that does not match is discarded.
+**Which channel is in force is the player's to say.** Volumio has a switch for testing plugins: *Plugins Test Mode* on the player's `/dev` page (`http://<player>/dev`).
+
+- Off, which is how a player comes: the plugin stays on Stable, whatever is chosen in the Station Manager.
+- On: the channel chosen in the Station Manager applies, Beta or Preview.
+
+Switching test mode off again puts the player back on Stable; nothing else has to be undone.
+
+The section shows the installed version and the newest version the channel in force offers.
+
+- The plugin store answers only players signed in to MyVolumio. A player that is not is still offered the stable version: the release on GitHub that is not a pre-release is the version that is stable in the store.
+- A version from GitHub is downloaded by the plugin and checked against the size and SHA-256 checksum GitHub publishes for it. A download that does not match is discarded.
 
 **What an update does:**
 
@@ -507,8 +516,9 @@ Just a Nerd
 - Artwork that changes while a station plays (a logo, the picture found for a song)
   is shown on the player screen
 - Plugin update from the Station Manager, with a choice of channel: Stable and Beta
-  from the Volumio plugin store, Preview from the project's releases on GitHub; the
-  version before an update can be put back
+  from the Volumio plugin store, Preview from the project's pre-releases on GitHub;
+  a test channel applies only on a player in Volumio's Plugins Test Mode; the version
+  before an update can be put back
 - New setting: the update channel (Station Manager > Maintenance > Plugin Update)
 
 ### v1.3.9

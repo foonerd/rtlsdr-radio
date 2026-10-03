@@ -566,7 +566,7 @@
   "UPDATE_STORE_LOGIN": "A loja de plugins só responde a players conectados ao MyVolumio.",
   "UPDATE_STORE_UNREACHABLE": "A loja de plugins não respondeu.",
   "UPDATE_GITHUB_UNREACHABLE": "O GitHub não respondeu.",
-  "UPDATE_BETA_NEEDS_TEST_MODE": "O modo de teste de plugins está desativado neste player, por isso a loja não mostra versões beta.",
+  "UPDATE_BETA_NEEDS_TEST_MODE": "O modo de teste de plugins está desativado neste player, por isso ele permanece no canal estável. Ative-o na página /dev do player para usar Beta ou Prévia.",
   "UPDATE_NOTES": "Novidades",
   "UPDATE_LAST_CHECKED": "Última verificação: {0}",
   "UPDATE_ERR_CHECKSUM": "o download não correspondia à soma de verificação da versão publicada e foi descartado",

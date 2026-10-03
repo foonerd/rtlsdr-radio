@@ -21,6 +21,11 @@
 // then among the services the broadcasters' lists name. A logo found by name gives way
 // to the one found by the PI code once that is known.
 //
+// Above all of that stands a logo the user chose for a station in the Station Manager:
+// a picture of their own, one of the broadcasters' lists, or one kept here for another
+// station. It is shown in place of whatever was or will be found, and no refresh
+// touches it.
+//
 // The pictures are kept outside the plugin's folder, which an update of the plugin
 // empties, and are reached through a link in that folder, because Volumio's artwork
 // endpoint serves pictures to every screen from there.
@@ -35,6 +40,7 @@
 
 var fs = require('fs-extra');
 var path = require('path');
+var crypto = require('crypto');
 var radiodns = require('./radiodns');
 var names = require('./names');
 
@@ -57,7 +63,7 @@ var OFFLINE_WAITS = [30000, 60000, 120000, 300000, 600000];
 
 // What is taken from a broadcaster's list. A list fetched before the plugin took as much
 // is fetched once more.
-var LISTS_READ = 2;
+var LISTS_READ = 3;
 
 // The order of the work
 var NOW = 0;
@@ -96,7 +102,7 @@ function Logos(options) {
   this.changedAt = 0;
 
   this.index = { logos: {}, misses: {}, gcc: {}, member: {}, groups: {}, directory: {},
-    tried: {}, fmDirectory: {}, named: {} };
+    tried: {}, fmDirectory: {}, named: {}, user: {} };
   try {
     var stored = fs.readJsonSync(path.join(this.dir, 'index.json'));
     Object.keys(this.index).forEach(function(part) {
@@ -220,9 +226,28 @@ Logos.prototype._file = function(entry) {
   return entry && entry.file && fs.existsSync(path.join(this.dir, entry.file)) ? entry.file : null;
 };
 
-// The picture to hand to Volumio's artwork endpoint (sourceicon) for a station: its own
-// logo, failing that its broadcaster's, or null when neither is kept.
+// The name a logo the user chose for a station is kept under: the station's own, or,
+// for a DAB station typed in by hand, one made of its channel and name
+Logos.prototype.userKey = function(station) {
+  var key = this.keyOf(station);
+  if (key || !station || isFm(station)) {
+    return key;
+  }
+  var name = String(station.exactName || station.name || '').trim().toLowerCase();
+  if (!name) {
+    return null;
+  }
+  return 'dab-x-' + crypto.createHash('sha1').update(String(station.channel || '') + '|' + name).digest('hex').slice(0, 12);
+};
+
+// The picture to hand to Volumio's artwork endpoint (sourceicon) for a station: the
+// logo the user chose, failing that its own, failing that its broadcaster's, or null
+// when none is kept.
 Logos.prototype.icon = function(station) {
+  var chosen = this.index.user[this.userKey(station)];
+  if (this._file(chosen)) {
+    return ICON_PREFIX + chosen.file + '&v=' + this.mark(chosen);
+  }
   var key = this.keyOf(station);
   var entry = key && this.index.logos[key];
   var file = this._file(entry);
@@ -282,6 +307,164 @@ Logos.prototype._dueFm = function(key, station) {
   return !this._failedLately('station:' + key);
 };
 
+// --- the user's own choice --------------------------------------------------------------
+
+// What is shown for a station and where it comes from, for the Station Manager:
+// { key, file, mark, from, ref }. from: 'user' (chosen by the user), 'broadcaster' (the
+// station's own, by its identifiers), 'pi' or 'name' (an FM station's, found by its PI
+// code or by its name), 'group' (its broadcaster's), or null when nothing is kept.
+Logos.prototype.describe = function(station) {
+  var key = this.userKey(station);
+  var chosen = key && this.index.user[key];
+  if (this._file(chosen)) {
+    return { key: key, file: chosen.file, mark: this.mark(chosen), from: 'user', ref: chosen.ref || null };
+  }
+  var own = this.index.logos[this.keyOf(station)];
+  if (this._file(own)) {
+    return { key: key, file: own.file, mark: this.mark(own), from: own.by || 'broadcaster', ref: own.ref || null };
+  }
+  var group = this._groupOf(this.keyOf(station), station);
+  var entry = group && this.index.groups[group];
+  if (this._file(entry)) {
+    return { key: key, file: entry.file, mark: this.mark(entry), from: 'group', ref: (entry.names || [])[0] || null };
+  }
+  return { key: key, file: null, mark: null, from: null, ref: null };
+};
+
+function refused(message) {
+  return Object.assign(new Error(message), { refused: true });
+}
+
+// Give a station the logo the user chose. picture: { body, extension }, already checked
+// (lib/pictures.js); how: { from: 'upload' | 'list' | 'kept', ref }.
+Logos.prototype.setUser = function(station, picture, how) {
+  var key = this.userKey(station);
+  if (!key) {
+    throw refused('the station has nothing a logo can be kept by');
+  }
+  var file = 'user-' + key + '.' + picture.extension;
+  var held = this.index.user[key];
+  fs.ensureDirSync(this.dir);
+  fs.writeFileSync(path.join(this.dir, file + '.tmp'), picture.body);
+  fs.renameSync(path.join(this.dir, file + '.tmp'), path.join(this.dir, file));
+  if (held && held.file && held.file !== file) {
+    fs.removeSync(path.join(this.dir, held.file));
+  }
+  this.index.user[key] = { file: file, from: how.from, ref: how.ref || null, fetched: new Date().toISOString() };
+  this._save();
+  this.onLogo();
+  return this.describe(station);
+};
+
+// The name a broadcaster's list gives the service whose logo an address is, or null:
+// nothing is fetched on a client's word that a list did not name
+Logos.prototype._listedAs = function(url) {
+  var named = this.index.named;
+  var found = null;
+  Object.keys(named).some(function(name) {
+    var entry = named[name];
+    if (entry === url || (entry && (entry.url === url || entry.small === url))) {
+      found = { name: name, url: entry.url || entry };
+    }
+    return !!found;
+  });
+  return found;
+};
+
+// The user chose one of the logos the broadcasters' lists name
+Logos.prototype.setUserFromList = function(station, url) {
+  var self = this;
+  var listed = self._listedAs(url);
+  if (!listed) {
+    return Promise.reject(refused('not a logo the broadcasters\' lists name'));
+  }
+  return self.lookup.fetchImage(listed.url).then(function(image) {
+    return self.setUser(station, { body: image.body, extension: image.extension }, { from: 'list', ref: listed.name });
+  });
+};
+
+// The user chose a logo kept here for another station
+Logos.prototype.setUserFromKept = function(station, file, name) {
+  if (!/^[a-z0-9][a-z0-9._-]*\.(png|jpg|svg)$/i.test(String(file)) || !fs.existsSync(path.join(this.dir, file))) {
+    throw refused('not a logo kept on the player');
+  }
+  return this.setUser(station, {
+    body: fs.readFileSync(path.join(this.dir, file)),
+    extension: path.extname(file).slice(1).toLowerCase()
+  }, { from: 'kept', ref: name || null });
+};
+
+// Back to what is found for the station by itself
+Logos.prototype.clearUser = function(station) {
+  var key = this.userKey(station);
+  var held = key && this.index.user[key];
+  if (held) {
+    if (held.file) {
+      fs.removeSync(path.join(this.dir, held.file));
+    }
+    delete this.index.user[key];
+    this._save();
+    this.onLogo();
+  }
+  return this.describe(station);
+};
+
+function sought(query) {
+  return String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+// How well a name answers what is sought: 0 the same words, 1 begins with them, 2 holds
+// them all somewhere, null not at all
+function answers(name, query, words) {
+  var text = String(name).toLowerCase();
+  if (words.length === 0) {
+    return 2;
+  }
+  if (!words.every(function(word) { return text.indexOf(word) !== -1; })) {
+    return null;
+  }
+  var same = names.words(name).join(' ') === names.words(query).join(' ');
+  return same ? 0 : (text.indexOf(words.join(' ')) === 0 ? 1 : 2);
+}
+
+// What the user can choose from: { listed: [{ name, url, small }], kept: [{ name, file,
+// mark }] }. listed: the services the broadcasters' lists name with a logo; kept: the
+// logos on the player, each under the name of a station it is shown for. Both narrowed
+// to what answers the query, the nearest first.
+Logos.prototype.library = function(query, limit) {
+  var self = this;
+  var words = sought(query);
+  var most = Math.max(1, Math.min(200, limit || 60));
+
+  function ranked(list) {
+    return list.map(function(item) {
+      return { item: item, rank: answers(item.name, query, words) };
+    }).filter(function(entry) { return entry.rank !== null; }).sort(function(a, b) {
+      return a.rank - b.rank || String(a.item.name).localeCompare(String(b.item.name));
+    }).slice(0, most).map(function(entry) { return entry.item; });
+  }
+
+  var listed = Object.keys(self.index.named).map(function(name) {
+    var entry = self.index.named[name];
+    return { name: name, url: entry.url || entry, small: entry.small || entry.url || entry };
+  });
+
+  var seen = {};
+  var kept = [];
+  self.stations().concat(self.fmStations()).forEach(function(station) {
+    if (!station || station.deleted) {
+      return;
+    }
+    var shown = self.describe(station);
+    if (shown.file && !seen[shown.file]) {
+      seen[shown.file] = true;
+      kept.push({ name: String(station.customName || station.name || '').trim(), file: shown.file, mark: shown.mark });
+    }
+  });
+
+  return { listed: ranked(listed), kept: ranked(kept) };
+};
+
 // --- what is asked of the store ---------------------------------------------------------
 
 // A station is being shown or played: fetch its logo if that is due.
@@ -310,18 +493,16 @@ Logos.prototype.sweep = function() {
       self._enqueue({ kind: 'station', key: self.dabKey(station), station: station, rank: MISSING });
     }
   });
-  var fm = self.fmStations().filter(function(station) {
-    return station && !station.deleted && self._due(self.fmKey(station), station);
+  // FM stations, and the user's choice of a logo, draw on what the lists say; lists
+  // read before as much was taken from them are read again
+  Object.keys(self.index.groups).forEach(function(url) {
+    if ((self.index.groups[url].read || 0) < LISTS_READ && !self._failedLately('list:' + url)) {
+      self._enqueue({ kind: 'list', key: url, rank: MISSING });
+    }
   });
-  if (fm.length > 0) {
-    // FM stations are found in what the lists say; lists read before that was kept are read again
-    Object.keys(self.index.groups).forEach(function(url) {
-      if ((self.index.groups[url].read || 0) < LISTS_READ && !self._failedLately('list:' + url)) {
-        self._enqueue({ kind: 'list', key: url, rank: MISSING });
-      }
-    });
-  }
-  fm.forEach(function(station) {
+  self.fmStations().filter(function(station) {
+    return station && !station.deleted && self._due(self.fmKey(station), station);
+  }).forEach(function(station) {
     self._enqueue({ kind: 'station', key: self.fmKey(station), station: station, rank: MISSING });
   });
   self.leads = null;
@@ -392,7 +573,7 @@ Logos.prototype.status = function() {
     }
     var key = self.keyOf(station);
     status.stations++;
-    if (key && self._file(self.index.logos[key])) {
+    if (self._file(self.index.user[self.userKey(station)]) || (key && self._file(self.index.logos[key]))) {
       status.own++;
     } else if (self.icon(station)) {
       status.group++;
@@ -723,7 +904,8 @@ Logos.prototype._byName = function(station) {
     }
   });
   var listed = Object.keys(self.index.named).map(function(name) {
-    return { name: name, url: self.index.named[name] };
+    var entry = self.index.named[name];
+    return { name: name, url: entry.url || entry };
   });
 
   var found = null;

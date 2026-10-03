@@ -12,6 +12,7 @@ var Tuner = require('./lib/tuner');
 var FmQuality = require('./lib/fmquality');
 var fmscan = require('./lib/fmscan');
 var Logos = require('./lib/logos');
+var pictures = require('./lib/pictures');
 var Slides = require('./lib/slides');
 var Updater = require('./lib/update');
 
@@ -2266,6 +2267,142 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
     self.expressApp.post('/api/logos/refresh', function(req, res) {
       self.logger.info('[RTL-SDR Radio] Logos: refresh asked for');
       res.json(self.logos.refresh());
+    });
+    
+    // A picture of the logo store, for the Station Manager's own pages. The address
+    // carries the picture's mark (?v=), so a browser may keep what it was given.
+    self.expressApp.get('/logos/:file', function(req, res) {
+      var file = String(req.params.file);
+      if (!/^[a-z0-9][a-z0-9._-]*\.(png|jpg|svg)$/i.test(file)) {
+        res.status(404).end();
+        return;
+      }
+      var headers = { 'Cache-Control': req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache' };
+      if (/\.svg$/i.test(file)) {
+        // An SVG opened by itself is a page: here it may draw and nothing else
+        headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox";
+      }
+      res.sendFile(file, { root: self.logos.dir, headers: headers, dotfiles: 'deny' }, function(error) {
+        if (error && !res.headersSent) {
+          res.status(404).end();
+        }
+      });
+    });
+    
+    // API: the logo each station is shown with, and where it comes from:
+    // { fm: { '<frequency>': logo }, dab: { '<channel>|<exact name>': logo } }
+    self.expressApp.get('/api/logos/stations', function(req, res) {
+      var shown = { fm: {}, dab: {} };
+      ((self.stationsDb && self.stationsDb.fm) || []).forEach(function(station) {
+        shown.fm[String(station.frequency)] = self.logoForManager(self.logos.describe(station));
+      });
+      ((self.stationsDb && self.stationsDb.dab) || []).forEach(function(station) {
+        shown.dab[station.channel + '|' + station.exactName] = self.logoForManager(self.logos.describe(station));
+      });
+      res.json(shown);
+    });
+    
+    // API: what a logo can be chosen from: the services the broadcasters' lists name,
+    // and the logos kept on the player, narrowed to what answers ?q=
+    self.expressApp.get('/api/logos/library', function(req, res) {
+      var found = self.logos.library(String(req.query.q || '').slice(0, 80), parseInt(req.query.limit, 10) || 60);
+      res.json({
+        listed: found.listed,
+        kept: found.kept.map(function(entry) {
+          return { name: entry.name, file: entry.file, url: '/logos/' + entry.file + '?v=' + entry.mark };
+        }),
+        rules: { bytes: pictures.MAX_BYTES, svgBytes: pictures.MAX_SVG_BYTES, least: pictures.MIN_SIDE }
+      });
+    });
+    
+    // API: the user's own picture as a station's logo (multipart: file, and what names
+    // the station: type, frequency or channel and exactName)
+    var logoUpload = multer({ dest: '/tmp/', limits: { fileSize: pictures.MAX_BYTES, files: 1 } }).single('file');
+    self.expressApp.post('/api/logos/upload', function(req, res) {
+      logoUpload(req, res, function(error) {
+        var held = req.file && req.file.path;
+        // What was received is removed before the answer goes out, whatever the answer
+        function answer(status, body) {
+          if (held) {
+            try { fs.removeSync(held); } catch (ignored) { /* gone already */ }
+          }
+          res.status(status).json(body);
+        }
+        if (error) {
+          var large = error.code === 'LIMIT_FILE_SIZE';
+          answer(large ? 413 : 400, large ? { error: 'too-large', limit: pictures.MAX_BYTES } : { error: 'not-a-picture' });
+          return;
+        }
+        try {
+          var station = self.stationNamedBy(req.body);
+          if (!station) {
+            answer(404, { error: 'no-station' });
+            return;
+          }
+          if (!req.file) {
+            answer(400, { error: 'not-a-picture' });
+            return;
+          }
+          var body = fs.readFileSync(held);
+          var checked = pictures.check(body);
+          if (!checked.ok) {
+            checked.error = checked.reason;
+            answer(400, checked);
+            return;
+          }
+          var shown = self.logos.setUser(station, { body: body, extension: checked.extension },
+            { from: 'upload', ref: String(req.file.originalname || '').slice(0, 80) });
+          self.logger.info('[RTL-SDR Radio] Logo of ' + (station.customName || station.name) + ' set by the user: ' +
+            checked.kind + (checked.width ? ' ' + checked.width + 'x' + checked.height : '') + ', ' + body.length + ' bytes');
+          answer(200, { success: true, logo: self.logoForManager(shown) });
+        } catch (e) {
+          self.logger.error('[RTL-SDR Radio] Logo upload failed: ' + e);
+          answer(e.refused ? 400 : 500, { error: e.refused ? 'refused' : 'failed', message: e.message });
+        }
+      });
+    });
+    
+    // API: one of the broadcasters' logos, or one kept on the player, as a station's logo
+    // { station: { type, ... }, source: 'list', url } or { ..., source: 'kept', file, name }
+    self.expressApp.post('/api/logos/choose', function(req, res) {
+      var station = self.stationNamedBy(req.body && req.body.station);
+      if (!station) {
+        res.status(404).json({ error: 'no-station' });
+        return;
+      }
+      var chosen;
+      try {
+        if (req.body.source === 'list') {
+          chosen = self.logos.setUserFromList(station, String(req.body.url));
+        } else if (req.body.source === 'kept') {
+          chosen = Promise.resolve(self.logos.setUserFromKept(station, String(req.body.file), String(req.body.name || '').slice(0, 80)));
+        } else {
+          chosen = Promise.reject(Object.assign(new Error('no such source'), { refused: true }));
+        }
+      } catch (e) {
+        chosen = Promise.reject(e);
+      }
+      chosen.then(function(shown) {
+        res.json({ success: true, logo: self.logoForManager(shown) });
+      }, function(e) {
+        // The broadcaster's server, or the network: not the user's doing
+        var code = e.refused ? 400 : 502;
+        res.status(code).json({ error: e.refused ? 'refused' : (e.unusable ? 'not-a-picture' : 'not-fetched'), message: e.message });
+      });
+    });
+    
+    // API: back to the logo found for the station by itself
+    self.expressApp.post('/api/logos/clear', function(req, res) {
+      var station = self.stationNamedBy(req.body && req.body.station);
+      if (!station) {
+        res.status(404).json({ error: 'no-station' });
+        return;
+      }
+      try {
+        res.json({ success: true, logo: self.logoForManager(self.logos.clearUser(station)) });
+      } catch (e) {
+        res.status(500).json({ error: 'failed', message: e.message });
+      }
     });
     
     // Start server
@@ -6363,6 +6500,32 @@ ControllerRtlsdrRadio.prototype.dabIcon = function(station, now) {
     this.logos.want(station, { now: !!now });
   }
   return this.logos.icon(station) || assetIcon('dab.svg');
+};
+
+// The station a client names: { type: 'fm', frequency } or { type: 'dab', channel,
+// exactName }, or null when there is none such
+ControllerRtlsdrRadio.prototype.stationNamedBy = function(id) {
+  if (!id || typeof id !== 'object') {
+    return null;
+  }
+  if (id.type === 'fm') {
+    var fm = this.getStationByUri('rtlsdr://fm/' + String(id.frequency));
+    return fm ? fm.station : null;
+  }
+  if (id.type === 'dab') {
+    return this.findDabStation(String(id.channel), String(id.exactName));
+  }
+  return null;
+};
+
+// A station's logo as the Station Manager is told of it: where its page can load the
+// picture from, and where the logo comes from
+ControllerRtlsdrRadio.prototype.logoForManager = function(shown) {
+  return {
+    url: shown.file ? '/logos/' + shown.file + '?v=' + shown.mark : null,
+    from: shown.from,
+    ref: shown.ref
+  };
 };
 
 // The same for an FM station: its logo (found by its PI code or by its name), failing

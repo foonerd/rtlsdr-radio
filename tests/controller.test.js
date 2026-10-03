@@ -118,6 +118,55 @@ function get(path) {
   });
 }
 
+// A path of the Station Manager as a browser gets it: status, headers, the body as it is
+function fetchRaw(path) {
+  return new Promise(function(resolve, reject) {
+    http.get({ host: '127.0.0.1', port: 3456, path: path }, function(res) {
+      var chunks = [];
+      res.on('data', function(chunk) { chunks.push(chunk); });
+      res.on('end', function() { resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }); });
+    }).on('error', reject);
+  });
+}
+
+// A file sent as a browser's form sends it
+function upload(path, fields, file) {
+  return new Promise(function(resolve, reject) {
+    var boundary = '----test' + Math.random().toString(36).slice(2);
+    var parts = [];
+    Object.keys(fields).forEach(function(name) {
+      parts.push(Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="' + name + '"\r\n\r\n' + fields[name] + '\r\n'));
+    });
+    if (file) {
+      parts.push(Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="' + file.name +
+        '"\r\nContent-Type: application/octet-stream\r\n\r\n'));
+      parts.push(file.body);
+      parts.push(Buffer.from('\r\n'));
+    }
+    parts.push(Buffer.from('--' + boundary + '--\r\n'));
+    var data = Buffer.concat(parts);
+    var req = http.request({ host: '127.0.0.1', port: 3456, path: path, method: 'POST',
+      headers: { 'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': data.length } }, function(res) {
+      var text = '';
+      res.on('data', function(chunk) { text += chunk; });
+      res.on('end', function() { resolve({ status: res.statusCode, text: text }); });
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+// The header of a PNG of the given size
+function pngOf(width, height, bytes) {
+  var head = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(head, 0);
+  head.writeUInt32BE(13, 8);
+  head.write('IHDR', 12, 'latin1');
+  head.writeUInt32BE(width, 16);
+  head.writeUInt32BE(height, 20);
+  return Buffer.concat([head, Buffer.alloc(Math.max(0, (bytes || 200) - 33))]);
+}
+
 var DAB_NAME = 'BBC Radio1      ';
 function dabTrack(name, channel) {
   return { uri: 'rtlsdr://dab/' + (channel || '12B') + '/' + encodeURIComponent(name), title: name.trim(), service: 'rtlsdr_radio' };
@@ -592,6 +641,83 @@ test('station logos through the manager: the state is told, a refresh is taken, 
   assert.match(item.albumart, /^\/albumart\?sourceicon=music_service\/rtlsdr_radio\/assets\/fm\.svg&v=/);
   plugin.stationsDb.dab = [];
   plugin.stationsDb.fm = [];
+});
+
+test('a station\'s logo through the manager: uploaded, refused with the reason, shown, and given back', async function() {
+  var fm = { frequency: '100.0', name: 'FM 100.0', customName: 'Kiss' };
+  var dab = { channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensembleId: 'CE15', serviceId: 'C221', deleted: false };
+  plugin.stationsDb.fm = [fm];
+  plugin.stationsDb.dab = [dab];
+  var shown = JSON.parse((await get('/api/logos/stations')).text);
+  assert.deepStrictEqual(shown, { fm: { '100.0': { url: null, from: null, ref: null } },
+    dab: { ['12B|' + DAB_NAME]: { url: null, from: null, ref: null } } });
+
+  // A picture of the user's own
+  var picture = pngOf(600, 600);
+  var sent = await upload('/api/logos/upload', { type: 'fm', frequency: '100.0' }, { name: 'kiss.png', body: picture });
+  assert.strictEqual(sent.status, 200, sent.text);
+  var logo = JSON.parse(sent.text).logo;
+  assert.deepStrictEqual([logo.from, logo.ref], ['user', 'kiss.png']);
+  assert.match(logo.url, /^\/logos\/user-fm-10000\.png\?v=[0-9a-z]+$/);
+  var page = await fetchRaw(logo.url);
+  assert.strictEqual(page.status, 200);
+  assert.match(page.headers['content-type'], /^image\/png/);
+  assert.ok(page.body.equals(picture));
+  // Volumio's lists and the play state take it from then on
+  assert.match(plugin.fmIcon(fm), /^music_service\/rtlsdr_radio\/logos\/user-fm-10000\.png&v=[0-9a-z]+$/);
+  assert.strictEqual(JSON.parse((await get('/api/logos/stations')).text).fm['100.0'].from, 'user');
+
+  // A DAB station is named by its channel and its exact name, trailing spaces and all
+  sent = await upload('/api/logos/upload', { type: 'dab', channel: '12B', exactName: DAB_NAME }, { name: 'r1.png', body: picture });
+  assert.strictEqual(sent.status, 200, sent.text);
+  assert.match(plugin.dabIcon(dab), /logos\/user-dab-ce15-c221\.png&v=/);
+
+  // What cannot be a logo is refused, each with its reason
+  var refused = [
+    [{ name: 'tiny.png', body: pngOf(40, 40) }, 400, 'too-small'],
+    [{ name: 'paper.pdf', body: Buffer.from('%PDF-1.7 not a picture at all') }, 400, 'not-a-picture'],
+    [{ name: 'huge.png', body: pngOf(600, 600, 2 * 1024 * 1024 + 4096) }, 413, 'too-large'],
+    [{ name: 'evil.svg', body: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>') }, 400, 'unsafe']
+  ];
+  for (var i = 0; i < refused.length; i++) {
+    var answer = await upload('/api/logos/upload', { type: 'fm', frequency: '100.0' }, refused[i][0]);
+    assert.strictEqual(answer.status, refused[i][1], refused[i][0].name + ': ' + answer.text);
+    assert.strictEqual(JSON.parse(answer.text).error, refused[i][2], refused[i][0].name);
+  }
+  assert.match(plugin.fmIcon(fm), /user-fm-10000\.png/, 'a refused picture leaves the one before in place');
+  assert.strictEqual((await upload('/api/logos/upload', { type: 'fm', frequency: '99.9' }, { name: 'a.png', body: picture })).status, 404);
+  assert.deepStrictEqual(fs.readdirSync('/tmp').filter(function(f) { return /^[0-9a-f]{32}$/.test(f); }), [], 'nothing of an upload is left behind');
+
+  // An SVG is taken as it is, and is served so that it can draw and nothing else
+  var drawing = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>');
+  sent = await upload('/api/logos/upload', { type: 'fm', frequency: '100.0' }, { name: 'kiss.svg', body: drawing });
+  assert.strictEqual(sent.status, 200, sent.text);
+  page = await fetchRaw(JSON.parse(sent.text).logo.url);
+  assert.match(page.headers['content-type'], /^image\/svg\+xml/);
+  assert.match(page.headers['content-security-policy'], /sandbox/);
+  assert.ok(page.body.equals(drawing));
+
+  // The store's own files are not pictures, and nothing outside it is reached
+  assert.strictEqual((await fetchRaw('/logos/index.json')).status, 404);
+  assert.strictEqual((await fetchRaw('/logos/..%2Fconfig.json')).status, 404);
+
+  // The library names what is kept on the player; one of those can be chosen
+  var library = JSON.parse((await get('/api/logos/library?q=bbc')).text);
+  assert.deepStrictEqual(library.kept.map(function(k) { return [k.name, k.file]; }), [['BBC Radio1', 'user-dab-ce15-c221.png']]);
+  assert.strictEqual(library.rules.least, 128);
+  var chosen = await post('/api/logos/choose', { station: { type: 'fm', frequency: '100.0' }, source: 'kept', file: 'user-dab-ce15-c221.png', name: 'BBC Radio1' });
+  assert.strictEqual(chosen.status, 200, chosen.text);
+  assert.deepStrictEqual([JSON.parse(chosen.text).logo.from, JSON.parse(chosen.text).logo.ref], ['user', 'BBC Radio1']);
+  assert.strictEqual((await post('/api/logos/choose', { station: { type: 'fm', frequency: '100.0' }, source: 'list', url: 'http://elsewhere.example/a.png' })).status, 400);
+  assert.strictEqual((await post('/api/logos/choose', { station: { type: 'fm', frequency: '100.0' }, source: 'kept', file: '../index.json' })).status, 400);
+
+  // Back to automatic
+  var cleared = await post('/api/logos/clear', { station: { type: 'fm', frequency: '100.0' } });
+  assert.deepStrictEqual(JSON.parse(cleared.text).logo, { url: null, from: null, ref: null });
+  assert.match(plugin.fmIcon(fm), /assets\/fm\.svg/);
+  await post('/api/logos/clear', { station: { type: 'dab', channel: '12B', exactName: DAB_NAME } });
+  plugin.stationsDb.fm = [];
+  plugin.stationsDb.dab = [];
 });
 
 test('plugin update through the manager: the store is asked through the player, and only a signed-in player is answered', async function() {

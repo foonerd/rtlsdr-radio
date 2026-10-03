@@ -200,19 +200,23 @@ function fmServicesOf(siXml) {
 }
 
 // Every service of a list that has a logo, by the names the list gives it:
-// { '<name>': logo url }. The short name (8 characters) is left out: it abbreviates,
-// and abbreviations of different stations look alike.
+// { '<name>': { url, small } }, url being the logo to show and small the one to show
+// among many (the square one nearest 128 pixels). The short name (8 characters) is left
+// out: it abbreviates, and abbreviations of different stations look alike.
 function namedServicesOf(siXml) {
   var found = {};
   servicesOf(siXml).forEach(function(service) {
-    var logo = bestLogo(multimediaOf(service));
+    var logos = multimediaOf(service);
+    var logo = bestLogo(logos);
     if (!logo) {
       return;
     }
+    var small = logos.filter(function(l) { return l.width >= 64 && l.width === l.height; })
+      .sort(function(a, b) { return Math.abs(a.width - 128) - Math.abs(b.width - 128); })[0] || logo;
     ['mediumName', 'longName'].forEach(function(tag) {
       var name = textOf(service, tag);
       if (name && !(name in found)) {
-        found[name] = logo.url;
+        found[name] = { url: logo.url, small: small.url };
       }
     });
   });

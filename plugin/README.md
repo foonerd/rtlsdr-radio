@@ -253,6 +253,18 @@ A DAB station says what it is by the identifiers it transmits. An FM station doe
 - A station without a name and without RDS keeps the FM icon. Naming it in the Station Manager is what finds its logo.
 - The name RDS sends is taken as the station's name only after it has stood unchanged for half a minute: some stations put running text there. A name you gave a station is never changed.
 
+**A logo of your own (Station Manager):**
+
+Every station in the FM and DAB lists shows its logo at the front of its row; a station without one shows an empty frame. The **No logo** card above each list counts those stations, and a press on it shows only them.
+
+A press on a station's logo opens its logo dialog. It shows the logo in use and where it comes from, and offers three ways to change it:
+
+- **Your own picture.** PNG, JPEG or SVG. Square, 600 × 600 pixels is ideal; up to 2 MB. The dialog shows the picture as it will look before anything is saved. A picture that is not square is fitted into a square (the whole picture, or filling the square and cropped to the centre); a larger one is scaled down to 600 × 600. Refused, with the reason: a file that is not a picture, a picture smaller than 128 pixels on a side (below 300 it is taken with a warning), and an SVG that contains script or refers to anything outside itself.
+- **One of the broadcasters' logos.** A search by name among the services the broadcasters' lists name. The lists are those of the broadcasters you receive on DAB, so the choice is wide but not complete.
+- **One of the logos already on the player.**
+
+Your choice is shown everywhere in place of whatever is found for the station, and no refresh replaces it. **Back to automatic** returns the station to the logo found for it.
+
 **When they are fetched:**
 
 - In the background after the plugin starts and after a scan, and whenever a station without a logo is listed or played. The station being played is fetched first.
@@ -265,7 +277,7 @@ The section shows how many stations have a logo and whether fetching is under wa
 
 **Where they are kept:**
 
-Logos are kept in `/data/rtlsdr_radio_logos` and survive plugin updates. Uninstalling the plugin removes them, unless *Auto-backup before uninstall* is selected, in which case they are kept for the next installation.
+Logos, your own among them, are kept in `/data/rtlsdr_radio_logos` and survive plugin updates. Uninstalling the plugin removes them, unless *Auto-backup before uninstall* is selected, in which case they are kept for the next installation. A backup made in the Station Manager holds stations and settings, not logos.
 
 ### Plugin Update
 The plugin can be updated from the Station Manager (Maintenance > Plugin Update), without waiting for the player to offer the update.
@@ -509,7 +521,19 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.20 (Current)
+### v1.3.21 (Current)
+- A logo of your own for any station, set in the Station Manager: a picture of yours
+  (PNG, JPEG or SVG), one of the broadcasters' logos found by a search, or one already
+  on the player. It stands above the logo found for the station, and "Back to
+  automatic" returns to that
+- The upload states what a picture should be, shows it as it will look, fits one that
+  is not square, scales a large one down, and says in plain words why a file cannot be
+  used
+- Every station row shows its logo. A "No logo" card counts the stations without one
+  and, pressed, shows only those
+- The logo count under Maintenance said "DAB stations" while counting FM stations too
+
+### v1.3.20
 - FM stations are shown with their logo. A station is found by its RDS programme code
   once that has been received while it plays, and until then by its name: among your
   DAB stations that have a logo, then in the broadcasters' lists

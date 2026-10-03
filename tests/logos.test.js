@@ -815,3 +815,84 @@ test('without a network an FM station is neither found nor written off', async f
   await idle(rig);
   assert.strictEqual(plain(rig.logos.icon(station)), 'music_service/rtlsdr_radio/logos/fm-08910.png');
 });
+
+// --- the user's own choice --------------------------------------------------------------
+
+test('a logo the user chose stands above the station\'s own, outlives a refresh and a restart, and can be given back', async function() {
+  var rig = make([RADIO_1]);
+  rig.logos.sweep();
+  await idle(rig);
+  var own = rig.logos.icon(RADIO_1);
+  assert.deepStrictEqual([rig.logos.describe(RADIO_1).from, rig.logos.describe(RADIO_1).file], ['broadcaster', 'dab-ce15-c221.png']);
+
+  var arrived = rig.asked(/^arrived/).length;
+  var shown = rig.logos.setUser(RADIO_1, { body: OTHER_PNG, extension: 'png' }, { from: 'upload', ref: 'mine.png' });
+  assert.deepStrictEqual([shown.from, shown.file, shown.ref], ['user', 'user-dab-ce15-c221.png', 'mine.png']);
+  assert.strictEqual(plain(rig.logos.icon(RADIO_1)), 'music_service/rtlsdr_radio/logos/user-dab-ce15-c221.png');
+  assert.strictEqual(rig.asked(/^arrived/).length, arrived + 1, 'the plugin is told, so that a playing station shows it');
+
+  rig.logos.refresh();
+  await idle(rig);
+  assert.ok(fs.readFileSync(rig.dir + '/user-dab-ce15-c221.png').equals(OTHER_PNG));
+  rig.open();
+  assert.strictEqual(plain(rig.logos.icon(RADIO_1)), 'music_service/rtlsdr_radio/logos/user-dab-ce15-c221.png');
+  assert.deepStrictEqual(rig.logos.status(), { state: 'idle', queued: 0, stations: 1, own: 1, group: 0, none: 0 });
+
+  // A picture of another kind takes the place of the first
+  rig.logos.setUser(RADIO_1, { body: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), extension: 'svg' }, { from: 'upload' });
+  assert.ok(!fs.existsSync(rig.dir + '/user-dab-ce15-c221.png'));
+  assert.strictEqual(plain(rig.logos.icon(RADIO_1)), 'music_service/rtlsdr_radio/logos/user-dab-ce15-c221.svg');
+
+  var back = rig.logos.clearUser(RADIO_1);
+  assert.strictEqual(back.from, 'broadcaster');
+  assert.ok(!fs.existsSync(rig.dir + '/user-dab-ce15-c221.svg'));
+  assert.strictEqual(rig.logos.icon(RADIO_1), own);
+});
+
+test('a logo can be chosen from what the broadcasters\' lists name, and from nothing else', async function() {
+  var fm = { frequency: '104.9', name: 'FM 104.9', customName: 'XFM' };
+  var rig = make([ABSOLUTE], { fm: [fm] });
+  rig.logos.sweep();
+  await idle(rig);
+  assert.strictEqual(rig.logos.icon(fm), null);
+
+  assert.deepStrictEqual(rig.logos.library('kiss').listed, [{ name: 'KISS XTRA',
+    url: 'https://bauer.example/kissxtra/600.png', small: 'https://bauer.example/kissxtra/600.png' }]);
+  assert.deepStrictEqual(rig.logos.library('').listed.map(function(l) { return l.name; }), ['Absolute Radio', 'KISS XTRA']);
+  assert.deepStrictEqual(rig.logos.library('nothing like it').listed, []);
+
+  var shown = await rig.logos.setUserFromList(fm, 'https://bauer.example/kissxtra/600.png');
+  assert.deepStrictEqual([shown.from, shown.ref, shown.file], ['user', 'KISS XTRA', 'user-fm-10490.png']);
+  assert.strictEqual(plain(rig.logos.icon(fm)), 'music_service/rtlsdr_radio/logos/user-fm-10490.png');
+
+  rig.log.length = 0;
+  await assert.rejects(rig.logos.setUserFromList(fm, 'http://elsewhere.example/a.png'), function(e) { return e.refused === true; });
+  assert.deepStrictEqual(rig.asked(/^get/), [], 'an address no list named is not fetched');
+});
+
+test('a logo kept for another station can be chosen, also for a station typed in by hand', async function() {
+  var typed = { channel: '12B', name: 'My Station', exactName: 'My Station      ' };
+  var rig = make([RADIO_1, typed]);
+  rig.logos.sweep();
+  await idle(rig);
+  var kept = rig.logos.library('').kept;
+  assert.deepStrictEqual(kept.map(function(k) { return [k.name, k.file]; }), [['BBC Radio 1', 'dab-ce15-c221.png']]);
+
+  var shown = rig.logos.setUserFromKept(typed, 'dab-ce15-c221.png', 'BBC Radio 1');
+  assert.match(shown.key, /^dab-x-[0-9a-f]{12}$/);
+  assert.deepStrictEqual([shown.from, shown.ref], ['user', 'BBC Radio 1']);
+  assert.ok(fs.readFileSync(rig.dir + '/' + shown.file).equals(fs.readFileSync(rig.dir + '/dab-ce15-c221.png')));
+  assert.match(plain(rig.logos.icon(typed)), /logos\/user-dab-x-[0-9a-f]{12}\.png$/);
+
+  assert.throws(function() { rig.logos.setUserFromKept(typed, '../index.json'); }, function(e) { return e.refused === true; });
+  assert.throws(function() { rig.logos.setUserFromKept(typed, 'index.json'); }, function(e) { return e.refused === true; });
+  assert.throws(function() { rig.logos.setUserFromKept(typed, 'not-there.png'); }, function(e) { return e.refused === true; });
+});
+
+test('a list names a small picture to show among many, where it has one', function() {
+  var xml = '<serviceInformation><services><service><mediumName>Some Station</mediumName>' +
+    picture(32, 'http://x.example/32.png') + picture(128, 'http://x.example/128.png') +
+    picture(600, 'http://x.example/600.png') + picture('320x240', 'http://x.example/wide.png') +
+    '<bearer id="dab:ce1.c181.c1c0.0"/></service></services></serviceInformation>';
+  assert.deepStrictEqual(radiodns.namedServicesOf(xml), { 'Some Station': { url: 'http://x.example/600.png', small: 'http://x.example/128.png' } });
+});

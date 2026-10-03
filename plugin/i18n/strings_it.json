@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "Impostazioni salvate. Riavviare Volumio per applicare le modifiche.",
   "TOAST_DELETED_STATION": "Impossibile riprodurre una stazione eliminata. Ripristinala prima dalle Impostazioni.",
   "TOAST_DB_UPGRADED": "Database aggiornato a v2 (backup salvato)",
+  "TOAST_DB_RESTORED": "Elenco delle stazioni ripristinato dal backup",
+  "TOAST_DB_SAVE_FAILED": "Impossibile salvare l'elenco delle stazioni",
   "TOAST_PURGED_COUNT": "{0} stazioni eliminate rimosse",
   "TOAST_PURGE_ALL_FAILED": "Rimozione stazioni eliminate fallita",
   "TOAST_FM_REAPPEARED": "{0} stazione/i eliminata/e di nuovo disponibile/i",

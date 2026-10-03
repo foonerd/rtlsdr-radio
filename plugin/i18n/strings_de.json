@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "Einstellungen gespeichert. Bitte starten Sie Volumio neu, damit die Änderungen wirksam werden.",
   "TOAST_DELETED_STATION": "Gelöschter Sender kann nicht abgespielt werden. Stellen Sie ihn zuerst in den Einstellungen wieder her.",
   "TOAST_DB_UPGRADED": "Datenbank auf v2 aktualisiert (Sicherung gespeichert)",
+  "TOAST_DB_RESTORED": "Senderliste aus Sicherung wiederhergestellt",
+  "TOAST_DB_SAVE_FAILED": "Die Senderliste konnte nicht gespeichert werden",
   "TOAST_PURGED_COUNT": "{0} gelöschte Sender entfernt",
   "TOAST_PURGE_ALL_FAILED": "Fehler beim Entfernen gelöschter Sender",
   "TOAST_FM_REAPPEARED": "{0} gelöschte(r) Sender wieder verfügbar",

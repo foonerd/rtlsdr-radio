@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "Settings saved. Please restart Volumio for changes to take effect.",
   "TOAST_DELETED_STATION": "Cannot play deleted station. Restore it first from Settings.",
   "TOAST_DB_UPGRADED": "Database upgraded to v2 (backup saved)",
+  "TOAST_DB_RESTORED": "Station list restored from backup",
+  "TOAST_DB_SAVE_FAILED": "The station list could not be saved",
   "TOAST_PURGED_COUNT": "Purged {0} deleted stations",
   "TOAST_PURGE_ALL_FAILED": "Failed to purge deleted stations",
   "TOAST_FM_REAPPEARED": "{0} deleted station(s) available again",

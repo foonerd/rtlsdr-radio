@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "Definições guardadas. Reinicie o Volumio para que as alterações tenham efeito.",
   "TOAST_DELETED_STATION": "Não é possível reproduzir uma estação eliminada. Restaure-a primeiro a partir das Definições.",
   "TOAST_DB_UPGRADED": "Base de dados atualizada para v2 (cópia guardada)",
+  "TOAST_DB_RESTORED": "Lista de estações restaurada a partir do backup",
+  "TOAST_DB_SAVE_FAILED": "Não foi possível guardar a lista de estações",
   "TOAST_PURGED_COUNT": "{0} estações eliminadas purgadas",
   "TOAST_PURGE_ALL_FAILED": "Purgação de estações eliminadas falhou",
   "TOAST_FM_REAPPEARED": "{0} estação/ões eliminada(s) disponível/eis novamente",

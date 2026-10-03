@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "設定を保存しました。変更を有効にするには Volumio を再起動してください。",
   "TOAST_DELETED_STATION": "削除された局は再生できません。まず設定から復元してください。",
   "TOAST_DB_UPGRADED": "データベースを v2 にアップグレードしました（バックアップを保存）",
+  "TOAST_DB_RESTORED": "バックアップからステーションリストを復元しました",
+  "TOAST_DB_SAVE_FAILED": "ステーションリストを保存できませんでした",
   "TOAST_PURGED_COUNT": "{0} 個の削除された局を消去しました",
   "TOAST_PURGE_ALL_FAILED": "削除された局の消去に失敗しました",
   "TOAST_FM_REAPPEARED": "{0} 個の削除された局が再び利用可能になりました",

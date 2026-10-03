@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "Ustawienia zapisane. Uruchom ponownie Volumio, aby zastosować zmiany.",
   "TOAST_DELETED_STATION": "Nie można odtworzyć usuniętej stacji. Najpierw przywróć ją z Ustawień.",
   "TOAST_DB_UPGRADED": "Baza danych zaktualizowana do wersji 2 (kopia zapasowa zapisana)",
+  "TOAST_DB_RESTORED": "Lista stacji przywrócona z kopii zapasowej",
+  "TOAST_DB_SAVE_FAILED": "Nie udało się zapisać listy stacji",
   "TOAST_PURGED_COUNT": "Usunięto {0} usuniętych stacji",
   "TOAST_PURGE_ALL_FAILED": "Nie udało się usunąć usuniętych stacji",
   "TOAST_FM_REAPPEARED": "{0} usunięta(e) stacja(e) ponownie dostępna(e)",

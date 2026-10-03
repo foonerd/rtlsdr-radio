@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "Paramètres enregistrés. Veuillez redémarrer Volumio pour que les modifications prennent effet.",
   "TOAST_DELETED_STATION": "Impossible de lire une station supprimée. Restaurez-la d'abord depuis les Paramètres.",
   "TOAST_DB_UPGRADED": "Base de données mise à niveau vers v2 (sauvegarde enregistrée)",
+  "TOAST_DB_RESTORED": "Liste des stations restaurée depuis la sauvegarde",
+  "TOAST_DB_SAVE_FAILED": "La liste des stations n'a pas pu être enregistrée",
   "TOAST_PURGED_COUNT": "{0} stations supprimées purgées",
   "TOAST_PURGE_ALL_FAILED": "Échec de la purge des stations supprimées",
   "TOAST_FM_REAPPEARED": "{0} station(s) supprimée(s) à nouveau disponible(s)",

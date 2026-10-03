@@ -9,6 +9,7 @@ var express = require('express');
 var bodyParser = require('body-parser');
 var path = require('path');
 var metadata = require('./lib/metadata');
+var storage = require('./lib/storage');
 
 module.exports = ControllerRtlsdrRadio;
 
@@ -32,7 +33,7 @@ function ControllerRtlsdrRadio(context) {
   // Station database
   self.currentStation = null;
   self.stationsDb = { fm: [], dab: [] };
-  self.stationsDbFile = '/data/plugins/music_service/rtlsdr_radio/stations.json';
+  self.stationsDbFile = storage.file('stations');
   self.dbLoadedAt = null;
   
   // Device state management
@@ -186,6 +187,10 @@ ControllerRtlsdrRadio.prototype.onStop = function() {
   // Force terminate all processes
   self.stopAllProcesses('onStop', true);
   
+  // Whatever follows the stop (an update, an uninstall), the lists are kept with the backups
+  storage.keepLastGood('stations');
+  storage.keepLastGood('blocklist');
+  
   // Clear device state (process references already cleared by stopAllProcesses)
   self.deviceState = 'idle';
   
@@ -234,7 +239,7 @@ ControllerRtlsdrRadio.prototype.onInstall = function() {
   self.logger.info('[RTL-SDR Radio] onInstall: Performing installation tasks');
   
   // Check if database exists from previous installation
-  var stationsFile = '/data/plugins/music_service/rtlsdr_radio/stations.json';
+  var stationsFile = self.stationsDbFile;
   if (fs.existsSync(stationsFile)) {
     try {
       var data = fs.readJsonSync(stationsFile);
@@ -362,7 +367,7 @@ ControllerRtlsdrRadio.prototype.createBlocklistBackup = function(timestamp) {
     var backupDir = '/data/rtlsdr_radio_backups/blocklist';
     fs.ensureDirSync(backupDir);
     
-    var sourceFile = '/data/plugins/music_service/rtlsdr_radio/blocklist.json';
+    var sourceFile = storage.file('blocklist');
     var backupFile = backupDir + '/blocklist-' + timestamp + '.json';
     
     if (fs.existsSync(sourceFile)) {
@@ -502,10 +507,9 @@ ControllerRtlsdrRadio.prototype.restoreStationsBackup = function(timestamp) {
   
   try {
     var backupFile = '/data/rtlsdr_radio_backups/stations/stations-' + timestamp + '.json';
-    var targetFile = self.stationsDbFile;
     
     if (fs.existsSync(backupFile)) {
-      fs.copySync(backupFile, targetFile);
+      storage.write('stations', fs.readJsonSync(backupFile));
       self.logger.info('[RTL-SDR Radio] Restored stations from: ' + backupFile);
       defer.resolve();
     } else {
@@ -525,10 +529,9 @@ ControllerRtlsdrRadio.prototype.restoreBlocklistBackup = function(timestamp) {
   
   try {
     var backupFile = '/data/rtlsdr_radio_backups/blocklist/blocklist-' + timestamp + '.json';
-    var targetFile = '/data/plugins/music_service/rtlsdr_radio/blocklist.json';
     
     if (fs.existsSync(backupFile)) {
-      fs.copySync(backupFile, targetFile);
+      storage.write('blocklist', fs.readJsonSync(backupFile));
       self.logger.info('[RTL-SDR Radio] Restored blocklist from: ' + backupFile);
       // Reload blocklist into metadata module
       self.loadBlocklistOnStartup();
@@ -554,6 +557,8 @@ ControllerRtlsdrRadio.prototype.restoreConfigBackup = function(timestamp) {
     
     if (fs.existsSync(backupFile)) {
       fs.copySync(backupFile, targetFile);
+      // The settings in memory must follow the file, or the next change writes the old ones back
+      self.config.loadFile(targetFile);
       self.logger.info('[RTL-SDR Radio] Restored config from: ' + backupFile);
       defer.resolve();
     } else {
@@ -1127,7 +1132,14 @@ ControllerRtlsdrRadio.prototype.importCsvStations = function(type, stations, ope
   }
   
   // Save changes
-  self.saveStations();
+  if (!self.saveStations()) {
+    return {
+      success: false,
+      error: 'The station list could not be saved',
+      type: type,
+      operation: operation
+    };
+  }
   
   return {
     success: true,
@@ -1201,7 +1213,7 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       try {
         var data = req.body;
         
-        if (!data.fm || !data.dab) {
+        if (!Array.isArray(data.fm) || !Array.isArray(data.dab)) {
           return res.status(400).json({ error: 'Invalid data format' });
         }
         
@@ -1215,12 +1227,25 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
           }
         });
         
+        // Check the new list before it replaces the one in memory: a list that
+        // cannot be saved must not become the list the plugin works with
+        if (self.stationsDb.version === 2) {
+          var candidate = Object.assign({}, self.stationsDb, { fm: data.fm, dab: data.dab });
+          var validation = self.validateDatabaseV2(candidate);
+          if (!validation.valid) {
+            self.logger.error('[RTL-SDR Radio] Station update refused: ' + validation.errors.join(', '));
+            return res.status(400).json({ error: 'Invalid station data', errors: validation.errors });
+          }
+        }
+        
         // Update database
         self.stationsDb.fm = data.fm;
         self.stationsDb.dab = data.dab;
         
         // Save to disk (synchronous)
-        self.saveStations();
+        if (!self.saveStations()) {
+          return res.status(500).json({ error: 'The station list could not be saved' });
+        }
         self.logger.info('[RTL-SDR Radio] Stations updated via web interface');
         res.json({ success: true });
         
@@ -1243,7 +1268,9 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
         });
         
         // Save to disk
-        self.saveStations();
+        if (!self.saveStations()) {
+          return res.status(500).json({ error: 'The station list could not be saved' });
+        }
         self.logger.info('[RTL-SDR Radio] Purged deleted stations via web interface');
         res.json({ success: true });
         
@@ -1267,7 +1294,9 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
         });
         
         // Save to disk
-        self.saveStations();
+        if (!self.saveStations()) {
+          return res.status(500).json({ error: 'The station list could not be saved' });
+        }
         self.logger.info('[RTL-SDR Radio] Cleared ' + clearedCount + ' FM stations via web interface');
         res.json({ success: true, count: clearedCount });
         
@@ -1291,7 +1320,9 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
         });
         
         // Save to disk
-        self.saveStations();
+        if (!self.saveStations()) {
+          return res.status(500).json({ error: 'The station list could not be saved' });
+        }
         self.logger.info('[RTL-SDR Radio] Cleared ' + clearedCount + ' DAB stations via web interface');
         res.json({ success: true, count: clearedCount });
         
@@ -1558,8 +1589,15 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
         
         self.extractAndValidateZip(zipPath)
           .then(function(result) {
-            var targetFile = result.info.type === 'stations' ? self.stationsDbFile : '/data/configuration/music_service/rtlsdr_radio/config.json';
-            fs.copySync(result.jsonFile, targetFile);
+            if (result.info.type === 'stations') {
+              storage.write('stations', fs.readJsonSync(result.jsonFile));
+            } else if (result.info.type === 'blocklist') {
+              storage.write('blocklist', fs.readJsonSync(result.jsonFile));
+            } else {
+              var configFile = '/data/configuration/music_service/rtlsdr_radio/config.json';
+              fs.copySync(result.jsonFile, configFile);
+              self.config.loadFile(configFile);
+            }
             fs.removeSync(zipPath);
             fs.removeSync(result.extractDir);
             
@@ -1673,6 +1711,10 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
         }
         
         var result = self.importCsvStations(validation.type, validation.stations, operation);
+        if (result.success === false) {
+          res.status(500).json(result);
+          return;
+        }
         res.json(result);
       } catch (e) {
         res.status(500).json({ error: e.toString() });
@@ -6220,63 +6262,100 @@ ControllerRtlsdrRadio.prototype.saveConfig = function(data) {
   return defer.promise;
 };
 
+// Turn what was read from a file into a database this version can use.
+// Returns { db: <database>, migrated: <boolean> } or null.
+ControllerRtlsdrRadio.prototype.prepareDatabase = function(data, source) {
+  var self = this;
+  var version = self.getDatabaseVersion(data);
+  
+  if (version < 2) {
+    self.logger.info('[RTL-SDR Radio] Migrating database from v' + version + ' to v2 (' + source + ')');
+    var migrated = self.migrateDatabase(data);
+    if (migrated) {
+      return { db: migrated, migrated: true };
+    }
+    self.logger.error('[RTL-SDR Radio] Migration failed (' + source + ')');
+    return null;
+  }
+  
+  if (version === 2) {
+    var validation = self.validateDatabaseV2(data);
+    if (validation.valid) {
+      return { db: data, migrated: false };
+    }
+    self.logger.error('[RTL-SDR Radio] Database validation failed (' + source + '): ' +
+      validation.errors.join(', '));
+    return null;
+  }
+  
+  self.logger.error('[RTL-SDR Radio] Unsupported database version ' + version + ' (' + source + ')');
+  return null;
+};
+
 ControllerRtlsdrRadio.prototype.loadStations = function() {
   var self = this;
-  var stationsFile = '/data/plugins/music_service/rtlsdr_radio/stations.json';
+  var stationsFile = self.stationsDbFile;
   
+  // Earlier versions kept the list in the plugin's own folder, which Volumio
+  // removes on every update
   try {
-    if (fs.existsSync(stationsFile)) {
-      var data = fs.readJsonSync(stationsFile);
-      var version = self.getDatabaseVersion(data);
-      
-      self.logger.info('[RTL-SDR Radio] Database version: ' + version);
-      
-      if (version < 2) {
-        // Migration needed from v1 to v2
-        self.logger.info('[RTL-SDR Radio] Migrating database from v' + version + ' to v2');
-        self.stationsDb = self.migrateDatabase(data);
-        
-        if (self.stationsDb) {
-          // Save migrated database
-          self.saveStations();
-          self.commandRouter.pushToastMessage('info', 'FM/DAB Radio', 
-            self.getI18nString('TOAST_DB_UPGRADED'));
-        } else {
-          // Migration failed, create new
-          self.logger.error('[RTL-SDR Radio] Migration failed, creating new database');
-          self.stationsDb = self.createEmptyDatabaseV2();
-        }
-      } else if (version === 2) {
-        // Validate v2 database
-        var validation = self.validateDatabaseV2(data);
-        if (validation.valid) {
-          self.stationsDb = data;
-          self.logger.info('[RTL-SDR Radio] Loaded v2 database successfully');
-        } else {
-          self.logger.error('[RTL-SDR Radio] Database validation failed: ' + 
-            validation.errors.join(', '));
-          // Try to load backup or create new
-          var backupFile = stationsFile + '.backup';
-          if (fs.existsSync(backupFile)) {
-            self.logger.info('[RTL-SDR Radio] Loading from backup');
-            self.stationsDb = fs.readJsonSync(backupFile);
-          } else {
-            self.logger.info('[RTL-SDR Radio] Creating new database');
-            self.stationsDb = self.createEmptyDatabaseV2();
-          }
-        }
-      } else {
-        // Unsupported version
-        self.logger.error('[RTL-SDR Radio] Unsupported database version: ' + version);
-        self.stationsDb = self.createEmptyDatabaseV2();
-      }
-    } else {
-      // No database file, create new v2
-      self.logger.info('[RTL-SDR Radio] No stations database found, creating v2');
-      self.stationsDb = self.createEmptyDatabaseV2();
+    if (storage.migrateLegacy('stations')) {
+      self.logger.info('[RTL-SDR Radio] Moved the station list to ' + stationsFile);
     }
   } catch (e) {
-    self.logger.error('[RTL-SDR Radio] Error loading stations: ' + e);
+    self.logger.error('[RTL-SDR Radio] Could not move the station list: ' + e);
+  }
+  
+  var prepared = null;
+  var restoredFrom = null;
+  var result = storage.read('stations');
+  
+  if (result.data) {
+    prepared = self.prepareDatabase(result.data, stationsFile);
+    if (!prepared) {
+      // Set aside what is there: the next save must not overwrite it
+      var aside = stationsFile + '.invalid-' + new Date().toISOString().replace(/[:.]/g, '-');
+      try {
+        fs.moveSync(stationsFile, aside, { overwrite: true });
+        self.logger.info('[RTL-SDR Radio] Kept the unusable station list as ' + aside);
+      } catch (e) {
+        self.logger.error('[RTL-SDR Radio] Could not set the unusable station list aside: ' + e);
+      }
+    }
+  } else if (result.unreadable) {
+    self.logger.error('[RTL-SDR Radio] Station list unreadable (' + result.error + '), kept as ' + result.movedTo);
+  } else {
+    self.logger.info('[RTL-SDR Radio] No station list found');
+  }
+  
+  if (!prepared) {
+    // Missing, unreadable or unusable: the last good copy or the newest backup
+    var candidate = storage.fallback('stations', function(data) {
+      return self.prepareDatabase(data, 'backup');
+    });
+    if (candidate) {
+      prepared = candidate.accepted;
+      restoredFrom = candidate.from;
+    }
+  }
+  
+  if (prepared) {
+    self.stationsDb = prepared.db;
+    self.logger.info('[RTL-SDR Radio] Loaded v2 database successfully');
+    if (prepared.migrated || restoredFrom) {
+      self.saveStations();
+    }
+    if (prepared.migrated) {
+      self.commandRouter.pushToastMessage('info', 'FM/DAB Radio',
+        self.getI18nString('TOAST_DB_UPGRADED'));
+    }
+    if (restoredFrom) {
+      self.logger.info('[RTL-SDR Radio] Station list restored from ' + restoredFrom);
+      self.commandRouter.pushToastMessage('info', 'FM/DAB Radio',
+        self.getI18nString('TOAST_DB_RESTORED'));
+    }
+  } else {
+    self.logger.info('[RTL-SDR Radio] Starting with an empty station list');
     self.stationsDb = self.createEmptyDatabaseV2();
   }
   
@@ -6306,26 +6385,38 @@ ControllerRtlsdrRadio.prototype.loadStations = function() {
   return libQ.resolve();
 };
 
+// Save the station list. Returns true when it is on disk and false when it is not;
+// a failure is logged and shown, at most once a minute.
 ControllerRtlsdrRadio.prototype.saveStations = function() {
   var self = this;
-  var stationsFile = '/data/plugins/music_service/rtlsdr_radio/stations.json';
+  var problem = null;
   
   try {
     // Validate before saving
     if (self.stationsDb.version === 2) {
       var validation = self.validateDatabaseV2(self.stationsDb);
       if (!validation.valid) {
-        self.logger.error('[RTL-SDR Radio] Cannot save invalid database: ' + 
-          validation.errors.join(', '));
-        return;
+        problem = 'invalid database: ' + validation.errors.join(', ');
       }
     }
     
-    fs.writeJsonSync(stationsFile, self.stationsDb);
-    self.logger.info('[RTL-SDR Radio] Saved stations database');
+    if (!problem) {
+      storage.write('stations', self.stationsDb);
+      self.logger.info('[RTL-SDR Radio] Saved stations database');
+      return true;
+    }
   } catch (e) {
-    self.logger.error('[RTL-SDR Radio] Failed to save stations: ' + e);
+    problem = e.toString();
   }
+  
+  self.logger.error('[RTL-SDR Radio] Failed to save stations: ' + problem);
+  var now = Date.now();
+  if (!self.lastSaveFailureToast || now - self.lastSaveFailureToast > 60000) {
+    self.lastSaveFailureToast = now;
+    self.commandRouter.pushToastMessage('error', 'FM/DAB Radio',
+      self.getI18nString('TOAST_DB_SAVE_FAILED'));
+  }
+  return false;
 };
 
 // ========== ARTWORK BLOCK LIST FUNCTIONS ==========
@@ -6360,12 +6451,26 @@ ControllerRtlsdrRadio.prototype.getDefaultBlocklistPhrases = function() {
 
 ControllerRtlsdrRadio.prototype.getBlocklistPhrases = function() {
   var self = this;
-  var blocklistFile = '/data/plugins/music_service/rtlsdr_radio/blocklist.json';
   
   try {
-    if (fs.existsSync(blocklistFile)) {
-      var data = fs.readJsonSync(blocklistFile);
-      return data.phrases || [];
+    storage.migrateLegacy('blocklist');
+    var result = storage.read('blocklist');
+    if (result.unreadable) {
+      self.logger.error('[RTL-SDR Radio] Blocklist unreadable (' + result.error + '), kept as ' + result.movedTo);
+    }
+    if (!result.data) {
+      // Missing or unreadable: the last good copy or the newest backup
+      var candidate = storage.fallback('blocklist', function(data) {
+        return Array.isArray(data.phrases);
+      });
+      if (candidate) {
+        self.logger.info('[RTL-SDR Radio] Blocklist restored from ' + candidate.from);
+        storage.write('blocklist', candidate.data);
+        result = { data: candidate.data };
+      }
+    }
+    if (result.data) {
+      return result.data.phrases || [];
     }
   } catch (e) {
     self.logger.error('[RTL-SDR Radio] Error loading blocklist: ' + e);
@@ -6377,10 +6482,9 @@ ControllerRtlsdrRadio.prototype.getBlocklistPhrases = function() {
 
 ControllerRtlsdrRadio.prototype.saveBlocklistPhrases = function(phrases) {
   var self = this;
-  var blocklistFile = '/data/plugins/music_service/rtlsdr_radio/blocklist.json';
   
   try {
-    fs.writeJsonSync(blocklistFile, { 
+    storage.write('blocklist', { 
       phrases: phrases,
       updated: new Date().toISOString()
     });
@@ -6416,8 +6520,7 @@ ControllerRtlsdrRadio.prototype.loadBlocklistOnStartup = function() {
   var self = this;
   
   // Load user blocklist and apply to metadata module
-  var blocklistFile = '/data/plugins/music_service/rtlsdr_radio/blocklist.json';
-  self.logger.info('[RTL-SDR Radio] Loading blocklist from: ' + blocklistFile);
+  self.logger.info('[RTL-SDR Radio] Loading blocklist from: ' + storage.file('blocklist'));
   
   var phrases = self.getBlocklistPhrases();
   self.logger.info('[RTL-SDR Radio] Got ' + phrases.length + ' phrases from file');
@@ -6551,7 +6654,7 @@ ControllerRtlsdrRadio.prototype.transformStationToV2 = function(station, type) {
 
 ControllerRtlsdrRadio.prototype.backupDatabase = function(suffix) {
   var self = this;
-  var stationsFile = '/data/plugins/music_service/rtlsdr_radio/stations.json';
+  var stationsFile = self.stationsDbFile;
   
   try {
     if (!fs.existsSync(stationsFile)) {

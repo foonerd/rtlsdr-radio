@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "Instellingen opgeslagen. Start Volumio opnieuw op om wijzigingen toe te passen.",
   "TOAST_DELETED_STATION": "Kan verwijderd station niet afspelen. Herstel het eerst vanuit Instellingen.",
   "TOAST_DB_UPGRADED": "Database geupgraded naar v2 (back-up opgeslagen)",
+  "TOAST_DB_RESTORED": "Stationslijst hersteld vanuit back-up",
+  "TOAST_DB_SAVE_FAILED": "De stationslijst kon niet worden opgeslagen",
   "TOAST_PURGED_COUNT": "{0} verwijderde stations gewist",
   "TOAST_PURGE_ALL_FAILED": "Wissen van verwijderde stations mislukt",
   "TOAST_FM_REAPPEARED": "{0} verwijderd(e) station(s) weer beschikbaar",

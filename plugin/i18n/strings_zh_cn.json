@@ -160,6 +160,8 @@
   "TOAST_RESTART_REQUIRED": "设置已保存。请重启 Volumio 以使更改生效。",
   "TOAST_DELETED_STATION": "无法播放已删除的电台。请先从设置中恢复它。",
   "TOAST_DB_UPGRADED": "数据库已升级到 v2（已保存备份）",
+  "TOAST_DB_RESTORED": "已从备份恢复电台列表",
+  "TOAST_DB_SAVE_FAILED": "无法保存电台列表",
   "TOAST_PURGED_COUNT": "已清除 {0} 个已删除的电台",
   "TOAST_PURGE_ALL_FAILED": "清除已删除的电台失败",
   "TOAST_FM_REAPPEARED": "{0} 个已删除的电台再次可用",

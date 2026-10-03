@@ -3112,21 +3112,18 @@ ControllerRtlsdrRadio.prototype.addToBrowseSources = function() {
 };
 
 // The antenna tools take the tuner for themselves: what this plugin was playing is
-// stopped and shown as paused, and the tool gets a job of its own. Resolves with the job.
+// stopped, and the tool gets a job of its own. Resolves with the job.
 ControllerRtlsdrRadio.prototype.acquireForTool = function(name, options) {
   var self = this;
   var wasPlaying = self.deviceState.indexOf('playing_') === 0;
   
+  // Our own playback is stopped through Volumio, so that the player shows it as
+  // stopped; another service's playback is left alone
+  if (wasPlaying) {
+    self.commandRouter.stateMachine.stop();
+  }
   self.stopDecoder();
   self.setDeviceState('idle');
-  
-  // Only our own playback is shown as paused; another service's is left alone
-  if (wasPlaying) {
-    var currentState = self.commandRouter.stateMachine.getState();
-    currentState.status = 'pause';
-    self.commandRouter.servicePushState(currentState, 'rtlsdr_radio');
-    self.commandRouter.stateMachine.setConsumeUpdateService('');
-  }
   
   return self.tuner.acquire(name, options);
 };
@@ -3155,6 +3152,11 @@ ControllerRtlsdrRadio.prototype.checkDeviceAvailable = function(requestedOperati
   var self = this;
   
   if (self.deviceState === 'idle') {
+    return libQ.resolve(true);
+  }
+  
+  // One station replacing another needs no question: the tuner changes over
+  if (requestedOperation.indexOf('play_') === 0 && self.deviceState.indexOf('playing_') === 0) {
     return libQ.resolve(true);
   }
   
@@ -3333,7 +3335,8 @@ ControllerRtlsdrRadio.prototype.stopCurrentOperation = function() {
   self.logger.info('[RTL-SDR Radio] Stopping current operation: ' + self.deviceState);
   
   if (self.deviceState.startsWith('playing_')) {
-    // Stop playback
+    // Stop playback, through Volumio so that the player's state follows
+    self.commandRouter.stateMachine.stop();
     self.stop()
       .then(function() {
         self.setDeviceState('idle');
@@ -4757,23 +4760,13 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
     seek: 0
   };
   
-  // Clear state to force state machine recognition of change
-  // This mimics the stop() function behavior to ensure UI update
-  self.commandRouter.stateMachine.setVolatile({
-    service: 'rtlsdr_radio',
-    status: 'stop',
-    title: '',
-    artist: '',
-    album: '',
-    uri: ''
-  });
-  
-  self.commandRouter.servicePushState(state, 'rtlsdr_radio');
-  
-  // Force state machine update to trigger UI refresh
-  // This ensures "Received an update from plugin" event fires
+  // Volumio takes this station's state from the plugin (text, artwork, signal). The
+  // first push starts the playback in Volumio's eyes; the second, a moment later, is
+  // taken as an update and carries the details the first cannot.
+  self.playingJob = job;
+  self.pushPlayingState(state);
   setTimeout(function() {
-    self.commandRouter.stateMachine.pushState(state);
+    self.pushPlayingState(state);
   }, self.CLEANUP_TIMEOUT);
   
   defer.resolve();
@@ -5291,7 +5284,7 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
       volatile: true
     };
     
-    self.commandRouter.servicePushState(state, 'rtlsdr_radio');
+    self.pushPlayingState(state);
   };
   
   // If we have valid metadata above threshold, do Last.fm lookup for album name
@@ -5786,7 +5779,7 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
       volatile: true
     };
     
-    self.commandRouter.servicePushState(state, 'rtlsdr_radio');
+    self.pushPlayingState(state);
   };
   
   // If we have parsed metadata above threshold, do Last.fm lookup for album name
@@ -5892,24 +5885,24 @@ ControllerRtlsdrRadio.prototype.stop = function() {
   // Reset device state to idle
   self.setDeviceState('idle');
   
-  // Get current state and just change status to pause
-  // Keep all track info for resume
-  var currentState = self.commandRouter.stateMachine.getState();
-  currentState.status = 'pause';
-  self.commandRouter.servicePushState(currentState, 'rtlsdr_radio');
-  self.commandRouter.stateMachine.setConsumeUpdateService('');
-  // Push stopped state to UI
-  self.commandRouter.stateMachine.setVolatile({
-    service: 'rtlsdr_radio',
-    status: 'pause',
-    title: '',
-    artist: '',
-    album: '',
-    uri: ''
-  });
+  // Volumio no longer takes its state from this plugin. The station stays the current
+  // item of its queue, so "play" starts it again.
+  self.playingJob = null;
+  self.commandRouter.stateMachine.setConsumeUpdateService(undefined);
   
   // Resolved when the processes are gone and the dongle is free
   return stopped;
+};
+
+// Tell Volumio what plays. Nothing is pushed once the station is no longer the one
+// playing: a lookup that answers late must not bring a stopped station back to "playing".
+ControllerRtlsdrRadio.prototype.pushPlayingState = function(state) {
+  var self = this;
+  var job = self.playingJob;
+  if (!job || self.tuner.current !== job || job.stopping || job.finished) {
+    return;
+  }
+  self.commandRouter.servicePushState(state, 'rtlsdr_radio');
 };
 
 ControllerRtlsdrRadio.prototype.pause = function() {
@@ -5991,6 +5984,8 @@ ControllerRtlsdrRadio.prototype.playbackEnded = function(job, entry) {
   }
   self.logger.error('[RTL-SDR Radio] Playback stopped: ' + what);
   
+  // Through Volumio, so that the player shows the station as stopped
+  self.commandRouter.stateMachine.stop();
   self.stop().then(function() {
     self.commandRouter.pushToastMessage('error', 'FM/DAB Radio',
       self.formatString(self.getI18nString('TOAST_PLAY_FAILED'), what));
@@ -7897,23 +7892,13 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
     seek: 0
   };
   
-  // Clear state to force state machine recognition of change
-  // This mimics the stop() function behavior to ensure UI update
-  self.commandRouter.stateMachine.setVolatile({
-    service: 'rtlsdr_radio',
-    status: 'stop',
-    title: '',
-    artist: '',
-    album: '',
-    uri: ''
-  });
-  
-  self.commandRouter.servicePushState(state, 'rtlsdr_radio');
-  
-  // Force state machine update to trigger UI refresh
-  // This ensures "Received an update from plugin" event fires
+  // Volumio takes this station's state from the plugin (text, artwork, signal). The
+  // first push starts the playback in Volumio's eyes; the second, a moment later, is
+  // taken as an update and carries the details the first cannot.
+  self.playingJob = job;
+  self.pushPlayingState(state);
   setTimeout(function() {
-    self.commandRouter.stateMachine.pushState(state);
+    self.pushPlayingState(state);
   }, self.CLEANUP_TIMEOUT);
   
   defer.resolve();

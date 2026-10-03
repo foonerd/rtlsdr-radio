@@ -183,6 +183,7 @@ Common additions: DJ names, show titles, station slogans, local business adverts
 | Confidence Threshold | How certain parser must be before lookup | Start at 60%, lower if missing artwork, raise if false matches |
 | Artwork Persistence | Keep artwork during metadata gaps | "Keep until artist changes" prevents flicker |
 | Artwork Timeout | Auto-clear after N minutes | Use for audiobooks/talk radio, else Disabled |
+| Artwork Cool-off | Shortest time a picture stays before another replaces it | 2 seconds; Off shows every change at once |
 | Debug Logging | Verbose logs for troubleshooting | OFF unless debugging |
 
 **Confidence Threshold Explained:**
@@ -200,6 +201,19 @@ Radio metadata updates constantly. Between songs, stations often display promos,
 - **Keep until artist changes**: Best for music stations. Artwork stays until a different artist is detected.
 - **Keep until track changes**: More responsive, but may flicker on stations with inconsistent metadata.
 - **Always refresh**: Updates on every metadata change. Use only if persistence causes stale artwork.
+
+**When the picture changes:**
+
+A station's text changes every few seconds: the song, a slogan, the presenter, the song again in other words. The picture on the screen follows the song, not the text:
+
+- The song whose cover is shown, named again: nothing changes.
+- A new song: the picture on the screen stays until the new cover has been found, and is then replaced by it. The station's logo is not shown in between.
+- A song that is known and has no cover: the station's logo is shown, not the cover of the song before (unless covers are kept per artist and the artist is the same).
+- A text that names no song, or a line read as artist and title that no music database knows (a presenter's line, for one): the picture stays, for as long as the persistence and timeout settings keep a cover.
+
+**Artwork Cool-off Explained:**
+
+A picture stays on the screen for at least the cool-off time (2 seconds unless set otherwise) before another takes its place. If several changes come within that time, the last one is shown when the time is up and the ones between are skipped. The text and the tune level are never held back, only the picture. How one picture gives way to the next on the screen (a cut, a fade) is the screen's own doing; the plugin hands it the picture to show.
 
 **Artwork Timeout Explained:**
 
@@ -521,7 +535,22 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.21 (Current)
+### v1.3.22 (Current)
+- Artwork no longer flickers when a station repeats a song's name. A song named again
+  changes nothing; a new song keeps the picture on the screen until its own cover is
+  found. Before, every such text showed the station's logo for a moment and then the
+  cover again
+- A line read as artist and title that no music database knows (a presenter's line)
+  keeps the picture, as a slogan does. A real song without a cover still shows the
+  station's logo
+- New setting "Artwork Cool-off" (Settings > Artwork), 2 seconds unless set otherwise:
+  the shortest time a picture stays before another replaces it. The text is never held
+  back
+- A lookup that fails for want of a network is made again with the next text, instead
+  of being remembered as "no cover" until the plugin restarts
+- The same on FM and DAB
+
+### v1.3.21
 - A logo of your own for any station, set in the Station Manager: a picture of yours
   (PNG, JPEG or SVG), one of the broadcasters' logos found by a search, or one already
   on the player. It stands above the logo found for the station, and "Back to

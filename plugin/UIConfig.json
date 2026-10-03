@@ -500,6 +500,7 @@
           "artwork_threshold",
           "artwork_persistence",
           "artwork_ttl",
+          "artwork_hold",
           "artwork_debug_logging"
         ]
       },
@@ -580,6 +581,28 @@
             { "value": "30", "label": "TRANSLATE.ARTWORK_TTL_30MIN" }
           ],
           "doc": "TRANSLATE.ARTWORK_TTL_DOC",
+          "visibleIf": {
+            "field": "show_artwork_settings",
+            "value": true
+          }
+        },
+        {
+          "id": "artwork_hold",
+          "element": "select",
+          "label": "TRANSLATE.ARTWORK_HOLD",
+          "value": {
+            "value": "2",
+            "label": "2 seconds (recommended)"
+          },
+          "options": [
+            { "value": "0", "label": "TRANSLATE.ARTWORK_HOLD_OFF" },
+            { "value": "1", "label": "TRANSLATE.ARTWORK_HOLD_1S" },
+            { "value": "2", "label": "TRANSLATE.ARTWORK_HOLD_2S" },
+            { "value": "3", "label": "TRANSLATE.ARTWORK_HOLD_3S" },
+            { "value": "5", "label": "TRANSLATE.ARTWORK_HOLD_5S" },
+            { "value": "10", "label": "TRANSLATE.ARTWORK_HOLD_10S" }
+          ],
+          "doc": "TRANSLATE.ARTWORK_HOLD_DOC",
           "visibleIf": {
             "field": "show_artwork_settings",
             "value": true

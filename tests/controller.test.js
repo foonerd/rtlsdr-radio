@@ -178,6 +178,8 @@ function fmTrack(frequency) {
 test('the plugin starts with an empty station list', async function() {
   plugin.onVolumioStart();
   await plugin.onStart();
+  // A picture is not held back in these tests, except where that is what is tested
+  plugin.config.set('artwork_hold', 0);
   assert.strictEqual(plugin.deviceState, 'idle');
   assert.strictEqual(plugin.stationsDb.version, 2);
 });
@@ -581,6 +583,193 @@ test('the playing queue item carries the artwork of the moment, and the station\
   await plugin.stop();
   delete coreCommand.stateMachine.playQueue;
   delete coreCommand.stateMachine.currentPosition;
+});
+
+// What the music database says of a song, for the artwork tests; whatever it is not
+// told of, it does not know
+var lookedUp = [];
+function musicDatabase(answers, delay) {
+  var metadata = require('../plugin/lib/metadata');
+  metadata.lastfmLookup = function(artist, title, callback) {
+    lookedUp.push(artist + ' - ' + title);
+    var answer = answers[(artist + '|' + title).toLowerCase()] || { found: false };
+    setTimeout(function() { callback(null, answer); }, delay || 0);
+  };
+}
+
+// The picture each pushed state carries: the cover's artist and album, or "station"
+function pictures() {
+  return states.map(function(state) {
+    var cover = /[?&]web=([^&]*)/.exec(state.albumart);
+    return cover ? decodeURIComponent(cover[1]).replace('/extralarge', '') : 'station';
+  });
+}
+
+test('artwork: a song named again changes nothing, and a picture gives way only to another picture', async function() {
+  plugin.config.set('artwork_threshold', 20);
+  plugin.config.set('artwork_persistence', 'artist');
+  plugin.albumLookupCache = {};
+  plugin.lastValidArtwork = null;
+  lookedUp.length = 0;
+  musicDatabase({
+    'blondie|maria': { found: true, artist: 'Blondie', title: 'Maria', album: 'Greatest Hits', albumArtwork: 'http://covers.example/blondie.jpg' },
+    'abba|waterloo': { found: true, artist: 'ABBA', title: 'Waterloo', album: 'Gold', albumArtwork: 'http://covers.example/gold.jpg' },
+    'the nobodies|no cover song': { found: true, artist: 'The Nobodies', title: 'No Cover Song' }
+  }, 30);
+  await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+  // Past the station's own second push of its starting state, half a second in
+  await sleep(800);
+
+  // The first song: nothing is shown yet but the station's picture; then its cover
+  states.length = 0;
+  plugin.handleDabDls('Playing... Maria -- Blondie');
+  await sleep(120);
+  assert.deepStrictEqual(pictures(), ['station', 'Blondie/Greatest Hits']);
+
+  // The station's texts of the next minute, as a station sends them: a slogan, the
+  // song in other words, the song again. The cover stays; the station's picture never
+  // shows in between; the song is looked up once.
+  states.length = 0;
+  plugin.handleDabDls('Magic Radio -- The Best Variety from the 80s to Now');
+  await sleep(60);
+  plugin.handleDabDls('Blondie with Maria -- on Magic Radio');
+  await sleep(60);
+  plugin.handleDabDls('Discover more at magic.co.uk');
+  await sleep(60);
+  plugin.handleDabDls('Playing... Maria -- Blondie');
+  await sleep(60);
+  assert.deepStrictEqual(pictures(), ['Blondie/Greatest Hits', 'Blondie/Greatest Hits', 'Blondie/Greatest Hits', 'Blondie/Greatest Hits']);
+  assert.deepStrictEqual(states.map(function(s) { return s.artist; }), ['Magic Radio -- The Best Variety from the 80s to Now',
+    'Blondie with Maria -- on Magic Radio', 'Discover more at magic.co.uk', 'Playing... Maria -- Blondie'], 'every text is shown');
+  assert.deepStrictEqual(lookedUp, ['Blondie - Maria']);
+
+  // A presenter's line read as artist and title: no one knows such a song, the cover stays
+  states.length = 0;
+  plugin.handleDabDls('Mel is here for your Saturday night with the Best Variety from the 80s to Now.');
+  await sleep(120);
+  assert.deepStrictEqual(pictures(), ['Blondie/Greatest Hits']);
+  assert.strictEqual(lookedUp.length, 2);
+
+  // The next song: the cover on the screen stays until the new one is there
+  states.length = 0;
+  plugin.handleDabDls('Playing... Waterloo -- ABBA');
+  await sleep(120);
+  assert.deepStrictEqual(pictures(), ['Blondie/Greatest Hits', 'ABBA/Gold']);
+
+  // A song that is known and has no cover: the station's picture, not the cover of the
+  // song before; and that cover does not come back with the next slogan
+  states.length = 0;
+  plugin.handleDabDls('Playing... No Cover Song -- The Nobodies');
+  await sleep(120);
+  plugin.handleDabDls('Discover more at magic.co.uk');
+  await sleep(60);
+  assert.deepStrictEqual(pictures(), ['ABBA/Gold', 'station', 'station']);
+
+  await plugin.stop();
+  plugin.config.set('artwork_threshold', 60);
+  plugin.lastValidArtwork = null;
+});
+
+test('artwork on FM: the same song in other words keeps its cover, and a new song keeps the picture until its own is found', async function() {
+  plugin.config.set('artwork_threshold', 20);
+  plugin.config.set('artwork_persistence', 'artist');
+  plugin.albumLookupCache = {};
+  plugin.lastValidArtwork = null;
+  musicDatabase({
+    'blondie|maria': { found: true, artist: 'Blondie', title: 'Maria', album: 'Greatest Hits', albumArtwork: 'http://covers.example/blondie.jpg' },
+    'abba|waterloo': { found: true, artist: 'ABBA', title: 'Waterloo', album: 'Gold', albumArtwork: 'http://covers.example/gold.jpg' }
+  }, 30);
+  var between = plugin.RDS_UPDATE_INTERVAL;
+  plugin.RDS_UPDATE_INTERVAL = 0;
+  try {
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(800);
+    states.length = 0;
+    plugin.handleRdsUpdate({ radiotext: 'Blondie - Maria' }, '94.9', 'FM 94.9');
+    await sleep(120);
+    assert.deepStrictEqual(pictures(), ['station', 'Blondie/Greatest Hits']);
+
+    states.length = 0;
+    plugin.handleRdsUpdate({ radiotext: 'Now playing: Blondie - Maria' }, '94.9', 'FM 94.9');
+    await sleep(60);
+    plugin.handleRdsUpdate({ radiotext: 'More music on 94.9' }, '94.9', 'FM 94.9');
+    await sleep(60);
+    plugin.handleRdsUpdate({ radiotext: 'ABBA - Waterloo' }, '94.9', 'FM 94.9');
+    await sleep(120);
+    var shown = pictures();
+    assert.ok(shown.indexOf('station') === -1, 'the station\'s picture never showed in between: ' + shown.join(', '));
+    assert.strictEqual(shown[shown.length - 1], 'ABBA/Gold');
+    assert.strictEqual(shown[shown.length - 2], 'Blondie/Greatest Hits', 'the cover before stays until the new one is there');
+  } finally {
+    plugin.RDS_UPDATE_INTERVAL = between;
+    plugin.config.set('artwork_threshold', 60);
+    plugin.lastValidArtwork = null;
+    await plugin.stop();
+  }
+});
+
+test('artwork: a lookup that fails is not taken for an answer, and is made again', async function() {
+  var metadata = require('../plugin/lib/metadata');
+  plugin.albumLookupCache = {};
+  var asked = 0;
+  metadata.lastfmLookup = function(artist, title, callback) {
+    asked++;
+    callback(asked === 1 ? new Error('network down') : null,
+      asked === 1 ? null : { found: true, artist: artist, title: title, album: 'An Album', albumArtwork: 'http://covers.example/a.jpg' });
+  };
+  var first = await new Promise(function(resolve) { plugin.lookupAlbum('Some Band', 'Some Song', function(e, r) { resolve(r); }); });
+  assert.strictEqual(first, null);
+  var second = await new Promise(function(resolve) { plugin.lookupAlbum('Some Band', 'Some Song', function(e, r) { resolve(r); }); });
+  assert.strictEqual(second.album, 'An Album');
+  assert.strictEqual(asked, 2);
+});
+
+test('artwork cool-off: a picture stays its time before another takes its place; the text is never held back', async function() {
+  await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+  // Past the station's own second push of its starting state, half a second in
+  await sleep(800);
+  // The states of this test are pushed by hand: the station's own look at its text,
+  // which would push states of its own in between, is stopped
+  clearInterval(plugin.dlsMonitorInterval);
+  var begun = states[states.length - 1];
+  plugin.config.set('artwork_hold', 1);
+  try {
+    function push(text, art) {
+      plugin.pushPlayingState(Object.assign({}, begun, { artist: text, albumart: '/albumart?web=' + art + '/extralarge' }));
+    }
+    function shown() {
+      return states.map(function(s, i) { return s.artist + ':' + pictures()[i]; });
+    }
+    // The first picture after the station's own goes out at once: the hold counts from
+    // when a picture was shown, and the station's picture has had its time
+    states.length = 0;
+    plugin.artShown.since = Date.now() - 5000;
+    push('one', 'A/1');
+    push('two', 'B/2');
+    push('three', 'C/3');
+    assert.deepStrictEqual(shown(), ['one:A/1', 'two:A/1', 'three:A/1'], 'the texts go out at once, with the picture that is on the screen');
+    await sleep(1200);
+    assert.deepStrictEqual(shown(), ['one:A/1', 'two:A/1', 'three:A/1', 'three:C/3'], 'the last picture follows when the time is up; the one between was never shown');
+
+    // A change back to the picture on the screen within the time: nothing follows
+    states.length = 0;
+    plugin.artShown.since = Date.now() - 5000;
+    push('four', 'D/4');
+    push('five', 'E/5');
+    push('six', 'D/4');
+    await sleep(1200);
+    assert.deepStrictEqual(shown(), ['four:D/4', 'five:D/4', 'six:D/4']);
+
+    // A station that is stopped pushes nothing later
+    push('seven', 'F/6');
+    await plugin.stop();
+    var count = states.length;
+    await sleep(1200);
+    assert.strictEqual(states.filter(function(s) { return s.artist === 'seven'; }).length, 1);
+    assert.ok(!states.slice(count).some(function(s) { return /F\/6/.test(s.albumart); }));
+  } finally {
+    plugin.config.set('artwork_hold', 0);
+  }
 });
 
 test('DAB: a picture the station sends is shown as it arrives, under an address a screen can load', async function() {

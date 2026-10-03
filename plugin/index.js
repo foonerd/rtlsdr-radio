@@ -2882,6 +2882,23 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
     if (artworkDebugLogging) {
       artworkDebugLogging.value = self.config.get('artwork_debug_logging', false);
     }
+
+    var artworkHold = findContentItem(artworkSection, 'artwork_hold');
+    if (artworkHold) {
+      var holdValue = self.config.get('artwork_hold', 2);
+      var holdLabels = {
+        0: self.getI18nString('ARTWORK_HOLD_OFF') || 'Off',
+        1: self.getI18nString('ARTWORK_HOLD_1S') || '1 second',
+        2: self.getI18nString('ARTWORK_HOLD_2S') || '2 seconds (recommended)',
+        3: self.getI18nString('ARTWORK_HOLD_3S') || '3 seconds',
+        5: self.getI18nString('ARTWORK_HOLD_5S') || '5 seconds',
+        10: self.getI18nString('ARTWORK_HOLD_10S') || '10 seconds'
+      };
+      artworkHold.value = {
+        value: String(holdValue),
+        label: holdLabels[holdValue] || (holdValue + ' s')
+      };
+    }
   }
   
   // SECTION 7: DIAGNOSTICS
@@ -3322,6 +3339,11 @@ ControllerRtlsdrRadio.prototype.saveArtworkSettings = function(data) {
     if (data.artwork_ttl !== undefined) {
       var ttl = data.artwork_ttl.value || data.artwork_ttl;
       self.config.set('artwork_ttl', parseInt(ttl, 10));
+    }
+    if (data.artwork_hold !== undefined) {
+      var hold = data.artwork_hold.value !== undefined ? data.artwork_hold.value : data.artwork_hold;
+      var seconds = parseInt(hold, 10);
+      self.config.set('artwork_hold', isNaN(seconds) || seconds < 0 ? 2 : Math.min(seconds, 60));
     }
     if (data.artwork_debug_logging !== undefined) {
       self.config.set('artwork_debug_logging', data.artwork_debug_logging);
@@ -5405,98 +5427,103 @@ ControllerRtlsdrRadio.prototype.buildArtworkUrl = function(artist, album, fallba
 // Returns { artist, title, album, artworkUrl } if found, null otherwise
 ControllerRtlsdrRadio.prototype.lookupAlbum = function(artist, title, callback) {
   var self = this;
-  
+
   if (!artist || !title) {
     return callback(null, null);
   }
-  
+
   var artworkDebugLogging = self.config.get('artwork_debug_logging', false);
-  
-  // Check cache first
+
+  // Check cache first. What is remembered is one of three answers:
+  //   a cover:           { artist, title, album, artworkUrl }
+  //   a song, no cover:  { known: true, artist, title }  (the track is known, no picture goes with it)
+  //   nothing:           null                             (no such track is known: the text named no song)
   var cacheKey = artist.toLowerCase() + '|' + title.toLowerCase();
   if (self.albumLookupCache && self.albumLookupCache[cacheKey] !== undefined) {
     return callback(null, self.albumLookupCache[cacheKey]);
   }
-  
+
   // Use Last.fm track.getInfo - returns album AND artwork directly
   metadata.lastfmLookup(artist, title, function(err, result) {
     if (err) {
       if (artworkDebugLogging) {
         self.logger.warn('[RTL-SDR Radio] Last.fm error: ' + err.message);
       }
-      // Try Open Opus fallback for classical
-      return self.tryClassicalFallback(artist, title, cacheKey, artworkDebugLogging, callback);
+      // No answer is no answer about the song: nothing is remembered, and the next
+      // text that names it asks again. A classical composer may still be found.
+      return self.tryClassicalFallback(artist, title, cacheKey, artworkDebugLogging, callback, undefined);
     }
-    
-    if (result && result.found && result.album) {
-      // Last.fm found the track - check if it has artwork
-      if (result.albumArtwork) {
-        var lookupResult = {
-          artist: result.artist || artist,
-          title: result.title || title,
-          album: result.album,
-          artworkUrl: result.albumArtwork  // Direct artwork URL from Last.fm
-        };
-        
-        // Cache the result
-        if (!self.albumLookupCache) {
-          self.albumLookupCache = {};
-        }
-        self.albumLookupCache[cacheKey] = lookupResult;
-        
-        if (artworkDebugLogging) {
-          self.logger.info('[RTL-SDR Radio] Last.fm: ' + lookupResult.artist + ' - ' + 
-                           lookupResult.title + ' [' + lookupResult.album + ']' +
-                           (lookupResult.artworkUrl ? ' (artwork)' : ''));
-        }
-        callback(null, lookupResult);
-      } else {
-        // Last.fm found track but no artwork - try classical fallback
-        if (artworkDebugLogging) {
-          self.logger.info('[RTL-SDR Radio] Last.fm: ' + result.artist + ' - ' + 
-                           result.title + ' [' + result.album + '] (no artwork, trying classical)');
-        }
-        self.tryClassicalFallback(artist, title, cacheKey, artworkDebugLogging, callback);
+
+    if (result && result.found && result.album && result.albumArtwork) {
+      var lookupResult = {
+        artist: result.artist || artist,
+        title: result.title || title,
+        album: result.album,
+        artworkUrl: result.albumArtwork  // Direct artwork URL from Last.fm
+      };
+
+      // Cache the result
+      if (!self.albumLookupCache) {
+        self.albumLookupCache = {};
       }
-    } else {
-      // Last.fm didn't find the track - try classical fallback
-      self.tryClassicalFallback(artist, title, cacheKey, artworkDebugLogging, callback);
+      self.albumLookupCache[cacheKey] = lookupResult;
+
+      if (artworkDebugLogging) {
+        self.logger.info('[RTL-SDR Radio] Last.fm: ' + lookupResult.artist + ' - ' +
+                         lookupResult.title + ' [' + lookupResult.album + '] (artwork)');
+      }
+      return callback(null, lookupResult);
     }
+
+    // No cover from Last.fm. Whether it knows the track at all tells a song without a
+    // picture from a text that named no song; a classical composer's portrait may
+    // still stand in.
+    var known = !!(result && result.found);
+    if (artworkDebugLogging) {
+      self.logger.info('[RTL-SDR Radio] Last.fm: ' + artist + ' - ' + title +
+                       (known ? ' is a track without artwork' : ' is not a track it knows'));
+    }
+    self.tryClassicalFallback(artist, title, cacheKey, artworkDebugLogging, callback,
+      known ? { known: true, artist: result.artist || artist, title: result.title || title } : null);
   });
 };
 
 // Try Open Opus lookup for classical composer portraits
-// Used as fallback when Last.fm has no artwork
-ControllerRtlsdrRadio.prototype.tryClassicalFallback = function(artist, title, cacheKey, debug, callback) {
+// Used as fallback when Last.fm has no artwork.
+// miss: what to answer, and remember, when no portrait is found either; undefined when
+// the lookup before this one failed, in which case nothing is remembered.
+ControllerRtlsdrRadio.prototype.tryClassicalFallback = function(artist, title, cacheKey, debug, callback, miss) {
   var self = this;
-  
+
+  function missed() {
+    if (miss !== undefined) {
+      if (!self.albumLookupCache) {
+        self.albumLookupCache = {};
+      }
+      self.albumLookupCache[cacheKey] = miss;
+    }
+    callback(null, miss === undefined ? null : miss);
+  }
+
   // Check if this looks like a classical composer
   if (!metadata.isLikelyClassicalComposer(artist)) {
-    // Not classical - cache negative result and return
-    if (!self.albumLookupCache) {
-      self.albumLookupCache = {};
-    }
-    self.albumLookupCache[cacheKey] = null;
-    return callback(null, null);
+    return missed();
   }
-  
+
   if (debug) {
     self.logger.info('[RTL-SDR Radio] Trying Open Opus for classical: ' + artist);
   }
-  
+
   // Look up composer portrait from Open Opus
   metadata.openOpusLookup(artist, function(err, result) {
     if (err) {
       if (debug) {
         self.logger.warn('[RTL-SDR Radio] Open Opus error: ' + err.message);
       }
-      if (!self.albumLookupCache) {
-        self.albumLookupCache = {};
-      }
-      self.albumLookupCache[cacheKey] = null;
-      return callback(null, null);
+      // A failed lookup is not remembered
+      return callback(null, miss === undefined ? null : miss);
     }
-    
+
     if (result && result.found && result.portrait) {
       var lookupResult = {
         artist: result.completeName || artist,
@@ -5505,25 +5532,120 @@ ControllerRtlsdrRadio.prototype.tryClassicalFallback = function(artist, title, c
         artworkUrl: result.portrait,         // Composer portrait
         isComposerPortrait: true             // Flag to indicate this is a portrait, not album art
       };
-      
+
       // Cache the result
       if (!self.albumLookupCache) {
         self.albumLookupCache = {};
       }
       self.albumLookupCache[cacheKey] = lookupResult;
-      
+
       if (debug) {
-        self.logger.info('[RTL-SDR Radio] Open Opus: ' + result.completeName + 
+        self.logger.info('[RTL-SDR Radio] Open Opus: ' + result.completeName +
                          ' (' + result.epoch + ') - portrait found');
       }
       callback(null, lookupResult);
     } else {
-      // Cache negative result
-      if (!self.albumLookupCache) {
-        self.albumLookupCache = {};
+      missed();
+    }
+  });
+};
+
+// The picture that goes with the text of the moment, pushed by push(address).
+//
+// song: { artist, title, album } when the text names a song that may be looked up,
+// null when it names none (a slogan, a text below the confidence asked for, lookups
+// switched off). fallbackIcon: the station's own picture, for when no cover is shown.
+//
+// The picture on the screen changes only when there is another picture to show:
+//   - the song whose cover is shown, named again: nothing changes;
+//   - a song not looked up yet: what is shown stays until the answer is there, and
+//     only then gives way to the cover found;
+//   - a song that is known and has no cover: the station's picture (the cover of the
+//     song before would be the wrong one), unless covers are kept per artist and the
+//     artist is the same;
+//   - a text that names no song, or a "song" no one knows (a presenter's line read as
+//     artist and title): what is shown stays, as long as the settings keep a cover.
+// push is called once at once, and once more if a lookup changes the picture and the
+// text is still the one it was asked for.
+ControllerRtlsdrRadio.prototype.artworkFor = function(song, fallbackIcon, push) {
+  var self = this;
+  var fallback = '/albumart?sourceicon=' + fallbackIcon;
+  var persistence = self.config.get('artwork_persistence', 'track');
+  var debug = self.config.get('artwork_debug_logging', false);
+
+  // The cover of the last song found, where the settings keep one
+  function kept() {
+    var last = self.lastValidArtwork;
+    if (last && last.url && persistence !== 'none') {
+      return last.url;
+    }
+    return fallback;
+  }
+
+  // The picture a lookup's answer leads to
+  function pictureOf(result) {
+    if (result && !result.known && (result.album || result.artworkUrl)) {
+      var url = result.isComposerPortrait && result.artworkUrl ?
+        result.artworkUrl : self.buildArtworkUrl(result.artist, result.album, fallbackIcon);
+      self.lastValidArtwork = { url: url, artist: result.artist, title: song.title };
+      self.artworkTimestamp = Date.now();
+      return url;
+    }
+    if (result && result.known) {
+      var last = self.lastValidArtwork;
+      var sameArtist = last && last.artist && String(last.artist).toLowerCase() === String(song.artist).toLowerCase();
+      if (persistence === 'artist' && sameArtist) {
+        return kept();
       }
-      self.albumLookupCache[cacheKey] = null;
-      callback(null, null);
+      // Another song, and no cover for it: the one before is not shown in its place
+      self.lastValidArtwork = null;
+      self.artworkTimestamp = null;
+      return fallback;
+    }
+    return kept();
+  }
+
+  if (!song) {
+    self.artworkSong = null;
+    if (debug && kept() !== fallback) {
+      self.logger.info('[RTL-SDR Radio] Using persisted artwork: ' + self.lastValidArtwork.artist);
+    }
+    push(kept());
+    return;
+  }
+
+  var key = String(song.artist).toLowerCase() + '|' + String(song.title).toLowerCase();
+  if (debug && self.lastArtworkLogKey !== key) {
+    self.logger.info('[RTL-SDR Radio] Artwork lookup: ' + song.artist + ' - ' + song.title +
+                     (song.album ? ' [' + song.album + ']' : '') +
+                     (song.confidence !== undefined ? ' (confidence ' + song.confidence + '%)' : ''));
+    self.lastArtworkLogKey = key;
+  }
+  self.artworkSong = key;
+
+  // The text itself names the album (a soundtrack, for one): no lookup needed
+  if (song.album) {
+    push(pictureOf({ artist: song.artist, album: song.album }));
+    return;
+  }
+
+  var cached = self.albumLookupCache ? self.albumLookupCache[key] : undefined;
+  if (cached !== undefined) {
+    push(pictureOf(cached));
+    return;
+  }
+
+  // Not looked up yet: the text goes out with the picture that is on the screen
+  var shown = kept();
+  push(shown);
+  self.lookupAlbum(song.artist, song.title, function(err, result) {
+    // A newer text has taken this one's place: its own handling shows what belongs to it
+    if (self.artworkSong !== key) {
+      return;
+    }
+    var picture = pictureOf(result);
+    if (picture !== shown) {
+      push(picture);
     }
   });
 };
@@ -5605,7 +5727,6 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
   
   // Default artwork is the station's logo, failing that our FM icon - NEVER Volumio placeholder
   var fallbackIcon = self.fmIcon(station, true);
-  var albumart = '/albumart?sourceicon=' + fallbackIcon;
   
   // If best effort artwork is disabled, skip all parsing and lookups
   if (!bestEffortArtwork) {
@@ -5613,13 +5734,9 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
     title = null;
   }
   
-  // Artwork persistence: Keep last valid artwork when no metadata is parsed
-  // This prevents flicker when station shows promos between songs
-  var artworkPersistence = self.config.get('artwork_persistence', 'track');
   var artworkTtl = self.config.get('artwork_ttl', 0);  // 0 = disabled, else minutes
   var artworkDebugLogging = self.config.get('artwork_debug_logging', false);
-  var usePersistedArtwork = false;
-  
+
   // Check TTL expiration (only if TTL is enabled)
   if (artworkTtl > 0 && self.lastValidArtwork && self.artworkTimestamp) {
     var ttlMs = artworkTtl * 60 * 1000;  // Convert minutes to ms
@@ -5633,28 +5750,7 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
       self.artworkTimestamp = null;
     }
   }
-  
-  if (!artist && !title) {
-    // No new metadata - check if we should persist previous artwork
-    if (self.lastValidArtwork && self.lastValidArtwork.url) {
-      if (artworkPersistence === 'artist' || artworkPersistence === 'track') {
-        albumart = self.lastValidArtwork.url;
-        usePersistedArtwork = true;
-        if (artworkDebugLogging) {
-          self.logger.info('[RTL-SDR Radio] Using persisted artwork: ' + self.lastValidArtwork.artist);
-        }
-      }
-    }
-  } else if (artist && self.lastValidArtwork && self.lastValidArtwork.artist) {
-    // New metadata arrived - check if artist changed (resets TTL)
-    if (artist.toLowerCase() !== self.lastValidArtwork.artist.toLowerCase()) {
-      // Artist changed - TTL will be reset when new artwork is saved
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Artist changed: ' + self.lastValidArtwork.artist + ' -> ' + artist);
-      }
-    }
-  }
-  
+
   // Helper function to push state
   var pushFmState = function(artUrl) {
     var state = {
@@ -5678,86 +5774,21 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
     self.pushPlayingState(state);
   };
   
-  // If we have valid metadata above threshold, do Last.fm lookup for album name
-  // Check blocklist to avoid lookups for station idents/promos
+  // The song the text names, if it names one that may be looked up: not one of the
+  // station's own phrases (the block list), and read with confidence enough
   var artistBlocked = metadata.fuzzyBlocklistMatch(artist);
   var titleBlocked = metadata.fuzzyBlocklistMatch(title);
-  
+
   if (artistBlocked || titleBlocked) {
     if (artworkDebugLogging) {
-      self.logger.info('[RTL-SDR Radio] Artwork blocked: ' + artist + ' - ' + title + 
+      self.logger.info('[RTL-SDR Radio] Artwork blocked: ' + artist + ' - ' + title +
                        ' (artist=' + artistBlocked + ', title=' + titleBlocked + ')');
     }
   }
-  
-  if (bestEffortArtwork && artist && title && parsed.confidence >= artworkThreshold && !artistBlocked && !titleBlocked) {
-    var lookupKey = artist.toLowerCase() + '|' + title.toLowerCase();
-    
-    if (artworkDebugLogging) {
-      self.logger.info('[RTL-SDR Radio] Artwork lookup: ' + artist + ' - ' + title + 
-                       ' (confidence ' + parsed.confidence + '% >= ' + artworkThreshold + '%)');
-    }
-    
-    // Check if we already have cached album info
-    if (self.albumLookupCache && self.albumLookupCache[lookupKey]) {
-      var cached = self.albumLookupCache[lookupKey];
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Cache HIT: ' + lookupKey);
-      }
-      if (cached && (cached.album || cached.artworkUrl)) {
-        if (cached.isComposerPortrait && cached.artworkUrl) {
-          // Direct URL from Open Opus - use as-is
-          albumart = cached.artworkUrl;
-        } else {
-          albumart = self.buildArtworkUrl(cached.artist, cached.album, fallbackIcon);
-        }
-        // Save as last valid artwork for persistence and reset TTL
-        self.lastValidArtwork = {
-          url: albumart,
-          artist: cached.artist,
-          title: title
-        };
-        self.artworkTimestamp = Date.now();
-      }
-      // Cache hit - push state once with correct artwork
-      pushFmState(albumart);
-    } else {
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Cache MISS: ' + lookupKey);
-      }
-      // No cache - push state with persisted/default icon, then update after lookup
-      pushFmState(albumart);
-      
-      // Async Last.fm lookup for album name (falls back to Open Opus for classical)
-      self.lookupAlbum(artist, title, function(err, result) {
-        if (result && (result.album || result.artworkUrl)) {
-          var artUrl;
-          if (result.isComposerPortrait && result.artworkUrl) {
-            // Direct URL from Open Opus - use as-is
-            artUrl = result.artworkUrl;
-            if (artworkDebugLogging) {
-              self.logger.info('[RTL-SDR Radio] Using composer portrait: ' + result.artist);
-            }
-          } else {
-            // Last.fm result - build Volumio albumart URL
-            artUrl = self.buildArtworkUrl(result.artist, result.album, fallbackIcon);
-          }
-          // Save as last valid artwork for persistence and reset TTL
-          self.lastValidArtwork = {
-            url: artUrl,
-            artist: result.artist,
-            title: title
-          };
-          self.artworkTimestamp = Date.now();
-          // Push updated state with proper artwork URL
-          pushFmState(artUrl);
-        }
-      });
-    }
-  } else {
-    // No metadata or below threshold - push with persisted or default artwork
-    pushFmState(albumart);
-  }
+
+  var song = bestEffortArtwork && artist && title && parsed.confidence >= artworkThreshold && !artistBlocked && !titleBlocked ?
+    { artist: artist, title: title, confidence: parsed.confidence } : null;
+  self.artworkFor(song, fallbackIcon, pushFmState);
 };
 
 // Handle TMC traffic alerts with toast notifications
@@ -6073,7 +6104,6 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
   // Get artwork settings
   var bestEffortArtwork = self.config.get('best_effort_artwork', true);
   var artworkThreshold = self.config.get('artwork_threshold', 60);
-  var artworkPersistence = self.config.get('artwork_persistence', 'track');
   var artworkTtl = self.config.get('artwork_ttl', 0);  // 0 = disabled, else minutes
   var artworkDebugLogging = self.config.get('artwork_debug_logging', false);
   
@@ -6109,39 +6139,6 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
       }
       self.lastValidArtwork = null;
       self.artworkTimestamp = null;
-    }
-  }
-  
-  // Artwork persistence: Keep last valid artwork when no metadata is parsed
-  // This prevents flicker when station shows promos between songs
-  var usePersistedArtwork = false;
-  if (!dls.artworkArtist && !dls.artworkTitle && !motImage) {
-    // No new metadata and no MOT - check if we should persist previous artwork
-    if (self.lastValidArtwork && self.lastValidArtwork.url) {
-      if (artworkPersistence === 'artist') {
-        // Keep artwork until artist changes - always persist when no new data
-        albumartUrl = self.lastValidArtwork.url;
-        usePersistedArtwork = true;
-        if (artworkDebugLogging) {
-          self.logger.info('[RTL-SDR Radio] Using persisted artwork: ' + self.lastValidArtwork.artist);
-        }
-      } else if (artworkPersistence === 'track') {
-        // Keep artwork until track changes - persist when no new data
-        albumartUrl = self.lastValidArtwork.url;
-        usePersistedArtwork = true;
-        if (artworkDebugLogging) {
-          self.logger.info('[RTL-SDR Radio] Using persisted artwork: ' + self.lastValidArtwork.artist);
-        }
-      }
-      // 'none' = don't persist, use default icon
-    }
-  } else if (dls.artworkArtist && self.lastValidArtwork && self.lastValidArtwork.artist) {
-    // New metadata arrived - check if artist changed (resets TTL)
-    if (dls.artworkArtist.toLowerCase() !== self.lastValidArtwork.artist.toLowerCase()) {
-      // Artist changed - TTL will be reset when new artwork is saved
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Artist changed: ' + self.lastValidArtwork.artist + ' -> ' + dls.artworkArtist);
-      }
     }
   }
   
@@ -6181,100 +6178,21 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
     return;
   }
   
-  // If we have parsed metadata above threshold, do Last.fm lookup for album name
-  // Check blocklist to avoid lookups for station idents/promos
+  // The song the text names, if it names one that may be looked up: not one of the
+  // station's own phrases (the block list), and read with confidence enough
   var artistBlocked = dls.artworkArtist ? metadata.fuzzyBlocklistMatch(dls.artworkArtist) : false;
   var titleBlocked = dls.artworkTitle ? metadata.fuzzyBlocklistMatch(dls.artworkTitle) : false;
-  
+
   if (artistBlocked || titleBlocked) {
     if (artworkDebugLogging) {
-      self.logger.info('[RTL-SDR Radio] Artwork blocked: ' + dls.artworkArtist + ' - ' + dls.artworkTitle + 
+      self.logger.info('[RTL-SDR Radio] Artwork blocked: ' + dls.artworkArtist + ' - ' + dls.artworkTitle +
                        ' (artist=' + artistBlocked + ', title=' + titleBlocked + ')');
     }
   }
-  
-  if (bestEffortArtwork && dls.artworkArtist && dls.artworkTitle && dls.parsedConfidence >= artworkThreshold && !artistBlocked && !titleBlocked) {
-    var lookupKey = dls.artworkArtist + '|' + dls.artworkTitle;
-    
-    // Only log and lookup once per track
-    if (self.lastArtworkLogKey !== lookupKey) {
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Artwork lookup: ' + dls.artworkArtist + ' - ' + dls.artworkTitle +
-                         (dls.artworkAlbum ? ' [' + dls.artworkAlbum + ']' : '') +
-                         ' (confidence ' + dls.parsedConfidence + '% >= ' + artworkThreshold + '%)');
-      }
-      self.lastArtworkLogKey = lookupKey;
-    }
-    
-    // If album was extracted from DLS (soundtrack pattern), use it directly - no Last.fm needed
-    if (dls.artworkAlbum) {
-      albumartUrl = self.buildArtworkUrl(dls.artworkArtist, dls.artworkAlbum, fallbackIcon);
-      // Save as last valid artwork for persistence and reset TTL
-      self.lastValidArtwork = {
-        url: albumartUrl,
-        artist: dls.artworkArtist,
-        title: dls.artworkTitle
-      };
-      self.artworkTimestamp = Date.now();
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Using album from DLS: ' + dls.artworkAlbum);
-      }
-      pushState(albumartUrl);
-    }
-    // Check if we already have cached album info
-    else if (self.albumLookupCache && self.albumLookupCache[lookupKey]) {
-      var cached = self.albumLookupCache[lookupKey];
-      if (cached && (cached.album || cached.artworkUrl)) {
-        if (cached.isComposerPortrait && cached.artworkUrl) {
-          // Direct URL from Open Opus - use as-is
-          albumartUrl = cached.artworkUrl;
-        } else {
-          albumartUrl = self.buildArtworkUrl(cached.artist, cached.album, fallbackIcon);
-        }
-        // Save as last valid artwork for persistence and reset TTL
-        self.lastValidArtwork = {
-          url: albumartUrl,
-          artist: cached.artist,
-          title: dls.artworkTitle
-        };
-        self.artworkTimestamp = Date.now();
-      }
-      pushState(albumartUrl);
-    } else {
-      // Push state immediately with persisted or default icon, then update after lookup
-      pushState(albumartUrl);
-      
-      // Async Last.fm lookup for album name (falls back to Open Opus for classical)
-      self.lookupAlbum(dls.artworkArtist, dls.artworkTitle, function(err, result) {
-        if (result && (result.album || result.artworkUrl)) {
-          var artUrl;
-          if (result.isComposerPortrait && result.artworkUrl) {
-            // Direct URL from Open Opus - use as-is
-            artUrl = result.artworkUrl;
-          } else {
-            artUrl = self.buildArtworkUrl(result.artist, result.album, fallbackIcon);
-          }
-          // Save as last valid artwork for persistence and reset TTL
-          self.lastValidArtwork = {
-            url: artUrl,
-            artist: result.artist,
-            title: dls.artworkTitle
-          };
-          self.artworkTimestamp = Date.now();
-          // Push updated state with proper artwork URL
-          self.lastDabState = null; // Force state update
-          pushState(artUrl);
-        }
-      });
-    }
-  } else if (!usePersistedArtwork) {
-    // No metadata or below threshold, and not using persisted artwork
-    // Push with default/MOT artwork
-    pushState(albumartUrl);
-  } else {
-    // Using persisted artwork - still need to push state with updated DLS text
-    pushState(albumartUrl);
-  }
+
+  var song = bestEffortArtwork && dls.artworkArtist && dls.artworkTitle && dls.parsedConfidence >= artworkThreshold && !artistBlocked && !titleBlocked ?
+    { artist: dls.artworkArtist, title: dls.artworkTitle, album: dls.artworkAlbum || null, confidence: dls.parsedConfidence } : null;
+  self.artworkFor(song, fallbackIcon, pushState);
 };
 
 ControllerRtlsdrRadio.prototype.stop = function() {
@@ -6287,6 +6205,9 @@ ControllerRtlsdrRadio.prototype.stop = function() {
   // Volumio no longer takes its state from this plugin. The station stays the current
   // item of its queue, so "play" starts it again.
   self.playingJob = null;
+  clearTimeout(self.artTimer);
+  self.artTimer = null;
+  self.artShown = null;
   self.restoreQueueItem();
   self.commandRouter.stateMachine.setConsumeUpdateService(undefined);
   
@@ -6307,8 +6228,50 @@ ControllerRtlsdrRadio.prototype.pushPlayingState = function(state) {
   // lives. A station has no duration; it is left out rather than given as zero.
   var pushed = Object.assign({}, state);
   delete pushed.duration;
+  self.holdArtwork(pushed);
   self.showOnQueueItem(pushed);
   self.commandRouter.servicePushState(pushed, 'rtlsdr_radio');
+};
+
+// A picture stays on the screen for a while before another takes its place (the
+// artwork cool-off of the settings). A station's text changes every few seconds, and
+// with it what there is to show; without this a picture can be replaced and brought
+// back within a second. The text and the tune level of a state are never held back:
+// a state that comes too soon goes out with the picture that is on the screen, and
+// the picture it meant follows when the time is up, unless a later state has taken its
+// place by then.
+ControllerRtlsdrRadio.prototype.holdArtwork = function(state) {
+  var self = this;
+  clearTimeout(self.artTimer);
+  self.artTimer = null;
+  if (!state.albumart) {
+    return;
+  }
+  var hold = Math.max(0, Number(self.config.get('artwork_hold', 2)) || 0) * 1000;
+  var now = Date.now();
+  var shown = self.artShown;
+
+  // Another station, or the same picture again: nothing to hold
+  if (!shown || shown.uri !== state.uri) {
+    self.artShown = { uri: state.uri, url: state.albumart, since: now };
+    return;
+  }
+  if (shown.url === state.albumart) {
+    return;
+  }
+
+  var left = shown.since + hold - now;
+  if (left <= 0) {
+    self.artShown = { uri: state.uri, url: state.albumart, since: now };
+    return;
+  }
+
+  var meant = Object.assign({}, state);
+  state.albumart = shown.url;
+  self.artTimer = setTimeout(function() {
+    self.artTimer = null;
+    self.pushPlayingState(meant);
+  }, left);
 };
 
 // Volumio shows the artwork of the queue item, not that of the state it is given. The

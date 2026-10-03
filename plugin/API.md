@@ -483,6 +483,73 @@ data: {"status":"complete","measurements":[...],"summary":{"12A":{"optimalGain":
 - Phrases are case-insensitive
 - Blocklist has separate backup/restore from stations and config
 
+## Plugin Update API
+
+### Get Update State
+
+**Endpoint:** `GET /api/update`
+
+**Description:** Returns the installed version, what the chosen channel offers, and how an update under way is doing. The store and, on the preview channel, GitHub are asked when the last look is older than a day.
+
+**Response:**
+```json
+{
+  "current": "1.3.10",
+  "channel": "preview",
+  "testMode": true,
+  "checkedAt": "2026-10-03T10:00:00.000Z",
+  "offer": {
+    "version": "1.3.11",
+    "channel": "preview",
+    "source": "github",
+    "notes": "...",
+    "page": "https://github.com/foonerd/rtlsdr-radio/releases/tag/v1.3.11",
+    "bytes": 9612677,
+    "publishedAt": "2026-10-03T09:30:00Z"
+  },
+  "available": true,
+  "newest": { "stable": "1.3.9", "beta": null, "preview": "1.3.11" },
+  "problems": {},
+  "previous": null,
+  "last": null,
+  "job": null
+}
+```
+
+**Fields:**
+- `channel`: `stable`, `beta` or `preview`
+- `testMode`: whether the player is in Volumio's plugin test mode (the store names beta versions only then)
+- `offer`: the newest version the channel offers, or `null`; `source` is `store` or `github`
+- `available`: whether the offer is newer than the installed version
+- `newest`: the newest version of each channel by itself
+- `problems`: `store` is `store-login` (the player is not signed in to MyVolumio) or `store` (no answer); `github` is set when GitHub gave no answer
+- `previous`: the version kept from before the last update, `{ "version", "at" }`, or `null`
+- `last`: the last update, `{ "from", "to", "source", "at", "phase", "ok" }`; `ok` says whether the new version was running after the restart
+- `job`: an update under way, `{ "kind", "state", "progress", "error" }`; `state` is one of `downloading`, `verifying`, `backing-up`, `keeping`, `applying`, `restarting`, `failed`
+
+### Check Now
+
+**Endpoint:** `POST /api/update/check`
+
+**Description:** Asks the store and GitHub again and returns the state as above.
+
+### Choose the Channel
+
+**Endpoint:** `POST /api/update/channel`
+
+**Request Body:**
+```json
+{ "channel": "preview" }
+```
+
+**Description:** Sets the channel, checks it, and returns the state. Any other value than `stable`, `beta` or `preview` is answered with 400.
+
+### Install, Go Back
+
+**Endpoints:** `POST /api/update/install`, `POST /api/update/rollback`
+
+**Description:** Installs the version offered, or puts back the version kept from before the last update. Returns at once with the state; the work goes on in the background and ends with a restart of the player's software, during which the Station Manager does not answer. Answered with 409 and an `error` (`up-to-date`, `no-offer`, `no-digest`, `no-previous`, `busy`) when there is nothing to do.
+
 ## Station Logos API
 
 ### Get Logo Status

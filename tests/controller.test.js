@@ -51,6 +51,20 @@ var plugin = new Controller({ coreCommand: coreCommand, logger: logger, configMa
 plugin.tuner.settle = 100;
 plugin.tuner.grace = 400;
 
+// No network for the updater either; lib/update.js has tests of its own. The zip tool
+// and the restart are stood in for.
+var updateDid = [];
+plugin.updater.network = {
+  json: function() { return Promise.reject(new Error('no network in this test')); },
+  download: function() { return Promise.reject(new Error('no network in this test')); }
+};
+plugin.updater.zip = function(folder, file) {
+  updateDid.push('keep');
+  fs.writeFileSync(file, 'the installed plugin, zipped');
+  return Promise.resolve();
+};
+plugin.restartBackend = function() { updateDid.push('restart'); };
+
 // No network for the station logos here; lib/logos.js has tests of its own
 var logoChecks = 0;
 plugin.logos.lookup.network = {
@@ -334,6 +348,77 @@ test('station logos through the manager: the state is told, a refresh is taken, 
   assert.deepStrictEqual(logs.filter(function(l) { return /^(ERROR|WARN)/.test(l); }), []);
   assert.ok(fs.lstatSync(__dirname + '/../plugin/logos').isSymbolicLink(), 'the pictures are reached through a link in the plugin folder');
   plugin.stationsDb.dab = [];
+});
+
+test('plugin update through the manager: the store is asked through the player, and only a signed-in player is answered', async function() {
+  var view = JSON.parse((await get('/api/update')).text);
+  assert.strictEqual(view.current, require('../plugin/package.json').version);
+  assert.strictEqual(view.channel, 'stable');
+  assert.deepStrictEqual(view.problems, { store: 'store-login' });
+  assert.strictEqual(view.available, false);
+
+  // Signed in, and the store names its versions the way the player shows them
+  var store = 'https://plugins.volumio.workers.dev/pluginsv2/download/rtlsdr_radio/';
+  coreCommand.getMyVolumioStatus = function() { return Promise.resolve({ loggedIn: true }); };
+  coreCommand.getPluginDetails = function(data) {
+    assert.deepStrictEqual(data, { name: 'rtlsdr_radio' });
+    return Promise.resolve({ title: 'FM/DAB Radio', buttons: [
+      { name: 'Install v1.3.9 (stable)', emit: 'installPlugin', payload: { url: store + '1.3.9/volumio/bookworm/arm' } },
+      { name: 'Install v9.9.9 (beta)', emit: 'installPlugin', payload: { url: store + '9.9.9/volumio/bookworm/arm' } },
+      { name: 'Close', class: 'btn btn-warning' }
+    ] });
+  };
+  view = JSON.parse((await post('/api/update/check')).text);
+  assert.deepStrictEqual(view.problems, {});
+  assert.deepStrictEqual(view.newest, { stable: '1.3.9', beta: '9.9.9', preview: null });
+  assert.strictEqual(view.offer.version, '1.3.9');
+  assert.strictEqual(view.available, false, 'the stable channel offers nothing newer');
+
+  assert.strictEqual((await post('/api/update/channel', { channel: 'nightly' })).status, 400);
+  view = JSON.parse((await post('/api/update/channel', { channel: 'beta' })).text);
+  assert.strictEqual(view.channel, 'beta');
+  assert.strictEqual(view.offer.version, '9.9.9');
+  assert.strictEqual(view.offer.source, 'store');
+  assert.strictEqual(view.available, true);
+});
+
+test('plugin update through the manager: the player\'s plugin manager installs it, then the backend is restarted', async function() {
+  var asked = [];
+  coreCommand.updatePlugin = function(data) { asked.push(data); return Promise.resolve(); };
+  fs.writeJsonSync('/data/configuration/plugins.json', { music_service: { rtlsdr_radio: { enabled: { type: 'boolean', value: true } } } });
+  function stationBackups() {
+    try { return fs.readdirSync('/data/rtlsdr_radio_backups/stations').length; } catch (e) { return 0; }
+  }
+  var backups = stationBackups();
+  updateDid.length = 0;
+
+  var started = await post('/api/update/install');
+  assert.strictEqual(started.status, 200, started.text);
+  var view;
+  for (var i = 0; i < 100; i++) {
+    view = JSON.parse((await get('/api/update')).text);
+    if (view.job && (view.job.state === 'restarting' || view.job.state === 'failed')) { break; }
+    await sleep(50);
+  }
+  assert.strictEqual(view.job.state, 'restarting', JSON.stringify(view.job));
+  assert.deepStrictEqual(asked, [{ url: 'https://plugins.volumio.workers.dev/pluginsv2/download/rtlsdr_radio/9.9.9/volumio/bookworm/arm',
+    category: 'music_service', name: 'rtlsdr_radio' }]);
+  assert.deepStrictEqual(updateDid, ['keep', 'restart']);
+  assert.strictEqual(stationBackups(), backups + 1, 'the station list was backed up first');
+  assert.strictEqual(view.previous.version, require('../plugin/package.json').version);
+
+  // A second request while the backend is on its way down starts nothing new
+  assert.strictEqual(view.last.phase, 'restarting');
+  plugin.updater.job = null;
+  plugin.config.set('update_channel', 'stable');
+});
+
+test('plugin update through the manager: a store that never answers is given up on', async function() {
+  plugin.STORE_TIMEOUT = 100;
+  coreCommand.getPluginDetails = function() { return new Promise(function() {}); };
+  var view = JSON.parse((await post('/api/update/check')).text);
+  assert.deepStrictEqual(view.problems, { store: 'store' });
+  assert.deepStrictEqual(logs.filter(function(l) { return /^ERROR/.test(l) && /Update/.test(l); }), []);
 });
 
 test('station logos are looked for a while after the start, not in the middle of it', async function() {

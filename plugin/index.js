@@ -11,6 +11,7 @@ var storage = require('./lib/storage');
 var Tuner = require('./lib/tuner');
 var FmQuality = require('./lib/fmquality');
 var Logos = require('./lib/logos');
+var Updater = require('./lib/update');
 
 module.exports = ControllerRtlsdrRadio;
 
@@ -81,6 +82,22 @@ function ControllerRtlsdrRadio(context) {
   // each run as a job of it, one at a time
   self.tuner = new Tuner({ logger: self.logger, settle: self.USB_RESET_DELAY });
   
+  // Updates of the plugin itself, from the plugin store or the previews on GitHub
+  self.updater = new Updater({
+    dir: storage.BACKUP_DIR + '/update',
+    version: require('./package.json').version,
+    pluginPath: __dirname,
+    logger: self.logger,
+    channel: function() { return self.config ? self.config.get('update_channel', 'stable') : 'stable'; },
+    plugin: {
+      storeVersions: function() { return self.storeVersions(); },
+      testMode: function() { return fs.existsSync('/data/testplugins'); },
+      backup: function() { self.backupBeforeUpdate(); },
+      apply: function(url) { return self.applyUpdate(url); },
+      restart: function() { self.restartBackend(); }
+    }
+  });
+
   // Station logos, fetched from the broadcasters when the player is online
   self.logos = new Logos({
     logger: self.logger,
@@ -95,6 +112,7 @@ function ControllerRtlsdrRadio(context) {
   self.RDS_UPDATE_INTERVAL = 2000;   // Minimum between RDS state pushes
   self.SIGNAL_HOLD = 4000;           // A new tune level must hold this long before it is shown
   self.LOGOS_START_DELAY = 30000;    // Station logos are looked for this long after the plugin starts
+  self.STORE_TIMEOUT = 15000;        // How long the plugin store is given to say which versions it has
   self.DLS_UPDATE_INTERVAL = 2000;   // Minimum between DLS state pushes
   self.DLS_POLL_INTERVAL = 2000;     // DLS file polling interval
   self.TMC_THROTTLE = 30000;         // Traffic alert throttle (30s)
@@ -2160,6 +2178,47 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       } catch (e) {
         res.status(500).json({ error: e.toString() });
       }
+    });
+    
+    // API: Plugin update - what is installed, what the chosen channel offers, how an
+    // update under way is doing
+    self.expressApp.get('/api/update', function(req, res) {
+      self.updater.check(false).then(function(view) {
+        res.json(view);
+      }, function(e) {
+        res.json(Object.assign(self.updater.view(), { error: { code: 'failed', message: String(e && e.message || e) } }));
+      });
+    });
+    
+    // API: Plugin update - look again now
+    self.expressApp.post('/api/update/check', function(req, res) {
+      self.updater.check(true).then(function(view) {
+        res.json(view);
+      });
+    });
+    
+    // API: Plugin update - choose the channel: stable, beta or preview
+    self.expressApp.post('/api/update/channel', function(req, res) {
+      var channel = req.body && req.body.channel;
+      if (Updater.CHANNELS.indexOf(channel) === -1) {
+        return res.status(400).json({ error: { code: 'bad-channel', message: 'the channel is one of ' + Updater.CHANNELS.join(', ') } });
+      }
+      self.config.set('update_channel', channel);
+      self.logger.info('[RTL-SDR Radio] Update: channel set to ' + channel);
+      self.updater.check(true).then(function(view) {
+        res.json(view);
+      });
+    });
+    
+    // API: Plugin update - install the version offered, or put back the one before
+    ['install', 'rollback'].forEach(function(action) {
+      self.expressApp.post('/api/update/' + action, function(req, res) {
+        self.updater[action]().then(function(view) {
+          res.json(view);
+        }, function(e) {
+          res.status(409).json(Object.assign(self.updater.view(), { error: { code: e && e.code || 'failed', message: String(e && e.message || e) } }));
+        });
+      });
     });
     
     // API: Station logos - how many stations have one, and whether fetching is under way
@@ -6191,6 +6250,153 @@ ControllerRtlsdrRadio.prototype.logoArrived = function() {
       first.albumart = icon;
       self.pushPlayingState(first);
     }
+  }
+};
+
+// --- what the updater (lib/update.js) asks of the plugin --------------------------------
+
+// The versions of this plugin the Volumio plugin store offers this player:
+// [{ version, channel, url }]. The store answers only players signed in to MyVolumio,
+// and names beta versions only to players in plugin test mode; both are the player's
+// own rules, so the player's plugin manager is asked rather than the store itself.
+ControllerRtlsdrRadio.prototype.storeVersions = function() {
+  var self = this;
+
+  function coded(code, message) {
+    return Object.assign(new Error(message), { code: code });
+  }
+
+  function signedIn() {
+    return new Promise(function(resolve) {
+      try {
+        Promise.resolve(self.commandRouter.getMyVolumioStatus()).then(function(status) {
+          resolve(!!(status && status.loggedIn));
+        }, function() { resolve(false); });
+      } catch (e) {
+        resolve(false);
+      }
+    });
+  }
+
+  return signedIn().then(function(yes) {
+    if (!yes) {
+      throw coded('store-login', 'the player is not signed in to MyVolumio');
+    }
+    return new Promise(function(resolve, reject) {
+      // The plugin manager gives no answer at all when the store gives it none
+      var timer = setTimeout(function() {
+        reject(coded('store', 'no answer from the plugin store'));
+      }, self.STORE_TIMEOUT);
+      var asked;
+      try {
+        asked = self.commandRouter.getPluginDetails({ name: 'rtlsdr_radio' });
+      } catch (e) {
+        clearTimeout(timer);
+        reject(coded('store', e.message));
+        return;
+      }
+      Promise.resolve(asked).then(function(details) {
+        clearTimeout(timer);
+        var versions = [];
+        ((details && details.buttons) || []).forEach(function(button) {
+          var url = String((button && button.payload && button.payload.url) || '');
+          var found = /\/pluginsv2\/download\/rtlsdr_radio\/([^\/]+)\//.exec(url);
+          var channel = /\((stable|beta)\)\s*$/.exec(String((button && button.name) || ''));
+          if (found) {
+            // A version whose channel is not said is not passed off as stable
+            versions.push({ version: found[1], channel: channel ? channel[1] : 'beta', url: url });
+          }
+        });
+        resolve(versions);
+      }, function(e) {
+        clearTimeout(timer);
+        reject(coded('store', e && e.message || String(e)));
+      });
+    });
+  });
+};
+
+// Settings and lists backed up before an update replaces the plugin
+ControllerRtlsdrRadio.prototype.backupBeforeUpdate = function() {
+  var self = this;
+  var timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  ['createStationsBackup', 'createConfigBackup', 'createBlocklistBackup'].forEach(function(make) {
+    self[make](timestamp).fail(function(e) {
+      self.logger.info('[RTL-SDR Radio] Update: ' + make + ': ' + e);
+    });
+  });
+};
+
+// The player's plugin manager installs the zip at the given address, as it installs
+// any update of a plugin: it stops this plugin, replaces its folder, runs the
+// installer and enables the plugin again.
+ControllerRtlsdrRadio.prototype.applyUpdate = function(url) {
+  var self = this;
+  return new Promise(function(resolve, reject) {
+    self.commandRouter.updatePlugin({ url: url, category: 'music_service', name: 'rtlsdr_radio' }).then(function() {
+      // The plugin manager writes "enabled" a moment after it says it is done; a
+      // restart that lands before that brings the plugin back installed and off
+      self.enabledInRegistry().then(resolve);
+    }, function(e) {
+      reject(e instanceof Error ? e : new Error(String(e || 'the plugin manager refused the update')));
+    });
+  });
+};
+
+// Resolves when the player's list of plugins shows this one enabled, or after six
+// seconds whatever it shows.
+ControllerRtlsdrRadio.prototype.enabledInRegistry = function() {
+  var self = this;
+
+  function enabled() {
+    try {
+      var entry = fs.readJsonSync('/data/configuration/plugins.json').music_service.rtlsdr_radio;
+      return entry.enabled.value === true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  return new Promise(function(resolve) {
+    var tries = 0;
+    (function look() {
+      if (enabled()) {
+        resolve();
+        return;
+      }
+      if (tries === 2) {
+        try {
+          var registry = self.commandRouter.pluginManager.config;
+          registry.set('music_service.rtlsdr_radio.enabled', true);
+          registry.set('music_service.rtlsdr_radio.status', 'STARTED');
+          self.logger.info('[RTL-SDR Radio] Update: the plugin was not shown as enabled; set');
+        } catch (e) {
+          self.logger.info('[RTL-SDR Radio] Update: the list of plugins could not be set: ' + e.message);
+        }
+      }
+      if (++tries > 12) {
+        self.logger.info('[RTL-SDR Radio] Update: the plugin is still not shown as enabled; restarting anyway');
+        resolve();
+        return;
+      }
+      setTimeout(look, 500);
+    })();
+  });
+};
+
+// Restart the player's backend a moment from now, so that the new code is loaded: Node
+// keeps a plugin's code in memory until the backend ends. The request goes to systemd
+// as one restart job; a stop followed by a start from inside the service would end with
+// the stop, which takes the process waiting to start it again with it.
+ControllerRtlsdrRadio.prototype.restartBackend = function() {
+  var self = this;
+  self.logger.info('[RTL-SDR Radio] Update: restarting the backend');
+  try {
+    var child = require('child_process').spawn('/bin/sh', ['-c', 'sleep 3; sudo -n /bin/systemctl --no-block restart volumio'],
+      { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch (e) {
+    self.logger.error('[RTL-SDR Radio] Update: the backend could not be restarted: ' + e.message);
   }
 };
 

@@ -239,6 +239,33 @@ The section shows how many stations have a logo and whether fetching is under wa
 
 Logos are kept in `/data/rtlsdr_radio_logos` and survive plugin updates. Uninstalling the plugin removes them, unless *Auto-backup before uninstall* is selected, in which case they are kept for the next installation.
 
+### Plugin Update
+The plugin can be updated from the Station Manager (Maintenance > Plugin Update), without waiting for the player to offer the update.
+
+**Channels:**
+
+| Channel | Where the versions come from | For |
+| --- | --- | --- |
+| Stable | Volumio plugin store, released versions | everyday use (default) |
+| Beta | Volumio plugin store, versions in testing | trying a version before it is released |
+| Preview | the project's releases on GitHub | trying a version before it goes to the store; may have faults |
+
+The section shows the installed version and the newest version the chosen channel offers. A channel includes the ones above it: Beta offers stable versions too, Preview offers whatever is newest.
+
+- The plugin store answers only players signed in to MyVolumio, and shows beta versions only to players with Volumio's plugin test mode switched on. Without them the section says so; the Preview channel works regardless.
+- A preview is downloaded by the plugin and checked against the size and SHA-256 checksum GitHub publishes for it. A download that does not match is discarded.
+
+**What an update does:**
+
+1. Backs up the station list, the settings and the block list.
+2. Keeps the installed version as a zip.
+3. Hands the new version to Volumio's own plugin manager, which installs it the way it installs any plugin update.
+4. Restarts the player's software so that the new version is loaded.
+
+Playback stops and the player is unavailable for about a minute. When it is back, the section says which version is running.
+
+**Going back:** after an update, *Go Back to (version)* reinstalls the version that was installed before, the same way. One previous version is kept, in `/data/rtlsdr_radio_backups/update`.
+
 ### Antenna Positioning Tools
 The plugin includes professional-grade tools for optimizing antenna placement and orientation:
 
@@ -468,7 +495,21 @@ Just a Nerd
   - Raspberry Pi (arm): built for ARMv6, so they start on every Pi
   - x86-64: the RDS decoder no longer requires a processor with AVX2
 - Installer: no sudoers entry, no loopback module, no removal of unrelated packages
-- No new settings
+- Station logos for DAB
+  - Fetched from the broadcasters through RadioDNS, shown in the station lists and on
+    the player screen
+  - A station without a logo of its own is shown with its broadcaster's
+  - Fetched in the background and only when there is an internet connection; kept
+    across plugin updates
+  - Station Manager > Maintenance > Station Logos shows the state and refreshes on demand
+- FM tune level measured from the reception itself (the stereo pilot against the noise
+  above it) instead of derived from RDS
+- Artwork that changes while a station plays (a logo, the picture found for a song)
+  is shown on the player screen
+- Plugin update from the Station Manager, with a choice of channel: Stable and Beta
+  from the Volumio plugin store, Preview from the project's releases on GitHub; the
+  version before an update can be put back
+- New setting: the update channel (Station Manager > Maintenance > Plugin Update)
 
 ### v1.3.9
 - New FM Scan Offset setting to align scan frequency grid with country channel plans

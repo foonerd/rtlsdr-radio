@@ -306,7 +306,7 @@
   "TAB_ANTENNA": "Regolazione Antenna",
   "ANTENNA_HEADER": "Regolazione Antenna",
   "MAINTENANCE_BACKUP_TITLE": "Crea backup",
-  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Solo stazioni",
+  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Stazioni (con i tuoi loghi)",
   "MAINTENANCE_BACKUP_TYPE_CONFIG": "Solo configurazione",
   "MAINTENANCE_BACKUP_TYPE_FULL": "Backup completo (Tutto)",
   "MAINTENANCE_AUTO_BACKUP": "Backup automatico prima della disinstallazione",

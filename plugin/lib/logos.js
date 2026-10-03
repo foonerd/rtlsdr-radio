@@ -409,6 +409,73 @@ Logos.prototype.clearUser = function(station) {
   return this.describe(station);
 };
 
+// The user's own logos as a backup carries them: { '<key>': { extension, from, ref,
+// data } }, data being the picture in base64. Only what the user chose: everything else
+// the store keeps can be fetched again.
+Logos.prototype.exportUser = function() {
+  var self = this;
+  var out = {};
+  Object.keys(self.index.user).forEach(function(key) {
+    var entry = self.index.user[key];
+    var file = self._file(entry);
+    if (!file) {
+      return;
+    }
+    out[key] = {
+      extension: path.extname(file).slice(1).toLowerCase(),
+      from: entry.from || 'upload',
+      ref: entry.ref || null,
+      data: fs.readFileSync(path.join(self.dir, file)).toString('base64')
+    };
+  });
+  return out;
+};
+
+// Put back the user's logos a backup carries. Each takes the place of the user's logo
+// for the same station, if there is one; the others are left as they are. check(body)
+// says whether a picture can be a logo (lib/pictures.js): a backup is a file like any
+// other and is taken on no more trust than an upload. Returns how many were put back.
+Logos.prototype.importUser = function(logos, check) {
+  var self = this;
+  var count = 0;
+  if (!logos || typeof logos !== 'object') {
+    return 0;
+  }
+  Object.keys(logos).forEach(function(key) {
+    var entry = logos[key];
+    if (!/^(fm-\d{5}|dab-[0-9a-f]{4}-[0-9a-f]{4,8}|dab-x-[0-9a-f]{12})$/.test(key) ||
+        !entry || typeof entry.data !== 'string') {
+      return;
+    }
+    var body = Buffer.from(entry.data, 'base64');
+    var checked = check(body);
+    if (!checked.ok) {
+      self.logger.info('[RTL-SDR Radio] Logos: the logo of ' + key + ' in the backup is not taken: ' + checked.reason);
+      return;
+    }
+    var file = 'user-' + key + '.' + checked.extension;
+    var held = self.index.user[key];
+    fs.ensureDirSync(self.dir);
+    fs.writeFileSync(path.join(self.dir, file + '.tmp'), body);
+    fs.renameSync(path.join(self.dir, file + '.tmp'), path.join(self.dir, file));
+    if (held && held.file && held.file !== file) {
+      fs.removeSync(path.join(self.dir, held.file));
+    }
+    self.index.user[key] = {
+      file: file,
+      from: String(entry.from || 'upload').slice(0, 20),
+      ref: entry.ref ? String(entry.ref).slice(0, 80) : null,
+      fetched: new Date().toISOString()
+    };
+    count++;
+  });
+  if (count > 0) {
+    self._save();
+    self.onLogo();
+  }
+  return count;
+};
+
 function sought(query) {
   return String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
 }

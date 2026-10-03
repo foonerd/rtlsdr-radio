@@ -306,7 +306,7 @@
   "TAB_ANTENNA": "Ajuste de Antena",
   "ANTENNA_HEADER": "Ajuste de Antena",
   "MAINTENANCE_BACKUP_TITLE": "Crear copia de seguridad",
-  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Solo estaciones",
+  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Estaciones (con sus propios logotipos)",
   "MAINTENANCE_BACKUP_TYPE_CONFIG": "Solo configuración",
   "MAINTENANCE_BACKUP_TYPE_FULL": "Copia completa (Todo)",
   "MAINTENANCE_AUTO_BACKUP": "Copia automática antes de desinstalar",

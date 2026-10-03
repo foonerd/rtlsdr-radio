@@ -389,8 +389,21 @@ ControllerRtlsdrRadio.prototype.createStationsBackup = function(timestamp) {
     var backupFile = '/data/rtlsdr_radio_backups/stations/stations-' + timestamp + '.json';
     
     if (fs.existsSync(sourceFile)) {
-      fs.copySync(sourceFile, backupFile);
-      self.logger.info('[RTL-SDR Radio] Created stations backup: ' + backupFile);
+      // The logos the user chose for stations go with the stations: they are the one
+      // part of the logo store that cannot be fetched again. Without any, the backup
+      // is the station list as it is.
+      var ownLogos = self.logos.exportUser();
+      if (Object.keys(ownLogos).length > 0) {
+        var withLogos = fs.readJsonSync(sourceFile);
+        withLogos.userLogos = ownLogos;
+        fs.ensureDirSync(path.dirname(backupFile));
+        fs.writeJsonSync(backupFile + '.tmp', withLogos);
+        fs.renameSync(backupFile + '.tmp', backupFile);
+      } else {
+        fs.copySync(sourceFile, backupFile);
+      }
+      self.logger.info('[RTL-SDR Radio] Created stations backup: ' + backupFile +
+        (Object.keys(ownLogos).length > 0 ? ' (with ' + Object.keys(ownLogos).length + ' logo(s) of the user\'s own)' : ''));
       
       self.pruneBackups('stations');
       defer.resolve(backupFile);
@@ -600,7 +613,7 @@ ControllerRtlsdrRadio.prototype.restoreStationsBackup = function(timestamp) {
     var backupFile = self.backupFile('stations', timestamp);
     
     if (backupFile && fs.existsSync(backupFile)) {
-      storage.write('stations', fs.readJsonSync(backupFile));
+      self.restoreStationsFrom(fs.readJsonSync(backupFile));
       self.logger.info('[RTL-SDR Radio] Restored stations from: ' + backupFile);
       defer.resolve();
     } else {
@@ -612,6 +625,37 @@ ControllerRtlsdrRadio.prototype.restoreStationsBackup = function(timestamp) {
   }
   
   return defer.promise;
+};
+
+// Put a stations backup in place: the station list as the list, and the logos of the
+// user's own that came with it into the logo store.
+ControllerRtlsdrRadio.prototype.restoreStationsFrom = function(data) {
+  var self = this;
+  var count = self.takeUserLogos(data);
+  storage.write('stations', data);
+  return count;
+};
+
+// Take the user's logos out of a station list that carries them (a backup does), and
+// put them into the logo store. The list is left without them: it is the list of
+// stations, saved at every change. Returns how many logos were put back.
+ControllerRtlsdrRadio.prototype.takeUserLogos = function(data) {
+  var self = this;
+  if (!data || data.userLogos === undefined) {
+    return 0;
+  }
+  var logos = data.userLogos;
+  delete data.userLogos;
+  var count = 0;
+  try {
+    count = self.logos.importUser(logos, pictures.check);
+  } catch (e) {
+    self.logger.error('[RTL-SDR Radio] The logos of the backup could not be restored: ' + e);
+  }
+  if (count > 0) {
+    self.logger.info('[RTL-SDR Radio] Restored ' + count + ' logo(s) of the user\'s own');
+  }
+  return count;
 };
 
 ControllerRtlsdrRadio.prototype.restoreBlocklistBackup = function(timestamp) {
@@ -1688,7 +1732,7 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
         self.extractAndValidateZip(zipPath)
           .then(function(result) {
             if (result.info.type === 'stations') {
-              storage.write('stations', fs.readJsonSync(result.jsonFile));
+              self.restoreStationsFrom(fs.readJsonSync(result.jsonFile));
             } else if (result.info.type === 'blocklist') {
               storage.write('blocklist', fs.readJsonSync(result.jsonFile));
             } else {
@@ -7054,7 +7098,10 @@ ControllerRtlsdrRadio.prototype.loadStations = function() {
   if (prepared) {
     self.stationsDb = prepared.db;
     self.logger.info('[RTL-SDR Radio] Loaded v2 database successfully');
-    if (prepared.migrated || restoredFrom) {
+    // A list taken from a backup may carry the user's logos; they belong in the logo store
+    var logosTaken = self.stationsDb.userLogos !== undefined;
+    self.takeUserLogos(self.stationsDb);
+    if (prepared.migrated || restoredFrom || logosTaken) {
       self.saveStations();
     }
     if (prepared.migrated) {

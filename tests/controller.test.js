@@ -941,6 +941,53 @@ test('a station\'s logo through the manager: uploaded, refused with the reason, 
   plugin.stationsDb.dab = [];
 });
 
+test('a stations backup carries the user\'s own logos, and a restore puts them back', async function() {
+  // A station as the list keeps one, or the list is not saved
+  var fm = plugin.transformStationToV2({ frequency: '100.0', name: 'FM 100.0' }, 'fm');
+  fm.customName = 'Kiss';
+  fm.favorite = true;
+  plugin.stationsDb.fm = [fm];
+  plugin.stationsDb.dab = [];
+  assert.strictEqual(plugin.saveStations(), true);
+  var live = plugin.stationsDbFile;
+
+  // Without a logo of the user's own, a backup is the station list as it is
+  await plugin.createStationsBackup('2026-01-01T00-00-00-000Z');
+  var plain = fs.readJsonSync('/data/rtlsdr_radio_backups/stations/stations-2026-01-01T00-00-00-000Z.json');
+  assert.strictEqual(plain.userLogos, undefined);
+  assert.deepStrictEqual(plain, fs.readJsonSync(live));
+
+  var picture = pngOf(600, 600);
+  assert.strictEqual((await upload('/api/logos/upload', { type: 'fm', frequency: '100.0' }, { name: 'kiss.png', body: picture })).status, 200);
+  await plugin.createStationsBackup('2026-01-02T00-00-00-000Z');
+  var backup = fs.readJsonSync('/data/rtlsdr_radio_backups/stations/stations-2026-01-02T00-00-00-000Z.json');
+  assert.deepStrictEqual(Object.keys(backup.userLogos), ['fm-10000']);
+  assert.ok(Buffer.from(backup.userLogos['fm-10000'].data, 'base64').equals(picture));
+  assert.strictEqual(backup.fm[0].customName, 'Kiss');
+  assert.strictEqual(fs.readJsonSync(live).userLogos, undefined, 'the list in use never carries the pictures');
+
+  // The logo is lost (another card, a store that was emptied); the restore brings it back
+  await post('/api/logos/clear', { station: { type: 'fm', frequency: '100.0' } });
+  assert.match(plugin.fmIcon(fm), /assets\/fm\.svg/);
+  await plugin.restoreStationsBackup('2026-01-02T00-00-00-000Z');
+  assert.match(plugin.fmIcon(fm), /logos\/user-fm-10000\.png&v=/);
+  assert.strictEqual(fs.readJsonSync(live).userLogos, undefined);
+  assert.strictEqual(fs.readJsonSync(live).fm[0].customName, 'Kiss');
+
+  // A list that reaches the plugin with the pictures in it (taken from a backup at the
+  // start, or by a version before this one) gives them up when it is loaded
+  await post('/api/logos/clear', { station: { type: 'fm', frequency: '100.0' } });
+  fs.writeJsonSync(live, backup);
+  await plugin.loadStations();
+  assert.strictEqual(plugin.stationsDb.userLogos, undefined);
+  assert.strictEqual(fs.readJsonSync(live).userLogos, undefined);
+  assert.match(plugin.fmIcon(plugin.stationsDb.fm[0]), /logos\/user-fm-10000\.png&v=/);
+
+  await post('/api/logos/clear', { station: { type: 'fm', frequency: '100.0' } });
+  plugin.stationsDb.fm = [];
+  plugin.saveStations();
+});
+
 test('plugin update through the manager: the store is asked through the player, and only a signed-in player is answered', async function() {
   var view = JSON.parse((await get('/api/update')).text);
   assert.strictEqual(view.current, require('../plugin/package.json').version);

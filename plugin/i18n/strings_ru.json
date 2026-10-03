@@ -306,7 +306,7 @@
   "TAB_ANTENNA": "Настройка антенны",
   "ANTENNA_HEADER": "Настройка антенны",
   "MAINTENANCE_BACKUP_TITLE": "Создать резервную копию",
-  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Только станции",
+  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Станции (со своими логотипами)",
   "MAINTENANCE_BACKUP_TYPE_CONFIG": "Только конфигурация",
   "MAINTENANCE_BACKUP_TYPE_FULL": "Полная резервная копия (Всё)",
   "MAINTENANCE_AUTO_BACKUP": "Автоматическое резервное копирование перед удалением",

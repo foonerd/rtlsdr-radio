@@ -306,7 +306,7 @@
   "TAB_ANTENNA": "Antenne-instelling",
   "ANTENNA_HEADER": "Antenne-instelling",
   "MAINTENANCE_BACKUP_TITLE": "Back-up maken",
-  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Alleen stations",
+  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Stations (met uw eigen logo's)",
   "MAINTENANCE_BACKUP_TYPE_CONFIG": "Alleen configuratie",
   "MAINTENANCE_BACKUP_TYPE_FULL": "Volledige back-up (Alles)",
   "MAINTENANCE_AUTO_BACKUP": "Automatische back-up voor deïnstallatie",

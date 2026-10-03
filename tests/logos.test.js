@@ -896,3 +896,40 @@ test('a list names a small picture to show among many, where it has one', functi
     '<bearer id="dab:ce1.c181.c1c0.0"/></service></services></serviceInformation>';
   assert.deepStrictEqual(radiodns.namedServicesOf(xml), { 'Some Station': { url: 'http://x.example/600.png', small: 'http://x.example/128.png' } });
 });
+
+test('the user\'s logos go into a backup and come back from it, each checked like an upload', async function() {
+  var pictures = require('../plugin/lib/pictures');
+  var fm = { frequency: '104.9', name: 'FM 104.9', customName: 'XFM' };
+  var rig = make([RADIO_1], { fm: [fm] });
+  rig.logos.sweep();
+  await idle(rig);
+  // A real PNG header, so that the check a restore makes passes
+  var mine = Buffer.concat([PNG.slice(0, 8), Buffer.alloc(8), Buffer.alloc(8)]);
+  mine.writeUInt32BE(13, 8);
+  mine.write('IHDR', 12, 'latin1');
+  mine = Buffer.concat([mine.slice(0, 16), Buffer.from([0, 0, 2, 88, 0, 0, 2, 88]), Buffer.alloc(40)]);
+  rig.logos.setUser(fm, { body: mine, extension: 'png' }, { from: 'upload', ref: 'xfm.png' });
+
+  var carried = rig.logos.exportUser();
+  assert.deepStrictEqual(Object.keys(carried), ['fm-10490'], 'only what the user chose: the fetched logos are not carried');
+  assert.deepStrictEqual([carried['fm-10490'].extension, carried['fm-10490'].from, carried['fm-10490'].ref], ['png', 'upload', 'xfm.png']);
+  assert.ok(Buffer.from(carried['fm-10490'].data, 'base64').equals(mine));
+
+  // Another player: nothing of the user's is there
+  var other = make([], { fm: [fm] });
+  assert.strictEqual(other.logos.icon(fm), null);
+  var bad = JSON.parse(JSON.stringify(carried));
+  bad['../../etc/passwd'] = carried['fm-10490'];
+  bad['fm-10000'] = { extension: 'png', data: Buffer.from('not a picture at all').toString('base64') };
+  bad['fm-10010'] = { extension: 'svg', data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="x()"/>').toString('base64') };
+  bad['fm-10020'] = { extension: 'png' };
+  assert.strictEqual(other.logos.importUser(bad, pictures.check), 1, 'the picture is put back; what is no picture, unsafe or misnamed is not');
+  assert.strictEqual(plain(other.logos.icon(fm)), 'music_service/rtlsdr_radio/logos/user-fm-10490.png');
+  assert.deepStrictEqual([other.logos.describe(fm).from, other.logos.describe(fm).ref], ['user', 'xfm.png']);
+  assert.ok(fs.readFileSync(other.dir + '/user-fm-10490.png').equals(mine));
+  assert.deepStrictEqual(fs.readdirSync(other.dir).filter(function(f) { return /^user-/.test(f); }), ['user-fm-10490.png']);
+  assert.strictEqual(other.asked(/^arrived/).length, 1);
+
+  assert.strictEqual(other.logos.importUser(null, pictures.check), 0);
+  assert.strictEqual(other.logos.importUser({}, pictures.check), 0);
+});

@@ -306,7 +306,7 @@
   "TAB_ANTENNA": "アンテナ調整",
   "ANTENNA_HEADER": "アンテナ調整",
   "MAINTENANCE_BACKUP_TITLE": "バックアップを作成",
-  "MAINTENANCE_BACKUP_TYPE_STATIONS": "ステーションのみ",
+  "MAINTENANCE_BACKUP_TYPE_STATIONS": "ステーション（自分のロゴを含む）",
   "MAINTENANCE_BACKUP_TYPE_CONFIG": "設定のみ",
   "MAINTENANCE_BACKUP_TYPE_FULL": "完全バックアップ（すべて）",
   "MAINTENANCE_AUTO_BACKUP": "アンインストール前の自動バックアップ",

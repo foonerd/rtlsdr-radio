@@ -307,7 +307,7 @@
   "TAB_ANTENNA": "Antenna Positioning",
   "ANTENNA_HEADER": "Antenna Positioning",
   "MAINTENANCE_BACKUP_TITLE": "Create Backup",
-  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Stations Only",
+  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Stations (with your own logos)",
   "MAINTENANCE_BACKUP_TYPE_CONFIG": "Configuration Only",
   "MAINTENANCE_BACKUP_TYPE_BLOCKLIST": "Blocklist Only",
   "MAINTENANCE_BACKUP_TYPE_FULL": "Full Backup (Everything)",

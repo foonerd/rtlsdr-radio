@@ -306,7 +306,7 @@
   "TAB_ANTENNA": "Réglage d'Antenne",
   "ANTENNA_HEADER": "Réglage d'Antenne",
   "MAINTENANCE_BACKUP_TITLE": "Créer une sauvegarde",
-  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Stations uniquement",
+  "MAINTENANCE_BACKUP_TYPE_STATIONS": "Stations (avec vos propres logos)",
   "MAINTENANCE_BACKUP_TYPE_CONFIG": "Configuration uniquement",
   "MAINTENANCE_BACKUP_TYPE_FULL": "Sauvegarde complète (Tout)",
   "MAINTENANCE_AUTO_BACKUP": "Sauvegarde automatique avant désinstallation",

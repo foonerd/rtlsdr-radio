@@ -71,7 +71,7 @@ The plugin includes a comprehensive backup and restore system to protect your co
 - Backup history with timestamps and sizes
 
 **Backup Types:**
-- **Stations**: FM and DAB station database (favorites, custom names, play counts)
+- **Stations**: FM and DAB station database (favorites, custom names, play counts), together with the logos you chose for stations yourself
 - **Configuration**: Plugin settings (gain, PPM, scan sensitivity, artwork settings)
 - **Block List**: Artwork blocklist phrases
 - **Full**: All of the above
@@ -291,7 +291,7 @@ The section shows how many stations have a logo and whether fetching is under wa
 
 **Where they are kept:**
 
-Logos, your own among them, are kept in `/data/rtlsdr_radio_logos` and survive plugin updates. Uninstalling the plugin removes them, unless *Auto-backup before uninstall* is selected, in which case they are kept for the next installation. A backup made in the Station Manager holds stations and settings, not logos.
+Logos, your own among them, are kept in `/data/rtlsdr_radio_logos` and survive plugin updates. Uninstalling the plugin removes them, unless *Auto-backup before uninstall* is selected, in which case they are kept for the next installation. A stations backup made in the Station Manager carries the logos you chose yourself (a picture you uploaded, or one you picked from the broadcasters' lists or from the player), and a restore puts them back, on this player or another. Logos fetched from the broadcasters are not in a backup: they are fetched again.
 
 ### Plugin Update
 The plugin can be updated from the Station Manager (Maintenance > Plugin Update), without waiting for the player to offer the update.
@@ -535,7 +535,15 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.23 (Current)
+### v1.3.24 (Current)
+- A stations backup carries the logos you chose for stations yourself, and a restore
+  puts them back: from the backup history, from an uploaded backup, or when the plugin
+  takes its station list from a backup at start. Before, a restore on another player or
+  a fresh card brought the stations back without them
+- The backup type "Stations Only" is named "Stations (with your own logos)"
+- Backups made by earlier versions restore as before
+
+### v1.3.23
 - With an artwork timeout set, a new song after a long one still showed the station's
   logo before its cover, and the cool-off of v1.3.22 kept the logo there for its two
   seconds. A cover whose time is up now stays while the next song is looked up and

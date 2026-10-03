@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.3.23",
+  "version": "1.3.24",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.23 - With an artwork timeout set, a new song's cover replaces the old one directly instead of passing through the station's logo"
+    "changelog": "v1.3.24 - A stations backup carries the logos you chose yourself, and a restore puts them back"
   },
   "engines": {
     "node": ">=20",

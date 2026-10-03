@@ -5,4 +5,11 @@ printf '%s\n' "$@" > /tmp/fake-args-fn-dab
 [ "$FAKE_DAB_FAILS" = "1" ] && exit 22
 sleep 0.1
 echo "PCM: rate=48000 stereo=1 size=3840" >&2
+# With FAKE_DAB_SLIDE set, a picture arrives a moment into the programme, written the
+# way the real decoder writes one: under its own name, moved into place whole
+if [ -n "$FAKE_DAB_SLIDE" ]; then
+  dir=""; prev=""
+  for arg in "$@"; do [ "$prev" = "-i" ] && dir="$arg"; prev="$arg"; done
+  ( sleep "$FAKE_DAB_SLIDE"; printf 'label=Now on the stand-in\n' > "${dir}DABlabel.txt"; printf '\377\330picture' > "${dir}slide_0000.jpg.part"; mv "${dir}slide_0000.jpg.part" "${dir}slide_0000.jpg" ) &
+fi
 while true; do head -c 3840 /dev/zero; sleep 0.02; done

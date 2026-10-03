@@ -258,11 +258,11 @@ function download(url, file, limit, onProgress) {
   });
 }
 
-// The installed plugin as a zip, without what is not the plugin's own (the link to
-// the station logos)
+// The installed plugin as a zip, without what is not the plugin's own (the links to
+// the station logos and to the stations' pictures)
 function zipFolder(folder, file) {
   return new Promise(function(resolve, reject) {
-    execFile('zip', ['-q', '-r', '-y', file, '.', '-x', 'logos', 'logos/*'], { cwd: folder, maxBuffer: 1024 * 1024 }, function(error) {
+    execFile('zip', ['-q', '-r', '-y', file, '.', '-x', 'logos', 'logos/*', 'slides', 'slides/*'], { cwd: folder, maxBuffer: 1024 * 1024 }, function(error) {
       if (error) {
         reject(error);
       } else {

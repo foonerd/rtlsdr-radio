@@ -38,7 +38,7 @@ rm -rf "$dist"
 mkdir -p "$dist"
 cp -a plugin/. "$dist/"
 # The link to the station logos is made by the plugin where it runs
-rm -rf "$dist/logos"
+rm -rf "$dist/logos" "$dist/slides"
 
 for t in $TARGETS; do
   mkdir -p "$dist/bin/$t" "$dist/packages/$t"

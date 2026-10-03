@@ -136,56 +136,59 @@ static int motSequence = 0;
 void    motdata_Handler (uint8_t * data, int size,
                          const char *name, int d, void *ctx) {
         (void)ctx;
-        
-        // Validate input
-        if (data == NULL || size <= 0 || size > 10*1024*1024) {
+        (void)name;
+
+        // A slideshow picture is at most 50 kB by the standard; a megabyte is
+        // generous and bounds what a broken or hostile transmission can fill
+        if (data == NULL || size <= 0 || size > 1024*1024) {
                 fprintf (stderr, "MOT: invalid data (size=%d)\n", size);
                 return;
         }
-        
-        // Detect image type from magic bytes
-        const char *ext = ".bin";
+
+        // Only what is a picture by its own first bytes is kept
+        const char *ext = NULL;
         const char *type = "unknown";
         if (size >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
                 ext = ".jpg";
                 type = "JPEG";
-        } else if (size >= 8 && data[0] == 0x89 && data[1] == 0x50 && 
+        } else if (size >= 8 && data[0] == 0x89 && data[1] == 0x50 &&
                    data[2] == 0x4E && data[3] == 0x47) {
                 ext = ".png";
                 type = "PNG";
         }
-        
-        // Build filename: use provided name or generate sequence
-        std::string slideName;
-        if (name != NULL && strlen(name) > 0) {
-                // Use provided filename (may already have extension)
-                slideName = dirInfo + std::string(name);
-        } else {
-                // Generate with sequence number and detected extension
-                char seqbuf[32];
-                snprintf(seqbuf, sizeof(seqbuf), "slide_%04d%s", motSequence++, ext);
-                slideName = dirInfo + std::string(seqbuf);
+        if (ext == NULL) {
+                fprintf (stderr, "MOT: object of %d bytes is neither JPEG nor PNG, not kept (type=%d)\n", size, d);
+                return;
         }
-        
-        // Write image with validation
-        FILE * temp = fopen (slideName. c_str (), "w+b");
-        if (temp) {
-                size_t written = fwrite (data, 1, size, temp);
-                fclose (temp);
-                
-                if (written == (size_t)size) {
-                        fprintf (stderr, "MOT: saved %s (%d bytes, %s, type=%d)\n", 
-                                slideName.c_str(), size, type, d);
-                        // Machine-readable format for v1.1.0 plugin
-                        fprintf (stderr, "MOT_IMAGE: path=%s size=%d type=%s\n",
-                                slideName.c_str(), size, type);
-                } else {
-                        fprintf (stderr, "MOT: write error %s (%zu/%d bytes)\n", 
-                                slideName.c_str(), written, size);
-                }
-        } else {
-                fprintf (stderr, "MOT: cannot open file %s\n", slideName. c_str());
+
+        // The name is the decoder's own, never the one the broadcaster sends: that
+        // one is the broadcaster's to choose, and would otherwise become part of a
+        // path on the player. The numbers rise, so the highest is the newest.
+        char seqbuf[32];
+        snprintf(seqbuf, sizeof(seqbuf), "slide_%04d%s", motSequence++, ext);
+        std::string slideName = dirInfo + std::string(seqbuf);
+        std::string partName = slideName + ".part";
+
+        // Written under another name and moved into place, so that whoever looks
+        // into the folder sees a picture whole or not at all
+        FILE * temp = fopen (partName. c_str (), "w+b");
+        if (temp == NULL) {
+                fprintf (stderr, "MOT: cannot open file %s\n", partName. c_str());
+                return;
         }
+        size_t written = fwrite (data, 1, size, temp);
+        fclose (temp);
+        if (written != (size_t)size || rename (partName. c_str (), slideName. c_str ()) != 0) {
+                fprintf (stderr, "MOT: write error %s (%zu/%d bytes)\n",
+                        slideName.c_str(), written, size);
+                remove (partName. c_str ());
+                return;
+        }
+        fprintf (stderr, "MOT: saved %s (%d bytes, %s, type=%d)\n",
+                slideName.c_str(), size, type, d);
+        // Machine-readable format for v1.1.0 plugin
+        fprintf (stderr, "MOT_IMAGE: path=%s size=%d type=%s\n",
+                slideName.c_str(), size, type);
 }
 
 static

@@ -16,6 +16,9 @@ docker run --rm --network none -v "$PWD:/src:ro" "$image" bash -c '
   node -e "Object.keys(require(\"./package.json\").dependencies).forEach(function(name) { if (!require(\"fs\").existsSync(\"node_modules/\" + name + \"/package.json\")) { console.error(\"error: \" + name + \" is not in the Node image; rebuild it\"); process.exit(1); } })"
   echo "[OK] modules"
   for f in index.js lib/*.js; do node --check "$f"; done
+  # A method written twice is no syntax error: the later one silently wins
+  twice=$(grep -o "^ControllerRtlsdrRadio\.prototype\.[A-Za-z_0-9]* = " index.js | sort | uniq -d)
+  [ -z "$twice" ] || { echo "error: defined more than once in index.js: $twice" >&2; exit 1; }
   echo "[OK] syntax"
   for f in i18n/*.json config.json UIConfig.json region.json package.json; do node -e "JSON.parse(require(\"fs\").readFileSync(\"$f\", \"utf8\"))"; done
   echo "[OK] json"

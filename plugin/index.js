@@ -11,6 +11,7 @@ var storage = require('./lib/storage');
 var Tuner = require('./lib/tuner');
 var FmQuality = require('./lib/fmquality');
 var Logos = require('./lib/logos');
+var Slides = require('./lib/slides');
 var Updater = require('./lib/update');
 
 // The plugin's own pictures as Volumio's artwork endpoint serves them. The endpoint
@@ -93,6 +94,10 @@ function ControllerRtlsdrRadio(context) {
   // each run as a job of it, one at a time
   self.tuner = new Tuner({ logger: self.logger, settle: self.USB_RESET_DELAY });
   
+  // The pictures a DAB station sends with its programme, as the decoder writes them
+  self.slides = new Slides({ dir: self.dabMetadataDir, logger: self.logger });
+  self.currentSlide = null;
+
   // Updates of the plugin itself, from the plugin store or the previews on GitHub
   self.updater = new Updater({
     dir: storage.BACKUP_DIR + '/update',
@@ -198,6 +203,7 @@ ControllerRtlsdrRadio.prototype.onStart = function() {
       // Station logos that are due are fetched in the background, once the player is
       // done starting; a station listed or played before that is fetched at once
       self.logos.prepare();
+      self.slides.prepare();
       artMark = self.logos.mark();
       self.logosTimer = setTimeout(function() {
         self.logosTimer = null;
@@ -5569,6 +5575,7 @@ ControllerRtlsdrRadio.prototype.startDabDlsMonitor = function() {
   self.lastDlsUpdate = 0;
   self.lastDabState = null;
   self.currentDabSignal = null;
+  self.currentSlide = null;
   
   var dlsPath = path.join(self.dabMetadataDir, 'DABlabel.txt');
   var dlPlusPath = path.join(self.dabMetadataDir, 'DABdlplus.txt');
@@ -5622,9 +5629,13 @@ ControllerRtlsdrRadio.prototype.startDabDlsMonitor = function() {
         }
       }
       
-      // Build state key for change detection (include signal for UI updates)
+      // The newest picture the station has sent, if it sends any
+      self.currentSlide = self.slides.newest();
+      
+      // Build state key for change detection (include signal and picture for UI updates)
       var sigLevel = self.currentDabSignal ? self.currentDabSignal.level : 0;
-      var stateKey = label + '|' + (dlPlusData ? dlPlusData.artist + '|' + dlPlusData.title : '') + '|' + sigLevel;
+      var stateKey = label + '|' + (dlPlusData ? dlPlusData.artist + '|' + dlPlusData.title : '') + '|' + sigLevel +
+        '|' + (self.currentSlide ? self.currentSlide.icon : '');
       
       // Only process if changed
       if (stateKey !== self.lastDlsLabel) {
@@ -5813,23 +5824,13 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
     dls.artworkTitle = null;
   }
   
-  // Check for MOT slideshow first (broadcaster-provided image)
-  var motImage = null;
-  if (!dls.artworkArtist || !dls.artworkTitle) {
-    var dabDir = '/tmp/dab';
-    try {
-      var files = fs.readdirSync(dabDir);
-      motImage = files.find(function(f) {
-        return f.startsWith('slide_') && (f.endsWith('.jpg') || f.endsWith('.png'));
-      });
-      if (motImage) {
-        albumartUrl = 'file://' + path.join(dabDir, motImage);
-        if (artworkDebugLogging) {
-          self.logger.info('[RTL-SDR Radio] Artwork from MOT: ' + motImage);
-        }
-      }
-    } catch (e) {
-      // No MOT images
+  // The picture the station itself sends with its programme comes before anything
+  // looked up: it is what the broadcaster means to be shown, as on any DAB receiver
+  var motImage = self.currentSlide ? self.currentSlide.file : null;
+  if (motImage) {
+    albumartUrl = '/albumart?sourceicon=' + self.currentSlide.icon;
+    if (artworkDebugLogging) {
+      self.logger.info('[RTL-SDR Radio] Artwork from the station\'s slideshow: ' + motImage);
     }
   }
   
@@ -5909,6 +5910,12 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
     
     self.pushPlayingState(state);
   };
+  
+  // The station's own picture is shown as it is; nothing is looked up in its place
+  if (motImage) {
+    pushState(albumartUrl);
+    return;
+  }
   
   // If we have parsed metadata above threshold, do Last.fm lookup for album name
   // Check blocklist to avoid lookups for station idents/promos

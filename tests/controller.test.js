@@ -328,6 +328,29 @@ test('the playing queue item carries the artwork of the moment, and the station\
   delete coreCommand.stateMachine.currentPosition;
 });
 
+test('DAB: a picture the station sends is shown as it arrives, under an address a screen can load', async function() {
+  process.env.FAKE_DAB_SLIDE = '0.3';
+  plugin.DLS_POLL_INTERVAL = 150;
+  states.length = 0;
+  try {
+    await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+    var shown = null;
+    for (var i = 0; i < 60 && !shown; i++) {
+      await sleep(100);
+      shown = states.filter(function(s) { return /slides\/slide_0000\.jpg/.test(String(s.albumart)); })[0];
+    }
+    assert.ok(shown, 'no state carried the picture: ' + JSON.stringify(states.map(function(s) { return s.albumart; }).slice(-3)));
+    assert.match(shown.albumart, /^\/albumart\?sourceicon=music_service\/rtlsdr_radio\/slides\/slide_0000\.jpg&v=[0-9a-z]+$/);
+    assert.ok(!/file:/.test(shown.albumart), 'not a file on the player, which no screen could load');
+    assert.strictEqual(fs.readFileSync(__dirname + '/../plugin/slides/slide_0000.jpg').slice(0, 2).toString('hex'), 'ffd8',
+      'and the address leads to the picture');
+  } finally {
+    delete process.env.FAKE_DAB_SLIDE;
+    plugin.DLS_POLL_INTERVAL = 2000;
+    await plugin.stop();
+  }
+});
+
 test('station logos through the manager: the state is told, a refresh is taken, and no network is no error', async function() {
   var station = { channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensemble: 'BBC National DAB',
     ensembleId: 'CE15', serviceId: 'C221', deleted: false };

@@ -10,6 +10,9 @@ mkdir -p /data/rtlsdr_radio_logos
 ln -sfn /data/rtlsdr_radio_logos "$PLUGIN_DIR/logos"
 chown volumio:volumio /data/rtlsdr_radio_logos 2>/dev/null
 chown -h volumio:volumio "$PLUGIN_DIR/logos" 2>/dev/null
+# The same for the pictures a DAB station sends, which the decoder writes to /tmp/dab
+ln -sfn /tmp/dab "$PLUGIN_DIR/slides"
+chown -h volumio:volumio "$PLUGIN_DIR/slides" 2>/dev/null
 
 # Get Volumio architecture - direct match to bin/ folder
 ARCH=$(cat /etc/os-release | grep ^VOLUMIO_ARCH | tr -d 'VOLUMIO_ARCH="')

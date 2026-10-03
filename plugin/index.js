@@ -83,6 +83,7 @@ function ControllerRtlsdrRadio(context) {
   self.RESTART_DELAY = 2000;         // Delay before restarting plugin
   self.QUEUE_TIMEOUT = 60000;        // Operation queue timeout (60s)
   self.RDS_UPDATE_INTERVAL = 2000;   // Minimum between RDS state pushes
+  self.SIGNAL_HOLD = 4000;           // A new tune level must hold this long before it is shown
   self.DLS_UPDATE_INTERVAL = 2000;   // Minimum between DLS state pushes
   self.DLS_POLL_INTERVAL = 2000;     // DLS file polling interval
   self.TMC_THROTTLE = 30000;         // Traffic alert throttle (30s)
@@ -4824,20 +4825,41 @@ ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationNam
   // Extract BLER for signal quality (from -E flag)
   if (rds.bler !== undefined) {
     self.currentRds.bler = rds.bler;
-    // Calculate signal level (0-5)
-    var hasStereo = rds.di && rds.di.stereo;
-    var bler = rds.bler;
+    // Calculate signal level (0-5).
+    // The stereo flag is carried by some groups only: once seen it is remembered,
+    // or the level would drop with every group that does not carry it. The error
+    // rate of single groups varies, so it is smoothed, and the level shown changes
+    // only when a new level has held for a few seconds.
+    if (rds.di && rds.di.stereo !== undefined) {
+      self.currentRds.stereo = !!rds.di.stereo;
+    }
+    var hasStereo = self.currentRds.stereo === true;
+    var bler = self.currentRds.blerSmoothed === undefined ?
+      rds.bler : (self.currentRds.blerSmoothed * 0.8 + rds.bler * 0.2);
+    self.currentRds.blerSmoothed = bler;
     var signalLevel = 0;
     if (bler < 5 && hasStereo) signalLevel = 5;
     else if (bler < 15 && hasStereo) signalLevel = 4;
     else if (bler < 30) signalLevel = 3;
     else if (bler < 50) signalLevel = 2;
     else signalLevel = 1;
-    if (signalLevel !== self.currentRds.signalLevel) {
+    
+    var nowMs = Date.now();
+    if (self.currentRds.signalLevel === undefined) {
+      // The first reading is shown at once
+      self.currentRds.signalLevel = signalLevel;
+      signalChanged = true;
+    } else if (signalLevel === self.currentRds.signalLevel) {
+      self.currentRds.pendingLevel = undefined;
+    } else if (self.currentRds.pendingLevel !== signalLevel) {
+      self.currentRds.pendingLevel = signalLevel;
+      self.currentRds.pendingSince = nowMs;
+    } else if (nowMs - self.currentRds.pendingSince >= self.SIGNAL_HOLD) {
+      self.currentRds.signalLevel = signalLevel;
+      self.currentRds.pendingLevel = undefined;
       signalChanged = true;
     }
-    self.currentRds.signalLevel = signalLevel;
-    self.currentRds.signalPercent = Math.max(0, 100 - bler);
+    self.currentRds.signalPercent = Math.max(0, Math.round(100 - bler));
   }
   
   // Initialize PS stability tracking

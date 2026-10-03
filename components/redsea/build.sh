@@ -33,6 +33,9 @@ fi
 CFLAGS="$TARGET_CFLAGS -fPIC" ./configure --prefix="$prefix" "${liquid_options[@]}"
 make -j"$(nproc)"
 make install
+# Only the static library is kept, so that it is the one linked: the decoder carries
+# liquid-dsp in itself and takes everything else from the player.
+rm -f "$prefix"/lib/libliquid.so*
 
 # liquid-dsp ships no pkg-config file; meson looks for one.
 liquid_version="$(sed -n 's/^AC_INIT(\[liquid-dsp\],\[\([^]]*\)\].*/\1/p' configure.ac)"
@@ -57,7 +60,11 @@ export LDFLAGS="-L$prefix/lib -static-libgcc -static-libstdc++"
 export CFLAGS="$TARGET_CFLAGS -I$prefix/include"
 export CXXFLAGS="$TARGET_CFLAGS -I$prefix/include"
 
-meson setup --buildtype=release --prefer-static -Dbuild_tests=false \
+# No preference for static libraries: with one, static copies of the audio codecs that
+# libsndfile can read (Opus, FLAC, Vorbis, MP3) were linked in beside the shared
+# libsndfile that brings its own, two megabytes the decoder never calls, with NEON code
+# among them on a target that has none.
+meson setup --buildtype=release -Dbuild_tests=false \
   "$work/build" "$SRC_CACHE/redsea"
 meson compile -C "$work/build"
 

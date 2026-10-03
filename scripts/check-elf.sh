@@ -3,10 +3,11 @@
 #
 #   check-elf.sh <target> <directory>
 #
-# For 32-bit ARM the build attributes are read (Tag_CPU_arch, Tag_THUMB_ISA_use): they are
-# the merge of every object linked in, so one ARMv7 start file or static library shows.
-# The arm target must be ARMv6 without Thumb-2, or it stops with an illegal instruction
-# on a Pi Zero or Pi 1.
+# For 32-bit ARM the build attributes are read (Tag_CPU_arch, Tag_THUMB_ISA_use,
+# Tag_FP_arch, Tag_Advanced_SIMD_arch): they are the merge of every object linked in, so
+# one ARMv7 start file or static library shows. The arm target must be ARMv6 without
+# Thumb-2, with no more floating point than VFPv2 and no NEON, or it stops with an
+# illegal instruction on a Pi Zero or Pi 1.
 set -euo pipefail
 . "$(dirname "$0")/targets.sh"
 
@@ -27,13 +28,17 @@ while IFS= read -r -d '' f; do
       thumb="$(readelf -A "$f" | sed -n 's/^ *Tag_THUMB_ISA_use: //p')"
       ok=1
       case "$desc" in *"ARM, EABI5"*) ;; *) ok=0 ;; esac
+      fp="$(readelf -A "$f" | sed -n 's/^ *Tag_FP_arch: //p')"
+      simd="$(readelf -A "$f" | sed -n 's/^ *Tag_Advanced_SIMD_arch: //p')"
       if [[ "$rule" == "arm-v6" ]]; then
         case "$cpu" in v6|v6K|v6KZ) ;; *) ok=0 ;; esac
         [[ "$thumb" == "Thumb-2" ]] && ok=0
+        case "$fp" in ""|VFPv1|VFPv2) ;; *) ok=0 ;; esac
+        [[ -n "$simd" ]] && ok=0
       else
         [[ "$cpu" == "v7" ]] || ok=0
       fi
-      detail="cpu=${cpu:-?} thumb=${thumb:-none}"
+      detail="cpu=${cpu:-?} thumb=${thumb:-none} fp=${fp:-none} simd=${simd:-none}"
       ;;
     aarch64)
       ok=1; case "$desc" in *"ARM aarch64"*) ;; *) ok=0 ;; esac

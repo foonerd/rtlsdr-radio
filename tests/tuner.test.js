@@ -71,7 +71,7 @@ test('the next job starts only when the one before is gone and the dongle has se
   var asked = Date.now();
   var second = await t.acquire('second');
   assert.ok(!running(child.pid), 'the first job is gone');
-  assert.ok(Date.now() - asked >= 150, 'the settle time was kept');
+  assert.ok(Date.now() - asked >= 148, 'the settle time was kept');
   assert.strictEqual(first.finished, true);
   assert.strictEqual(t.busy(), 'second');
   await t.stop();

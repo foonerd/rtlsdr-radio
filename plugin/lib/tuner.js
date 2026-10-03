@@ -129,7 +129,8 @@ Tuner.prototype._settled = function() {
     return libQ.resolve();
   }
   var settled = libQ.defer();
-  setTimeout(function() { settled.resolve(); }, wait);
+  // Rounded up: a timer may fire a fraction of a millisecond early
+  setTimeout(function() { settled.resolve(); }, Math.ceil(wait) + 1);
   return settled.promise;
 };
 

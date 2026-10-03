@@ -536,6 +536,12 @@ Just a Nerd
 ## Version History
 
 ### v1.3.25 (Current)
+- Play/pause on a playing station stops it and every screen shows it as stopped. The
+  receiver stopped before as well, but Volumio went on showing the station as playing
+  until a separate stop command arrived. A broadcast cannot be paused: pausing stops
+  the station, and play starts it again
+- A stopped station keeps its name on the screen. Volumio shows a queue item's name
+  there, and the plugin's items had none
 - An FM gain kept with a station is used only with the dongle it was measured with.
   After a dongle is changed for another, or moved to another USB port, each station's
   gain is measured again at its next play. Before, the gains of the dongle before were

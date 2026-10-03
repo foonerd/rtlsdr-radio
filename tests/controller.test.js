@@ -15,6 +15,7 @@ var toasts = [];
 var states = [];
 var modals = [];
 var coreStops = 0;
+var coreStopSaw = null;
 
 // A commandRouter that accepts whatever it is asked and records what matters here
 function anything() {
@@ -30,7 +31,7 @@ var coreCommand = new Proxy({
   stateMachine: new Proxy({
     getState: function() { return { status: 'play', service: 'rtlsdr_radio', title: 'x' }; },
     // Volumio's stop reaches the service of the current queue item
-    stop: function() { coreStops++; return plugin.stop(); }
+    stop: function() { coreStops++; coreStopSaw = plugin.deviceState; return plugin.stop(); }
   }, { get: function(target, name) { return name in target ? target[name] : function() {}; } }),
   sharedVars: { get: function() { return 'en'; } },
   pluginManager: { getConfigurationFile: function(context, file) { return CONFIG_DIR + '/' + file; } }
@@ -417,6 +418,27 @@ test('a decoder that dies is reported, and the player is not left showing "playi
   assert.ok(coreStops >= 1, 'the stop went through Volumio');
 });
 
+test('pause stops the station through Volumio, so that the player shows it as stopped', async function() {
+  await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+  await sleep(500);
+  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  coreStops = 0;
+  coreStopSaw = null;
+  await plugin.pause();
+  assert.deepStrictEqual(running(), []);
+  assert.strictEqual(plugin.deviceState, 'idle');
+  // Volumio's pause says nothing to the screens; its stop does
+  assert.strictEqual(coreStops, 1);
+  // and the station had been stopped by then: its queue item carries its own picture
+  assert.strictEqual(coreStopSaw, 'idle');
+
+  // Paused, it plays again
+  await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+  await sleep(500);
+  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  await plugin.stop();
+});
+
 test('a DAB service that is not found ends the playback with a message', async function() {
   toasts.length = 0;
   process.env.FAKE_DAB_FAILS = '1';
@@ -590,6 +612,12 @@ test('the playing queue item carries the artwork of the moment, and the station\
 
   await plugin.stop();
   assert.strictEqual(item.albumart, icon);
+  // Stopped or paused, Volumio shows the item's name as the title: an item without one
+  // (queued by an earlier version) has been given the station's
+  assert.strictEqual(item.name, DAB_NAME.trim());
+  var exploded = await plugin.explodeUri(track.uri);
+  assert.strictEqual(exploded[0].name, exploded[0].title);
+  assert.strictEqual((await plugin.explodeUri('rtlsdr://fm/94.9'))[0].name, 'FM 94.9');
 
   // An item that is not this plugin's is left alone, whatever is pushed
   coreCommand.stateMachine.currentPosition = 0;

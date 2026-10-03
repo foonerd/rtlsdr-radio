@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.25 - FM gains kept with stations are measured again when the dongle is changed; the overload check verifies the gain it compares with"
+    "changelog": "v1.3.25 - Play/pause on a playing station now shows it as stopped on every screen; FM gains kept with stations are measured again when the dongle is changed; the overload check verifies the gain it compares with"
   },
   "engines": {
     "node": ">=20",

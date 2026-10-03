@@ -4701,6 +4701,8 @@ ControllerRtlsdrRadio.prototype.explodeUri = function(uri) {
       service: 'rtlsdr_radio',
       type: 'song',
       title: station ? (station.customName || station.name) : ('FM ' + frequency),
+      // Volumio shows an item's name, not its title, while the station is stopped or paused
+      name: station ? (station.customName || station.name) : ('FM ' + frequency),
       artist: frequency + ' MHz',
       album: self.getI18nString('FM_RADIO') || 'FM Radio',
       albumart: '/albumart?sourceicon=' + self.fmIcon(station),
@@ -4730,6 +4732,7 @@ ControllerRtlsdrRadio.prototype.explodeUri = function(uri) {
         service: 'rtlsdr_radio',
         type: 'webradio',
         title: station ? (station.customName || station.name) : serviceName,
+        name: station ? (station.customName || station.name) : serviceName,
         artist: station ? station.ensemble : channel,
         album: self.getI18nString('DAB_RADIO') || 'DAB+ Radio',
         albumart: '/albumart?sourceicon=' + self.dabIcon(station),
@@ -6326,6 +6329,11 @@ ControllerRtlsdrRadio.prototype.showOnQueueItem = function(state) {
     self.shownOn = { item: item, albumart: item.albumart };
   }
   item.albumart = state.albumart;
+  // An item put into the queue by a version that gave it no name: without one the
+  // screen has no title for the station once it is stopped or paused
+  if (!item.name && state.title) {
+    item.name = state.title;
+  }
 };
 
 ControllerRtlsdrRadio.prototype.restoreQueueItem = function() {
@@ -6352,9 +6360,16 @@ ControllerRtlsdrRadio.prototype.restoreQueueItem = function() {
   shown.item.albumart = icon ? '/albumart?sourceicon=' + icon : shown.albumart;
 };
 
+// A broadcast cannot be paused: the station is stopped, as Volumio itself does with a
+// web radio. Volumio's pause tells no screen anything by itself - it leaves that to a
+// "paused" state from the service - so a station that only stopped went on being shown
+// as playing. Volumio's stop does tell them. The station is stopped first, so that
+// what they are told carries the station's own picture.
 ControllerRtlsdrRadio.prototype.pause = function() {
   var self = this;
-  return self.stop();
+  var stopped = self.stop();
+  self.commandRouter.stateMachine.stop();
+  return stopped;
 };
 
 ControllerRtlsdrRadio.prototype.resume = function() {

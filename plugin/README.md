@@ -479,7 +479,14 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.11 (Current)
+### v1.3.12 (Current)
+- The version submitted to the Volumio plugin store. No functional change from 1.3.10;
+  everything new since 1.3.9 is listed under v1.3.10 below
+- **Updating from 1.3.9 or earlier: create a backup in the Station Manager
+  (Maintenance) first.** The update removes the old plugin folder, where 1.3.9 kept the
+  station list; this version then restores the newest backup by itself
+
+### v1.3.11
 - No functional change. Published to try the plugin's own update path (Station Manager >
   Maintenance > Plugin Update) from one version to the next.
 

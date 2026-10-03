@@ -4,8 +4,8 @@
 #   scripts/set-version.sh <version> "<changelog line>"
 #
 # The changelog line is the one the Volumio plugin store shows for the version: it
-# names this version and nothing else. The notes of the version must already stand in
-# plugin/README.md under "Version History", as "### v<version>".
+# names this version and nothing else. The notes of the version must already stand on
+# the Changelog page of the project's wiki, as "### v<version>" (see release-notes.sh).
 #
 # plugin/package-lock.json is left alone: it names the node modules, which a version
 # does not change, and the Node image is kept under a key made of it.
@@ -35,10 +35,5 @@ text, count = re.subn(r'^echo "Version: [0-9.]+"$', 'echo "Version: %s"' % versi
 assert count == 1, "plugin/install.sh: the line that prints the version was not found"
 install.write_text(text)
 
-readme = pathlib.Path("plugin/README.md")
-text = readme.read_text().replace(" (Current)", "")
-text, count = re.subn(r"^### v%s$" % re.escape(version), "### v%s (Current)" % version, text, flags=re.M)
-assert count == 1, "plugin/README.md: no heading '### v%s'" % version
-readme.write_text(text)
 PY
 echo "[OK] version $version"

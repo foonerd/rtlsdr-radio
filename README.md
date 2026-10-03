@@ -99,7 +99,7 @@ scripts/fetch-components.sh      # out/<target>/ from the registry, for the sour
 
 Every build keeps its output in `out/<target>/build.log` and checks it against `components/warnings-reviewed.txt`: a compiler or tool warning that is not listed there, with the reason it is harmless, fails the build.
 
-A release is made by setting the version in `plugin/package.json`, writing its notes under "Version History" in `plugin/README.md`, and pushing the tag `v<version>`. The tag must name the version the plugin carries. The release's text is that version's notes (`scripts/release-notes.sh <version>`). Run by hand, the `release` workflow builds the zip and publishes nothing.
+A release is made by writing the version's notes on the [Changelog](https://github.com/foonerd/rtlsdr-radio/wiki/Changelog) page of the wiki (a heading `### v<version>` and the notes under it), setting the version in `plugin/package.json`, and pushing the tag `v<version>`. The tag must name the version the plugin carries. The release's text is that version's notes (`scripts/release-notes.sh <version>`, which reads them from a clone of the wiki beside this repository, `../rtlsdr-radio.wiki`, or fetches the wiki when there is none). Run by hand, the `release` workflow builds the zip and publishes nothing.
 
 ```bash
 scripts/set-version.sh 1.3.11 "v1.3.11 - what this version brings, in one line"

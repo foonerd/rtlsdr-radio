@@ -5,8 +5,9 @@ name: release
 # installs, and the zip published as a pre-release. Run by hand it does all of that and
 # publishes nothing; the zip is kept with the run.
 #
-# Everything it needs comes from the project's own registry: the built components, and
-# the Node image with the plugin's modules. Nothing is fetched from anywhere else.
+# Everything the build needs comes from the project's own registry: the built components,
+# and the Node image with the plugin's modules. The version's notes are read from the
+# project's wiki (scripts/release-notes.sh). Nothing is fetched from anywhere else.
 on:
   push:
     tags: ["v*"]

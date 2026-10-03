@@ -24,7 +24,11 @@
 #include	"ensemble.h"
 
 void	ensemble::reset	() {
-//	isSynced	= false;
+//	Not synchronised until the ensemble's data says so. Without a value here the
+//	flag holds whatever the memory held, and where that reads as "synchronised" the
+//	coarse frequency correction, which runs only until synchronisation, never runs:
+//	a dongle more than half a carrier off (about 2 ppm in band III) finds nothing.
+	isSynced	= false;
 	primaries. resize (0);
 	secondaries. resize (0);
 	namePresent = false;

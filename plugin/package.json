@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.3.25",
+  "version": "1.3.26",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.25 - Play/pause on a playing station now shows it as stopped on every screen; FM gains kept with stations are measured again when the dongle is changed; the overload check verifies the gain it compares with"
+    "changelog": "v1.3.26 - DAB now works with dongles whose crystal is off frequency, without setting a PPM correction by hand"
   },
   "engines": {
     "node": ">=20",

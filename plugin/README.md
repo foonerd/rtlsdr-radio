@@ -535,7 +535,15 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.25 (Current)
+### v1.3.26 (Current)
+- DAB with a dongle whose crystal is off frequency: the decoder and the scanner now
+  find and follow the error by themselves, up to 35 kHz either way (about 150 ppm).
+  Before, on every ARM board, a dongle more than about 2 ppm off found no ensemble
+  ("Failed to play station: fn-dab ended with code 22", an empty scan) unless the
+  PPM correction in the settings was set to within 2 of the right value by hand.
+  The setting stays for those who want it; it is no longer needed
+
+### v1.3.25
 - Play/pause on a playing station stops it and every screen shows it as stopped. The
   receiver stopped before as well, but Volumio went on showing the station as playing
   until a separate stop command arrived. A broadcast cannot be paused: pausing stops

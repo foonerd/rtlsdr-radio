@@ -90,7 +90,9 @@ The plugin includes a comprehensive backup and restore system to protect your co
 4. Download backups or restore from history table (three columns: Stations, Config, Block List)
 
 **Last good copy:**
-Whenever the plugin stops, and so before every update or uninstall, the current station list and block list are copied to the backup folder. A later install finds them there and restores them when it has no list of its own. Backups are preserved even after uninstall. The "Automatic backup before uninstall" checkbox has no effect in this version.
+Whenever the plugin stops, and so before every update or uninstall, the current station list and block list are copied to the backup folder. A later install finds them there and restores them when it has no list of its own. Backups are preserved even after uninstall.
+
+With "Auto-backup before uninstall" selected, uninstalling the plugin also writes a dated backup of the station list, the block list and the settings, listed in the Station Manager after the next install like any other backup, and keeps the station logos.
 
 ### CSV Import/Export
 
@@ -479,7 +481,17 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.12 (Current)
+### v1.3.13 (Current)
+- DAB signal level: classic DAB (MP2) stations no longer stay at one dot whatever the
+  reception. Their level is judged by their own audio frames, as that of DAB+ stations
+  is by theirs
+- "Auto-backup before uninstall" does what it says: with it selected, uninstalling the
+  plugin writes a dated backup of the station list, the block list and the settings,
+  and keeps the station logos
+- The node modules a plugin store install fetches are held to the versions the plugin
+  is tested with
+
+### v1.3.12
 - The version submitted to the Volumio plugin store. No functional change from 1.3.10;
   everything new since 1.3.9 is listed under v1.3.10 below
 - **Updating from 1.3.9 or earlier: create a backup in the Station Manager

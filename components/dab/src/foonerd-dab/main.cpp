@@ -490,6 +490,8 @@ static int16_t currentFibQuality = 0;
 static int16_t currentFrameErrors = 0;
 static int16_t currentRsErrors = 0;
 static int16_t currentAacOk = 0;
+//	DAB+ (HE-AAC) or classic DAB (MP2): the two report their audio quality differently
+static bool currentIsDabPlus = true;
 static time_t lastSignalWrite = 0;
 
 static
@@ -525,22 +527,28 @@ void	mscQuality	(int16_t fe, int16_t rsE, int16_t aacE, void *ctx) {
 	if (now - lastSignalWrite >= 2 && dirInfo.length() > 0) {
 		lastSignalWrite = now;
 		
-		// Calculate signal level (0-5) based on FIB quality and AAC decode success
+		// Calculate signal level (0-5) based on FIB quality and how well the audio
+		// is decoded. For DAB+ that is the share of AAC frames decoded. Classic DAB
+		// (MP2) has no AAC frames and reports nothing there; what it reports is the
+		// share of its own frames that came without an error, as the first of the
+		// three figures. Judged by AAC alone, an MP2 station could never rise
+		// above level 1.
+		int audioOk = currentIsDabPlus ? currentAacOk : currentFrameErrors;
 		int signalLevel = 0;
 		int signalPercent = 0;
 		
-		if (currentFibQuality >= 98 && currentAacOk >= 98) {
+		if (currentFibQuality >= 98 && audioOk >= 98) {
 			signalLevel = 5;
-			signalPercent = 95 + (currentFibQuality + currentAacOk) / 40;
-		} else if (currentFibQuality >= 95 && currentAacOk >= 95) {
+			signalPercent = 95 + (currentFibQuality + audioOk) / 40;
+		} else if (currentFibQuality >= 95 && audioOk >= 95) {
 			signalLevel = 4;
-			signalPercent = 80 + (currentFibQuality + currentAacOk - 190) / 2;
-		} else if (currentFibQuality >= 85 && currentAacOk >= 85) {
+			signalPercent = 80 + (currentFibQuality + audioOk - 190) / 2;
+		} else if (currentFibQuality >= 85 && audioOk >= 85) {
 			signalLevel = 3;
-			signalPercent = 60 + (currentFibQuality + currentAacOk - 170) / 2;
-		} else if (currentFibQuality >= 70 && currentAacOk >= 70) {
+			signalPercent = 60 + (currentFibQuality + audioOk - 170) / 2;
+		} else if (currentFibQuality >= 70 && audioOk >= 70) {
 			signalLevel = 2;
-			signalPercent = 40 + (currentFibQuality + currentAacOk - 140) / 2;
+			signalPercent = 40 + (currentFibQuality + audioOk - 140) / 2;
 		} else if (currentFibQuality >= 50) {
 			signalLevel = 1;
 			signalPercent = 20 + (currentFibQuality - 50) / 2;
@@ -562,15 +570,16 @@ void	mscQuality	(int16_t fe, int16_t rsE, int16_t aacE, void *ctx) {
 			out << "fib_quality=" << currentFibQuality << "\n";
 			out << "frame_errors=" << currentFrameErrors << "\n";
 			out << "rs_corrections=" << currentRsErrors << "\n";
-			out << "audio_ok=" << currentAacOk << "\n";
+			out << "audio_ok=" << audioOk << "\n";
 			out << "signal_level=" << signalLevel << "\n";
 			out << "signal_percent=" << signalPercent << "\n";
 			out.close();
 		}
 		
 		// Machine-readable stderr for plugin parsing
-		fprintf(stderr, "DAB_SIGNAL: level=%d percent=%d fib=%d aac=%d\n",
-		        signalLevel, signalPercent, currentFibQuality, currentAacOk);
+		fprintf(stderr, "DAB_SIGNAL: level=%d percent=%d fib=%d audio=%d (%s)\n",
+		        signalLevel, signalPercent, currentFibQuality, audioOk,
+		        currentIsDabPlus ? "DAB+" : "DAB");
 	}
 }
 
@@ -977,6 +986,7 @@ deviceHandler	*theDevice;
 	   audiodata ad;
 	   dataforAudioService (theRadio, programName, ad, 0);
 	   if (ad. defined) {
+	      currentIsDabPlus = (ad. ASCTy == 077);
 	      dabReset_msc (theRadio);
 	      set_audioChannel (theRadio, ad);
 	   }

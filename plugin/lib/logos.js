@@ -85,11 +85,12 @@ function Logos(options) {
   this.lookup.onList = function(url, xml) {
     self._absorb(url, xml);
   };
-  this._prepare();
+  this.prepare();
 }
 
-// The folder of the pictures, and the link to it that Volumio serves them through
-Logos.prototype._prepare = function() {
+// The folder of the pictures, and the link to it that Volumio serves them through.
+// Done again at every start of the plugin: an update takes the link away with the folder.
+Logos.prototype.prepare = function() {
   try {
     fs.ensureDirSync(this.dir);
     if (!this.link) {

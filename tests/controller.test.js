@@ -311,7 +311,10 @@ test('station logos are looked for a while after the start, not in the middle of
   logoChecks = 0;
   plugin.LOGOS_START_DELAY = 150;
   plugin.stationsDb.dab = [];
+  // An update has taken the link to the pictures away with the plugin's folder
+  fs.removeSync(__dirname + '/../plugin/logos');
   await plugin.onStart();
+  assert.ok(fs.lstatSync(__dirname + '/../plugin/logos').isSymbolicLink(), 'the start puts the link back');
   plugin.stationsDb.dab = [{ channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensembleId: 'CE15', serviceId: 'C221' }];
   await sleep(60);
   assert.strictEqual(logoChecks, 0, 'not yet');

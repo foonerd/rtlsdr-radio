@@ -168,6 +168,7 @@ ControllerRtlsdrRadio.prototype.onStart = function() {
     .then(function() {
       // Station logos that are due are fetched in the background, once the player is
       // done starting; a station listed or played before that is fetched at once
+      self.logos.prepare();
       self.logosTimer = setTimeout(function() {
         self.logosTimer = null;
         self.fetchLogos();

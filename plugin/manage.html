@@ -1801,6 +1801,25 @@
         <div id="csv-validation-content"></div>
       </div>
     </div>
+    
+    <!-- Station Logos Section -->
+    <div class="tab-header" style="margin-top: 30px;">
+      <div class="flex-1">
+        <h2 class="maintenance-header" id="logos-section-title">Station Logos</h2>
+      </div>
+    </div>
+    
+    <div class="backup-section">
+      <p style="color: #888; font-size: 13px; margin-bottom: 15px;" id="logos-desc">Station logos come from the broadcasters and are fetched in the background whenever there is an internet connection.</p>
+      <p style="font-size: 14px; margin-bottom: 6px;" id="logos-counts"></p>
+      <p style="color: #888; font-size: 13px; margin-bottom: 15px;" id="logos-state"></p>
+      <div class="tab-header tab-header-no-margin">
+        <button class="btn btn-primary" id="btn-logos-refresh" onclick="refreshLogos()">
+          <i class="fa fa-refresh"></i>
+          <span id="btn-logos-refresh-text">Refresh Station Logos</span>
+        </button>
+      </div>
+    </div>
   </div>
   
     <div id="antenna-tab" class="tab-content">
@@ -2421,6 +2440,9 @@
       
       // CSV Import/Export translations
       document.getElementById('csv-section-title').textContent = t('CSV_IMPORT_EXPORT');
+      document.getElementById('logos-section-title').textContent = t('LOGOS_TITLE');
+      document.getElementById('logos-desc').textContent = t('LOGOS_DESC');
+      document.getElementById('btn-logos-refresh-text').textContent = t('LOGOS_REFRESH');
       document.getElementById('csv-export-header').textContent = t('CSV_EXPORT_TITLE');
       document.getElementById('csv-export-desc').textContent = t('CSV_EXPORT_DESC');
       document.getElementById('btn-export-fm').textContent = t('CSV_EXPORT_FM');
@@ -3863,6 +3885,48 @@
       return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
     
+    // Station logos: how things stand, and the refresh the user can ask for
+    let logosPollTimer = null;
+    
+    function showLogosStatus(status) {
+      document.getElementById('logos-counts').textContent =
+        t('LOGOS_COUNTS', status.own + status.group, status.stations, status.group, status.none);
+      let state = t('LOGOS_STATE_IDLE');
+      if (status.state === 'fetching') {
+        state = t('LOGOS_STATE_FETCHING', status.queued);
+      } else if (status.state === 'waiting') {
+        state = t('LOGOS_STATE_WAITING', status.queued);
+      }
+      document.getElementById('logos-state').textContent = state;
+      
+      // While there is work under way, look again
+      clearTimeout(logosPollTimer);
+      if (status.state !== 'idle') {
+        logosPollTimer = setTimeout(loadLogosStatus, status.state === 'fetching' ? 2000 : 10000);
+      }
+    }
+    
+    async function loadLogosStatus() {
+      try {
+        const response = await fetch('/api/logos/status');
+        showLogosStatus(await response.json());
+      } catch (e) {
+        // The plugin is not answering; the next visit to the tab asks again
+      }
+    }
+    
+    async function refreshLogos() {
+      try {
+        const response = await fetch('/api/logos/refresh', { method: 'POST' });
+        if (!response.ok) {
+          throw new Error('HTTP ' + response.status);
+        }
+        showLogosStatus(await response.json());
+      } catch (e) {
+        showToast(t('LOGOS_REFRESH_FAILED'), 'error');
+      }
+    }
+    
     // Initialize maintenance tab when clicked
     document.addEventListener('DOMContentLoaded', function() {
       const maintenanceTab = document.querySelector('[data-tab="maintenance"]');
@@ -3870,6 +3934,7 @@
         maintenanceTab.addEventListener('click', function() {
           initMaintenanceTab();
         }, { once: true });
+        maintenanceTab.addEventListener('click', loadLogosStatus);
       }
       
       // Initialize blocklist tab when clicked

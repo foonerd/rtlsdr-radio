@@ -530,5 +530,13 @@
   "CSV_IMPORT_SUCCESS": "Importación exitosa",
   "CSV_IMPORT_FAILED": "Importación fallida",
   "CSV_VALIDATION_PASSED": "Validación correcta - listo para importar",
-  "CSV_NO_FILE_SELECTED": "Ningún archivo seleccionado"
+  "CSV_NO_FILE_SELECTED": "Ningún archivo seleccionado",
+  "LOGOS_TITLE": "Logotipos de emisoras",
+  "LOGOS_DESC": "Los logotipos proceden de los radiodifusores y se descargan en segundo plano siempre que hay conexión a internet. Actualizar vuelve a preguntar por cada emisora sin logotipo y después comprueba si hay versiones más recientes de los logotipos guardados.",
+  "LOGOS_REFRESH": "Actualizar logotipos de emisoras",
+  "LOGOS_COUNTS": "{0} de {1} emisoras DAB tienen logotipo ({2} usan el de su radiodifusor), {3} no tienen",
+  "LOGOS_STATE_IDLE": "Nada que descargar",
+  "LOGOS_STATE_FETCHING": "Descargando: quedan {0}",
+  "LOGOS_STATE_WAITING": "Sin conexión a internet: {0} por descargar cuando vuelva",
+  "LOGOS_REFRESH_FAILED": "No se pudo iniciar la actualización"
 }

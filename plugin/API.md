@@ -483,6 +483,45 @@ data: {"status":"complete","measurements":[...],"summary":{"12A":{"optimalGain":
 - Phrases are case-insensitive
 - Blocklist has separate backup/restore from stations and config
 
+## Station Logos API
+
+### Get Logo Status
+
+**Endpoint:** `GET /api/logos/status`
+
+**Description:** Returns how many DAB stations have a logo and whether logos are being fetched.
+
+**Response:**
+```json
+{
+  "state": "idle",
+  "queued": 0,
+  "stations": 170,
+  "own": 122,
+  "group": 0,
+  "none": 48
+}
+```
+
+**Fields:**
+- `state`: `idle` (nothing to fetch), `fetching`, or `waiting` (no internet connection; fetching resumes by itself)
+- `queued`: lookups still to be done
+- `stations`: DAB stations in the list, not counting deleted ones
+- `own`: stations shown with their own logo
+- `group`: stations shown with their broadcaster's logo
+- `none`: stations shown with the DAB icon
+
+### Refresh Logos
+
+**Endpoint:** `POST /api/logos/refresh`
+
+**Description:** Asks again for every station without a logo, then checks the logos already kept for newer versions. Returns at once with the status as above; the work is done in the background.
+
+**Notes:**
+- Stations without a logo are handled before the logos already kept
+- Pictures that have not changed are not downloaded again
+- Without an internet connection the request is accepted and carried out when the connection is back
+
 ## Backup and Restore API
 
 ### Get Maintenance Settings

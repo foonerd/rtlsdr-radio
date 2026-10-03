@@ -530,5 +530,13 @@
   "CSV_IMPORT_SUCCESS": "Import succesvol",
   "CSV_IMPORT_FAILED": "Import mislukt",
   "CSV_VALIDATION_PASSED": "Validatie geslaagd - klaar om te importeren",
-  "CSV_NO_FILE_SELECTED": "Geen bestand geselecteerd"
+  "CSV_NO_FILE_SELECTED": "Geen bestand geselecteerd",
+  "LOGOS_TITLE": "Zenderlogo's",
+  "LOGOS_DESC": "Zenderlogo's komen van de omroepen en worden op de achtergrond opgehaald zodra er een internetverbinding is. Vernieuwen vraagt opnieuw naar elke zender zonder logo en controleert daarna of er nieuwere versies van de bewaarde logo's zijn.",
+  "LOGOS_REFRESH": "Zenderlogo's vernieuwen",
+  "LOGOS_COUNTS": "{0} van {1} DAB-zenders hebben een logo ({2} gebruiken het logo van hun omroep), {3} hebben er geen",
+  "LOGOS_STATE_IDLE": "Niets op te halen",
+  "LOGOS_STATE_FETCHING": "Bezig met ophalen: nog {0}",
+  "LOGOS_STATE_WAITING": "Geen internetverbinding: {0} worden opgehaald zodra die er weer is",
+  "LOGOS_REFRESH_FAILED": "Vernieuwen kon niet worden gestart"
 }

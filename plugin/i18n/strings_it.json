@@ -530,5 +530,13 @@
   "CSV_IMPORT_SUCCESS": "Importazione riuscita",
   "CSV_IMPORT_FAILED": "Importazione fallita",
   "CSV_VALIDATION_PASSED": "Validazione superata - pronto per importare",
-  "CSV_NO_FILE_SELECTED": "Nessun file selezionato"
+  "CSV_NO_FILE_SELECTED": "Nessun file selezionato",
+  "LOGOS_TITLE": "Loghi delle stazioni",
+  "LOGOS_DESC": "I loghi provengono dalle emittenti e vengono scaricati in background quando è disponibile una connessione a internet. Aggiorna richiede di nuovo il logo per ogni stazione che ne è priva, poi controlla se esistono versioni più recenti dei loghi già salvati.",
+  "LOGOS_REFRESH": "Aggiorna loghi delle stazioni",
+  "LOGOS_COUNTS": "{0} stazioni DAB su {1} hanno un logo ({2} usano quello della propria emittente), {3} non ne hanno",
+  "LOGOS_STATE_IDLE": "Niente da scaricare",
+  "LOGOS_STATE_FETCHING": "Download in corso: {0} rimanenti",
+  "LOGOS_STATE_WAITING": "Nessuna connessione a internet: {0} da scaricare quando tornerà",
+  "LOGOS_REFRESH_FAILED": "Impossibile avviare l'aggiornamento"
 }

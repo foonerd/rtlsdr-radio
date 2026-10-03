@@ -530,5 +530,13 @@
   "CSV_IMPORT_SUCCESS": "インポート成功",
   "CSV_IMPORT_FAILED": "インポート失敗",
   "CSV_VALIDATION_PASSED": "検証成功 - インポート準備完了",
-  "CSV_NO_FILE_SELECTED": "ファイルが選択されていません"
+  "CSV_NO_FILE_SELECTED": "ファイルが選択されていません",
+  "LOGOS_TITLE": "局ロゴ",
+  "LOGOS_DESC": "局ロゴは放送事業者から提供され、インターネットに接続されているときにバックグラウンドで取得されます。更新すると、ロゴのない局をすべて再確認し、その後、保存済みのロゴに新しいバージョンがないか確認します。",
+  "LOGOS_REFRESH": "局ロゴを更新",
+  "LOGOS_COUNTS": "DAB局 {1} 局中 {0} 局にロゴがあります（{2} 局は放送事業者のロゴを使用）。{3} 局はロゴなし",
+  "LOGOS_STATE_IDLE": "取得するものはありません",
+  "LOGOS_STATE_FETCHING": "取得中: 残り {0} 件",
+  "LOGOS_STATE_WAITING": "インターネット接続なし: 接続が戻ると {0} 件を取得します",
+  "LOGOS_REFRESH_FAILED": "更新を開始できませんでした"
 }

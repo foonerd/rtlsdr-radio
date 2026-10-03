@@ -51,6 +51,14 @@ var plugin = new Controller({ coreCommand: coreCommand, logger: logger, configMa
 plugin.tuner.settle = 100;
 plugin.tuner.grace = 400;
 
+// No network for the station logos here; lib/logos.js has tests of its own
+var logoChecks = 0;
+plugin.logos.lookup.network = {
+  reachable: function() { logoChecks++; return Promise.resolve(false); },
+  resolveProvider: function() { return Promise.reject(new Error('no network in this test')); },
+  get: function() { return Promise.reject(new Error('no network in this test')); }
+};
+
 function sleep(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
 }
@@ -82,6 +90,16 @@ function post(path, body) {
     });
     req.on('error', reject);
     req.end(data);
+  });
+}
+
+function get(path) {
+  return new Promise(function(resolve, reject) {
+    http.get({ host: '127.0.0.1', port: 3456, path: path }, function(res) {
+      var text = '';
+      res.on('data', function(chunk) { text += chunk; });
+      res.on('end', function() { resolve({ status: res.statusCode, text: text }); });
+    }).on('error', reject);
   });
 }
 
@@ -265,10 +283,34 @@ test('saving stations through the manager: a broken list is refused and nothing 
   assert.ok(fs.existsSync(CONFIG_DIR + '/stations.json'));
 });
 
+test('station logos through the manager: the state is told, a refresh is taken, and no network is no error', async function() {
+  var station = { channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensemble: 'BBC National DAB',
+    ensembleId: 'CE15', serviceId: 'C221', deleted: false };
+  plugin.stationsDb.dab = [station];
+  assert.strictEqual(plugin.dabIcon(station), 'music_service/rtlsdr_radio/assets/dab.svg', 'the DAB icon while no logo is kept');
+
+  var before = JSON.parse((await get('/api/logos/status')).text);
+  assert.strictEqual(before.stations, 1);
+  assert.strictEqual(before.none, 1);
+
+  logs.length = 0;
+  var refresh = await post('/api/logos/refresh');
+  assert.strictEqual(refresh.status, 200, refresh.text);
+  await sleep(100);
+  var after = JSON.parse((await get('/api/logos/status')).text);
+  assert.strictEqual(after.state, 'waiting');
+  assert.strictEqual(after.queued, 1);
+  assert.ok(logoChecks > 0);
+  assert.deepStrictEqual(logs.filter(function(l) { return /^(ERROR|WARN)/.test(l); }), []);
+  assert.ok(fs.lstatSync(__dirname + '/../plugin/logos').isSymbolicLink(), 'the pictures are reached through a link in the plugin folder');
+  plugin.stationsDb.dab = [];
+});
+
 test('the plugin stops: nothing is left running and the port is free', async function() {
   await plugin.clearAddPlayTrack(fmTrack('94.9'));
   await sleep(200);
   await plugin.onStop();
   assert.deepStrictEqual(running(), []);
   assert.ok(fs.existsSync('/data/rtlsdr_radio_backups/last-good/stations.json'));
+  assert.strictEqual(plugin.logos.status().state, 'idle', 'and no logo is waited for any longer');
 });

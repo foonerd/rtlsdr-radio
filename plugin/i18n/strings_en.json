@@ -530,5 +530,13 @@
   "CSV_IMPORT_SUCCESS": "Import successful",
   "CSV_IMPORT_FAILED": "Import failed",
   "CSV_VALIDATION_PASSED": "Validation passed - ready to import",
-  "CSV_NO_FILE_SELECTED": "No file selected"
+  "CSV_NO_FILE_SELECTED": "No file selected",
+  "LOGOS_TITLE": "Station Logos",
+  "LOGOS_DESC": "Station logos come from the broadcasters and are fetched in the background whenever there is an internet connection. Refresh asks again for every station without a logo, then checks the logos already kept for newer versions.",
+  "LOGOS_REFRESH": "Refresh Station Logos",
+  "LOGOS_COUNTS": "{0} of {1} DAB stations have a logo ({2} use their broadcaster's logo), {3} have none",
+  "LOGOS_STATE_IDLE": "Nothing to fetch",
+  "LOGOS_STATE_FETCHING": "Fetching: {0} to go",
+  "LOGOS_STATE_WAITING": "No internet connection: {0} to fetch when it is back",
+  "LOGOS_REFRESH_FAILED": "Could not start the refresh"
 }

@@ -530,5 +530,13 @@
   "CSV_IMPORT_SUCCESS": "Import réussi",
   "CSV_IMPORT_FAILED": "Échec de l'import",
   "CSV_VALIDATION_PASSED": "Validation réussie - prêt à importer",
-  "CSV_NO_FILE_SELECTED": "Aucun fichier sélectionné"
+  "CSV_NO_FILE_SELECTED": "Aucun fichier sélectionné",
+  "LOGOS_TITLE": "Logos des stations",
+  "LOGOS_DESC": "Les logos proviennent des diffuseurs et sont téléchargés en arrière-plan dès qu'une connexion internet est disponible. Actualiser redemande le logo de chaque station qui n'en a pas, puis vérifie s'il existe des versions plus récentes des logos conservés.",
+  "LOGOS_REFRESH": "Actualiser les logos des stations",
+  "LOGOS_COUNTS": "{0} stations DAB sur {1} ont un logo ({2} utilisent celui de leur diffuseur), {3} n'en ont pas",
+  "LOGOS_STATE_IDLE": "Rien à télécharger",
+  "LOGOS_STATE_FETCHING": "Téléchargement : {0} restants",
+  "LOGOS_STATE_WAITING": "Pas de connexion internet : {0} à télécharger à son retour",
+  "LOGOS_REFRESH_FAILED": "Impossible de lancer l'actualisation"
 }

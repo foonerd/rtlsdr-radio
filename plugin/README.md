@@ -213,6 +213,32 @@ Default blocklist includes: traffic update, news update, weather, breaking news,
 
 Add station-specific phrases as you encounter false matches. The blocklist has separate backup/restore from stations.
 
+### Station Logos
+DAB stations are shown with their logo in the station lists, and on the player screen whenever the station has no artwork of its own to show.
+
+**Where the logos come from:**
+
+The logos are published by the broadcasters themselves and found through RadioDNS, the same service digital radios use. Nothing is taken from third-party collections.
+
+- A station registered by its broadcaster is shown with its own logo.
+- A station its broadcaster lists on other ensembles than the one you receive is recognised by its service identifier and shown with its own logo too.
+- A station without a logo of its own is shown with its broadcaster's logo, when the broadcaster publishes one and the station carries the broadcaster's name (a local BBC station, for example).
+- A station nobody publishes a logo for keeps the DAB icon.
+
+**When they are fetched:**
+
+- In the background after the plugin starts and after a DAB scan, and whenever a station without a logo is listed or played. The station being played is fetched first.
+- Only when there is an internet connection. Without one (flight mode, hotspot mode, a network that is down) nothing is fetched, nothing is reported as an error, and fetching carries on by itself when the connection is back.
+- A station without a published logo is asked about again after a week.
+
+**Refreshing on demand (Station Manager > Maintenance > Station Logos):**
+
+The section shows how many stations have a logo and whether fetching is under way. **Refresh Station Logos** asks again for every station without a logo, then checks the logos already kept for newer versions; pictures that have not changed are not downloaded again.
+
+**Where they are kept:**
+
+Logos are kept in `/data/rtlsdr_radio_logos` and survive plugin updates. Uninstalling the plugin removes them, unless *Auto-backup before uninstall* is selected, in which case they are kept for the next installation.
+
 ### Antenna Positioning Tools
 The plugin includes professional-grade tools for optimizing antenna placement and orientation:
 

@@ -81,8 +81,13 @@ function ControllerRtlsdrRadio(context) {
   // each run as a job of it, one at a time
   self.tuner = new Tuner({ logger: self.logger, settle: self.USB_RESET_DELAY });
   
-  // Station logos, fetched from the broadcasters and kept in the plugin's folder
-  self.logos = new Logos({ logger: self.logger });
+  // Station logos, fetched from the broadcasters when the player is online
+  self.logos = new Logos({
+    logger: self.logger,
+    stations: function() { return (self.stationsDb && self.stationsDb.dab) || []; },
+    region: function() { return self.config ? self.config.get('fm_region', 'europe') : 'europe'; },
+    onLogo: function() { self.logoArrived(); }
+  });
   
   self.CLEANUP_TIMEOUT = 500;        // Wait for processes to fully terminate
   self.RESTART_DELAY = 2000;         // Delay before restarting plugin
@@ -203,6 +208,9 @@ ControllerRtlsdrRadio.prototype.onStop = function() {
   
   // Clear device state (process references already cleared by stopAllProcesses)
   self.deviceState = 'idle';
+  
+  // Logos not fetched yet are fetched after the next start
+  self.logos.stop();
   
   // Remove browse source
   self.commandRouter.volumioRemoveToBrowseSources('FM/DAB Radio');
@@ -2143,6 +2151,17 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       } catch (e) {
         res.status(500).json({ error: e.toString() });
       }
+    });
+    
+    // API: Station logos - how many stations have one, and whether fetching is under way
+    self.expressApp.get('/api/logos/status', function(req, res) {
+      res.json(self.logos.status());
+    });
+    
+    // API: Station logos - fetch the missing ones again, then check the kept ones for newer versions
+    self.expressApp.post('/api/logos/refresh', function(req, res) {
+      self.logger.info('[RTL-SDR Radio] Logos: refresh asked for');
+      res.json(self.logos.refresh());
     });
     
     // Start server
@@ -6071,10 +6090,15 @@ ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName
   self.pushRdsState(freq, stationName);
 };
 
-// The picture for a DAB station that has no artwork of its own at the moment: its
-// broadcaster's logo when one is kept, the DAB icon otherwise.
-ControllerRtlsdrRadio.prototype.dabIcon = function(station) {
-  return this.logos.icon(this.logos.dabKey(station)) || 'music_service/rtlsdr_radio/assets/dab.svg';
+// The picture for a DAB station that has no artwork of its own at the moment: the
+// station's logo, failing that its broadcaster's, the DAB icon otherwise. A station shown
+// without a logo of its own has one fetched, if there is one to be had.
+// now: the station is being played, so its logo goes before all others.
+ControllerRtlsdrRadio.prototype.dabIcon = function(station, now) {
+  if (station) {
+    this.logos.want(station, { now: !!now });
+  }
+  return this.logos.icon(station) || 'music_service/rtlsdr_radio/assets/dab.svg';
 };
 
 ControllerRtlsdrRadio.prototype.findDabStation = function(channel, exactName) {
@@ -6087,19 +6111,32 @@ ControllerRtlsdrRadio.prototype.findDabStation = function(channel, exactName) {
   return null;
 };
 
-// Fetch, in the background, the logos of the DAB stations that have none yet.
+// Fetch, in the background, the logos that are due for the station list.
 ControllerRtlsdrRadio.prototype.fetchLogos = function() {
+  this.logos.sweep();
+};
+
+// A logo has arrived: if a DAB station is playing, show it where the station's icon is.
+ControllerRtlsdrRadio.prototype.logoArrived = function() {
   var self = this;
-  if (self.fetchingLogos) {
+  if (!self.currentDabStation || !self.playingJob) {
     return;
   }
-  self.fetchingLogos = true;
-  self.logos.fetchAllDab(self.stationsDb.dab, self.config.get('fm_region', 'europe')).then(function(fetched) {
-    self.fetchingLogos = false;
-    if (fetched > 0) {
-      self.logger.info('[RTL-SDR Radio] Fetched ' + fetched + ' station logos');
+  if (self.currentDls) {
+    // Pushes only if what the screen shows has changed
+    self.pushDabState();
+    return;
+  }
+  // No text from the station yet: the state it started with, with the logo
+  var first = self.dabFirstState;
+  if (first && first.uri === self.currentDabStation.uri) {
+    var playing = self.currentDabStation;
+    var icon = '/albumart?sourceicon=' + self.dabIcon(self.findDabStation(playing.channel, playing.exactName));
+    if (first.albumart !== icon) {
+      first.albumart = icon;
+      self.pushPlayingState(first);
     }
-  });
+  }
 };
 
 // A number from the configuration, whatever type it was stored as.
@@ -7993,7 +8030,7 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
     title: displayName,
     artist: ensemble,
     album: self.getI18nString('DAB_RADIO'),
-    albumart: '/albumart?sourceicon=' + self.dabIcon(station),
+    albumart: '/albumart?sourceicon=' + self.dabIcon(station, true),
     uri: uri,
     trackType: 'DAB ' + self.getSignalBars(0),
     samplerate: '48 kHz',
@@ -8002,6 +8039,7 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
     duration: 0,
     seek: 0
   };
+  self.dabFirstState = state;
   
   // Volumio takes this station's state from the plugin (text, artwork, signal). The
   // first push starts the playback in Volumio's eyes; the second, a moment later, is

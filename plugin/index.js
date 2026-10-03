@@ -10,6 +10,7 @@ var metadata = require('./lib/metadata');
 var storage = require('./lib/storage');
 var Tuner = require('./lib/tuner');
 var FmQuality = require('./lib/fmquality');
+var Logos = require('./lib/logos');
 
 module.exports = ControllerRtlsdrRadio;
 
@@ -79,6 +80,9 @@ function ControllerRtlsdrRadio(context) {
   // The one owner of the dongle's processes: playback, scans and the antenna tools
   // each run as a job of it, one at a time
   self.tuner = new Tuner({ logger: self.logger, settle: self.USB_RESET_DELAY });
+  
+  // Station logos, fetched from the broadcasters and kept in the plugin's folder
+  self.logos = new Logos({ logger: self.logger });
   
   self.CLEANUP_TIMEOUT = 500;        // Wait for processes to fully terminate
   self.RESTART_DELAY = 2000;         // Delay before restarting plugin
@@ -156,6 +160,9 @@ ControllerRtlsdrRadio.prototype.onStart = function() {
       return self.loadStations();
     })
     .then(function() {
+      // Station logos that are missing are fetched in the background
+      self.fetchLogos();
+      
       // Load artwork blocklist and set debug logging
       self.loadBlocklistOnStartup();
       metadata.setDebugLogging(self.config.get('artwork_debug_logging', false));
@@ -3741,7 +3748,7 @@ ControllerRtlsdrRadio.prototype.showFavoritesView = function() {
         title: fav.station.customName || fav.station.name,
         artist: fav.station.ensemble,
         album: self.getI18nString('FAVORITES'),
-        albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+        albumart: '/albumart?sourceicon=' + self.dabIcon(fav.station),
         icon: 'fa fa-star',
         uri: uri,
         menu: self.getStationContextMenu(uri, 'dab', false, fav.station.hidden || false)
@@ -3801,7 +3808,7 @@ ControllerRtlsdrRadio.prototype.showRecentView = function() {
         title: rec.station.customName || rec.station.name,
         artist: rec.station.ensemble,
         album: self.getI18nString('RECENTLY_PLAYED'),
-        albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+        albumart: '/albumart?sourceicon=' + self.dabIcon(rec.station),
         uri: uri,
         menu: self.getStationContextMenu(uri, 'dab', false, rec.station.hidden || false)
       });
@@ -3997,7 +4004,7 @@ ControllerRtlsdrRadio.prototype.showDabEnsembleStations = function(ensembleName)
           title: station.customName || station.name,
           artist: station.ensemble,
           album: 'Channel ' + station.channel,
-          albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+          albumart: '/albumart?sourceicon=' + self.dabIcon(station),
           icon: station.favorite ? 'fa fa-star' : '',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'dab', false, false)
@@ -4034,7 +4041,7 @@ ControllerRtlsdrRadio.prototype.showDabFlatView = function() {
           title: station.customName || station.name,
           artist: station.ensemble,
           album: 'Channel ' + station.channel,
-          albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+          albumart: '/albumart?sourceicon=' + self.dabIcon(station),
           icon: station.favorite ? 'fa fa-star' : '',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'dab', false, false)
@@ -4227,7 +4234,7 @@ ControllerRtlsdrRadio.prototype.showDeletedDabView = function() {
           title: station.customName || station.name,
           artist: artist,
           album: 'DAB Deleted',
-          albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+          albumart: '/albumart?sourceicon=' + self.dabIcon(station),
           icon: 'fa fa-undo',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'dab', true, false)
@@ -4283,7 +4290,7 @@ ControllerRtlsdrRadio.prototype.showHiddenView = function() {
           title: station.customName || station.name,
           artist: station.ensemble,
           album: 'DAB Hidden',
-          albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+          albumart: '/albumart?sourceicon=' + self.dabIcon(station),
           icon: 'fa fa-eye-slash',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'dab', false, true)
@@ -4383,7 +4390,7 @@ ControllerRtlsdrRadio.prototype.explodeUri = function(uri) {
         title: station ? (station.customName || station.name) : serviceName,
         artist: station ? station.ensemble : channel,
         album: self.getI18nString('DAB_RADIO') || 'DAB+ Radio',
-        albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+        albumart: '/albumart?sourceicon=' + self.dabIcon(station),
         uri: uri
       };
       
@@ -5697,7 +5704,8 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
   var artworkDebugLogging = self.config.get('artwork_debug_logging', false);
   
   // Default artwork is always our DAB icon - NEVER Volumio placeholder
-  var fallbackIcon = 'music_service/rtlsdr_radio/assets/dab.svg';
+  var playingDab = self.currentDabStation;
+  var fallbackIcon = self.dabIcon(playingDab ? self.findDabStation(playingDab.channel, playingDab.exactName) : null);
   var albumartUrl = '/albumart?sourceicon=' + fallbackIcon;
   
   // If best effort artwork is disabled, skip all parsing and lookups
@@ -6061,6 +6069,37 @@ ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName
   
   self.logger.info('[RTL-SDR Radio] FM reception: ' + rds.receptionDb + ' dB, level ' + rds.signalLevel + '/5');
   self.pushRdsState(freq, stationName);
+};
+
+// The picture for a DAB station that has no artwork of its own at the moment: its
+// broadcaster's logo when one is kept, the DAB icon otherwise.
+ControllerRtlsdrRadio.prototype.dabIcon = function(station) {
+  return this.logos.icon(this.logos.dabKey(station)) || 'music_service/rtlsdr_radio/assets/dab.svg';
+};
+
+ControllerRtlsdrRadio.prototype.findDabStation = function(channel, exactName) {
+  var list = (this.stationsDb && this.stationsDb.dab) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].channel === channel && list[i].exactName === exactName) {
+      return list[i];
+    }
+  }
+  return null;
+};
+
+// Fetch, in the background, the logos of the DAB stations that have none yet.
+ControllerRtlsdrRadio.prototype.fetchLogos = function() {
+  var self = this;
+  if (self.fetchingLogos) {
+    return;
+  }
+  self.fetchingLogos = true;
+  self.logos.fetchAllDab(self.stationsDb.dab, self.config.get('fm_region', 'europe')).then(function(fetched) {
+    self.fetchingLogos = false;
+    if (fetched > 0) {
+      self.logger.info('[RTL-SDR Radio] Fetched ' + fetched + ' station logos');
+    }
+  });
 };
 
 // A number from the configuration, whatever type it was stored as.
@@ -7642,6 +7681,7 @@ ControllerRtlsdrRadio.prototype.scanDab = function() {
             // Merge with existing database (preserves user data)
             self.stationsDb.dab = self.mergeDabScanResults(stations);
             self.saveStations();
+            self.fetchLogos();
             
             var totalStations = self.stationsDb.dab.length;
             self.commandRouter.pushToastMessage('success', self.getI18nString('DAB_RADIO'), 
@@ -7953,7 +7993,7 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
     title: displayName,
     artist: ensemble,
     album: self.getI18nString('DAB_RADIO'),
-    albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg',
+    albumart: '/albumart?sourceicon=' + self.dabIcon(station),
     uri: uri,
     trackType: 'DAB ' + self.getSignalBars(0),
     samplerate: '48 kHz',

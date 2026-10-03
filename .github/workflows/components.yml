@@ -20,6 +20,7 @@ on:
       - docker/**
       - scripts/build-target.sh
       - scripts/check-elf.sh
+      - scripts/check-warnings.py
       - scripts/fetch-sources.sh
       - scripts/targets.sh
       - scripts/write-manifest.py

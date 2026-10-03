@@ -9,6 +9,7 @@ var path = require('path');
 var metadata = require('./lib/metadata');
 var storage = require('./lib/storage');
 var Tuner = require('./lib/tuner');
+var FmQuality = require('./lib/fmquality');
 
 module.exports = ControllerRtlsdrRadio;
 
@@ -4670,8 +4671,25 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
   // Pipe sox -> aplay
   soxProcess.stdout.pipe(aplayProcess.stdin);
   
+  // The reception is measured on the same signal, once a second
+  var meter = null;
+  var meterRate = FmQuality.parseRate(fmSampleRate);
+  if (meterRate) {
+    meter = new FmQuality(meterRate, {
+      deemphasis: applyDeemphasis,
+      onReading: function(db) {
+        if (self.tuner.current === job && !job.stopping) {
+          self.considerFmLevel(db, freqStr, stationName);
+        }
+      }
+    });
+  }
+  
   // Split rtl_fm output to both redsea and sox
   rtlProcess.stdout.on('data', function(chunk) {
+    if (meter) {
+      meter.feed(chunk);
+    }
     // Write to redsea for RDS decoding
     if (redseaProcess.stdin.writable) {
       try {
@@ -4815,7 +4833,6 @@ ControllerRtlsdrRadio.prototype.parseRadioText = function(radiotext) {
 // Handle RDS data update from fn-redsea
 ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationName) {
   var self = this;
-  var signalChanged = false;
   
   // Merge new RDS data with existing
   if (!self.currentRds) {
@@ -4825,41 +4842,14 @@ ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationNam
   // Extract BLER for signal quality (from -E flag)
   if (rds.bler !== undefined) {
     self.currentRds.bler = rds.bler;
-    // Calculate signal level (0-5).
-    // The stereo flag is carried by some groups only: once seen it is remembered,
-    // or the level would drop with every group that does not carry it. The error
-    // rate of single groups varies, so it is smoothed, and the level shown changes
-    // only when a new level has held for a few seconds.
-    if (rds.di && rds.di.stereo !== undefined) {
-      self.currentRds.stereo = !!rds.di.stereo;
-    }
-    var hasStereo = self.currentRds.stereo === true;
+    // The error rate says how well RDS decodes, which is not how well the station is
+    // received: it is zero long before reception is good. It is kept, smoothed, as the
+    // fallback for stations whose reception cannot be measured (considerFmLevel), and
+    // counts for three dots at most.
     var bler = self.currentRds.blerSmoothed === undefined ?
       rds.bler : (self.currentRds.blerSmoothed * 0.8 + rds.bler * 0.2);
     self.currentRds.blerSmoothed = bler;
-    var signalLevel = 0;
-    if (bler < 5 && hasStereo) signalLevel = 5;
-    else if (bler < 15 && hasStereo) signalLevel = 4;
-    else if (bler < 30) signalLevel = 3;
-    else if (bler < 50) signalLevel = 2;
-    else signalLevel = 1;
-    
-    var nowMs = Date.now();
-    if (self.currentRds.signalLevel === undefined) {
-      // The first reading is shown at once
-      self.currentRds.signalLevel = signalLevel;
-      signalChanged = true;
-    } else if (signalLevel === self.currentRds.signalLevel) {
-      self.currentRds.pendingLevel = undefined;
-    } else if (self.currentRds.pendingLevel !== signalLevel) {
-      self.currentRds.pendingLevel = signalLevel;
-      self.currentRds.pendingSince = nowMs;
-    } else if (nowMs - self.currentRds.pendingSince >= self.SIGNAL_HOLD) {
-      self.currentRds.signalLevel = signalLevel;
-      self.currentRds.pendingLevel = undefined;
-      signalChanged = true;
-    }
-    self.currentRds.signalPercent = Math.max(0, Math.round(100 - bler));
+    self.currentRds.blerLevel = bler < 10 ? 3 : (bler < 30 ? 2 : 1);
   }
   
   // Initialize PS stability tracking
@@ -4922,11 +4912,6 @@ ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationNam
   // Handle TMC traffic alerts (separate from state updates)
   if (rds.tmc && rds.tmc.message && rds.tmc.message.description) {
     self.handleTmcAlert(rds.tmc);
-  }
-  
-  // The tune level is shown as it changes, not only with the next text
-  if (signalChanged && !(psChanged || rtChanged || rtPlusChanged)) {
-    self.pushRdsState(freq, stationName);
   }
   
   // Only push state if meaningful data changed
@@ -6036,6 +6021,46 @@ ControllerRtlsdrRadio.prototype.playbackEnded = function(job, entry) {
     self.commandRouter.pushToastMessage('error', 'FM/DAB Radio',
       self.formatString(self.getI18nString('TOAST_PLAY_FAILED'), what));
   });
+};
+
+// The FM tune level, from a reading of the reception (lib/fmquality.js, once a second).
+// A station without a pilot gives no reading; then what RDS tells is all there is.
+// A new level is shown when it has held for a few seconds, the first one at once.
+ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName) {
+  var self = this;
+  if (!self.currentRds) {
+    self.currentRds = {};
+  }
+  var rds = self.currentRds;
+  
+  var level = FmQuality.level(db);
+  if (level !== null) {
+    rds.signalPercent = Math.max(0, Math.min(100, Math.round(db * 2)));
+  } else {
+    level = rds.blerLevel || 0;
+    rds.signalPercent = rds.blerSmoothed !== undefined ? Math.max(0, Math.round(100 - rds.blerSmoothed)) : 0;
+  }
+  rds.receptionDb = Math.round(db * 10) / 10;
+  
+  var now = Date.now();
+  if (rds.signalLevel === undefined) {
+    rds.signalLevel = level;
+  } else if (level === rds.signalLevel) {
+    rds.pendingLevel = undefined;
+    return;
+  } else if (rds.pendingLevel !== level) {
+    rds.pendingLevel = level;
+    rds.pendingSince = now;
+    return;
+  } else if (now - rds.pendingSince < self.SIGNAL_HOLD) {
+    return;
+  } else {
+    rds.signalLevel = level;
+    rds.pendingLevel = undefined;
+  }
+  
+  self.logger.info('[RTL-SDR Radio] FM reception: ' + rds.receptionDb + ' dB, level ' + rds.signalLevel + '/5');
+  self.pushRdsState(freq, stationName);
 };
 
 // A number from the configuration, whatever type it was stored as.

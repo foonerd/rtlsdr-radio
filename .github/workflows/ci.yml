@@ -1,0 +1,19 @@
+name: ci
+
+# Every change: the plugin's JavaScript checked and its tests run, in the Node version
+# Volumio ships.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/test-plugin.sh

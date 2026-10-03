@@ -66,6 +66,30 @@ scripts/assemble-plugin.sh
 
 writes `dist/rtlsdr_radio/`: the plugin with `bin/<target>/` and `packages/<target>/` filled from `out/`, and a `components.json` recording what the binaries were built from. That folder is what is installed on a player.
 
+```bash
+scripts/package-plugin.sh
+```
+
+assembles the folder, installs its node modules with the Node version Volumio ships, adds `build.json` (version, commit, time) and writes `dist/rtlsdr_radio-<version>.zip`, the zip a player installs.
+
+## Builds on GitHub
+
+| Workflow | Runs on | Does |
+| --- | --- | --- |
+| `ci` | every push to `main`, every pull request | checks the plugin's JavaScript and runs its tests |
+| `components` | a change of anything the components are built from | builds the components for each target and keeps them in the registry |
+| `release` | a tag `v<version>` | tests, fetches the components, packs the zip, publishes it as a pre-release |
+
+The compiled components change rarely and take long to build under emulation, so they are built once per change. `scripts/components-key.sh` makes a key from everything they are built from; the `components` workflow keeps each target's output in `ghcr.io/foonerd/rtlsdr-radio-components` under that key and skips a target whose key is already there. A release therefore only fetches them:
+
+```bash
+scripts/fetch-components.sh      # out/<target>/ from the registry, for the sources as checked out
+```
+
+A release is made by setting the version in `plugin/package.json`, writing its notes under "Version History" in `plugin/README.md`, and pushing the tag `v<version>`. The tag must name the version the plugin carries. The release's text is that version's notes (`scripts/release-notes.sh <version>`). Run by hand, the `release` workflow builds the zip and publishes nothing.
+
+Releases on GitHub are previews: a version is tried from here before it is submitted to the Volumio plugin store.
+
 ## Licences
 
 | Part | Licence |

@@ -1,0 +1,80 @@
+name: components
+
+# The compiled parts of the plugin (the RTL-SDR tools, the DAB and RDS decoders), for
+# each target, kept in the registry under a key made of everything they are built from
+# (scripts/components-key.sh). A target whose key is already there is not built again:
+# the emulated builds run once per change of a source, and every build of the plugin
+# after that only fetches what they made.
+on:
+  workflow_call:
+    outputs:
+      key:
+        description: The key the components are kept under
+        value: ${{ jobs.key.outputs.key }}
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - build.sh
+      - components/**
+      - docker/**
+      - scripts/build-target.sh
+      - scripts/check-elf.sh
+      - scripts/fetch-sources.sh
+      - scripts/targets.sh
+      - scripts/write-manifest.py
+      - scripts/components-key.sh
+      - .github/workflows/components.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  key:
+    name: key
+    runs-on: ubuntu-24.04
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: key
+        run: |
+          key="$(scripts/components-key.sh)"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "The components' key: \`$key\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: key
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [arm, armv7, armv8, x64]
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}-components:${{ matrix.target }}-${{ needs.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to the registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Is it built already?
+        id: have
+        run: |
+          if docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.target }}: in the registry, not built again" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.target }}: built in this run" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: docker/setup-qemu-action@v3
+        if: steps.have.outputs.found == 'false'
+      - name: Build
+        if: steps.have.outputs.found == 'false'
+        run: ./build.sh ${{ matrix.target }}
+      - name: Keep in the registry
+        if: steps.have.outputs.found == 'false'
+        run: |
+          printf 'FROM scratch\nCOPY . /out/\n' | docker build -q -t "$IMAGE" -f - "out/${{ matrix.target }}"
+          docker push -q "$IMAGE"

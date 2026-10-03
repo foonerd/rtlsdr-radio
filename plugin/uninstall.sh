@@ -22,12 +22,6 @@ if [ -f /etc/modprobe.d/blacklist-rtl-sdr.conf ]; then
   echo "NOTE: DVB-T drivers will load automatically on next RTL-SDR dongle connection"
 fi
 
-# Remove ALSA loopback from persistent modules
-sed -i '/snd-aloop/d' /etc/modules
-
-# Unload ALSA loopback module
-rmmod snd-aloop 2>/dev/null
-
 # Remove DAB and RDS binaries
 rm -f /usr/local/bin/fn-dab
 rm -f /usr/local/bin/fn-dab-scanner

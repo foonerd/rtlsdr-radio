@@ -910,7 +910,7 @@ No authentication is currently required. Access control should be implemented at
 ## File Locations
 
 ### Station Database
-- Path: `/data/plugins/music_service/rtlsdr_radio/stations.json`
+- Path: `/data/configuration/music_service/rtlsdr_radio/stations.json`
 - Format: JSON
 - Versioned: Yes (version field in JSON)
 
@@ -1135,6 +1135,18 @@ curl -X POST http://volumio.local:3456/api/maintenance/backup/upload \
 ```
 
 ## Changelog
+
+### API v1.3.10
+- No new endpoints and no changed request or response shapes
+- Storage: the station list is `/data/configuration/music_service/rtlsdr_radio/stations.json`
+  (was in the plugin's folder); a last good copy is kept in `/data/rtlsdr_radio_backups/last-good/`
+- POST `/api/stations`, `/api/stations/purge`, `/api/stations/clear-fm`, `/api/stations/clear-dab`,
+  `/api/csv/import`: answer with an error when the list could not be saved (was: success)
+- POST `/api/stations`: a list that fails validation is refused with 400 and the reasons
+- POST `/api/antenna/validate-dab`, `/api/antenna/snr-scan`: `channels` must be DAB channel
+  names (5A to 13F), otherwise 400; gain values and integration time are bounded
+- The antenna tools answer 409 when a later request took the tuner before they started
+- Backup endpoints: `type` must be `stations`, `config` or `blocklist`
 
 ### API v1.3.9
 - New configuration option:

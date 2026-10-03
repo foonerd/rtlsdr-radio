@@ -6197,8 +6197,10 @@ ControllerRtlsdrRadio.prototype.loadStations = function() {
   
   // Earlier versions kept the list in the plugin's own folder, which Volumio
   // removes on every update
+  var broughtOver = false;
   try {
-    if (storage.migrateLegacy('stations')) {
+    broughtOver = storage.migrateLegacy('stations');
+    if (broughtOver) {
       self.logger.info('[RTL-SDR Radio] Moved the station list to ' + stationsFile);
     }
   } catch (e) {
@@ -6211,7 +6213,15 @@ ControllerRtlsdrRadio.prototype.loadStations = function() {
   
   if (result.data) {
     prepared = self.prepareDatabase(result.data, stationsFile);
-    if (!prepared) {
+    // During an update the earlier version may be started once more in the new folder
+    // and leave an empty list there. An empty list brought over from the plugin folder
+    // does not stand in the way of a backup that has stations.
+    if (prepared && broughtOver &&
+        (prepared.db.fm || []).length === 0 && (prepared.db.dab || []).length === 0) {
+      self.logger.info('[RTL-SDR Radio] The list brought over is empty; looking for a backup');
+      prepared = null;
+      try { fs.removeSync(stationsFile); } catch (e) {}
+    } else if (!prepared) {
       // Set aside what is there: the next save must not overwrite it
       var aside = stationsFile + '.invalid-' + new Date().toISOString().replace(/[:.]/g, '-');
       try {

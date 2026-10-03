@@ -89,8 +89,8 @@ The plugin includes a comprehensive backup and restore system to protect your co
 3. Select backup type and click "Create Backup Now"
 4. Download backups or restore from history table (three columns: Stations, Config, Block List)
 
-**Auto-Backup:**
-Enable "Automatic backup before uninstall" checkbox to automatically create a full backup when uninstalling the plugin. Backups are preserved even after uninstall.
+**Last good copy:**
+Whenever the plugin stops, and so before every update or uninstall, the current station list and block list are copied to the backup folder. A later install finds them there and restores them when it has no list of its own. Backups are preserved even after uninstall. The "Automatic backup before uninstall" checkbox has no effect in this version.
 
 ### CSV Import/Export
 
@@ -372,7 +372,7 @@ Target repository: https://github.com/volumio/volumio-plugins-sources-bookworm
 
 ## Architecture
 
-- Uses ALSA loopback for lightweight audio routing
+- Plays through Volumio's own audio output, so volume, DSP and multiroom apply
 - Minimal CPU overhead (suitable for Pi Zero W2)
 - Direct PCM passthrough for FM (no encoding/decoding)
 - Sox resampling for DAB (handles variable sample rates: 32kHz, 48kHz)
@@ -417,7 +417,34 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.9 (Current)
+### v1.3.10 (Current)
+- The station list and the artwork block list survive plugin updates
+  - They are kept with the plugin's settings instead of in the plugin's own folder,
+    which Volumio replaces on every update
+  - A list from an earlier version is moved over at the first start
+  - A missing or unreadable list is restored from the newest backup
+  - **Updating from 1.3.9 or earlier: create a backup in the Station Manager
+    (Maintenance) first.** The update itself still removes the old folder; 1.3.10
+    then restores the newest backup by itself
+- Saving the station list can no longer fail silently or leave half a file behind
+- Reliable switching and stopping
+  - One part of the plugin owns the tuner: playback, scans and the antenna tools take
+    turns, and each starts only when the one before has let the dongle go
+  - Stopping ends the plugin's own processes and nothing else on the player
+  - Rapid station changes end with the last station playing, once
+  - A decoder that stops (dongle unplugged, DAB service not found) stops playback and
+    says so, instead of showing "playing" in silence
+- Station names with quotes or other special characters play correctly
+- SNR measurement: a gain step of 0 no longer makes the player unresponsive
+- Restoring an uploaded block list no longer overwrites the settings; restored settings
+  take effect at once
+- Binaries rebuilt
+  - Raspberry Pi (arm): built for ARMv6, so they start on every Pi
+  - x86-64: the RDS decoder no longer requires a processor with AVX2
+- Installer: no sudoers entry, no loopback module, no removal of unrelated packages
+- No new settings
+
+### v1.3.9
 - New FM Scan Offset setting to align scan frequency grid with country channel plans
   - Configurable in FM Region section: 0 kHz (default), 50 kHz, or 100 kHz
   - Fixes station detection in countries where FM channels are at odd frequencies

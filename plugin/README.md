@@ -7,7 +7,7 @@ Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.
 - RTL-SDR USB dongle (RTL2832U chipset)
 - Compatible with R820T, R820T2, R828D, E4000 tuners
 - Quality dongles recommended: Nooelec NESDR Smart, RTL-SDR Blog V3/V4
-- Cheap generic blue dongles work but may require PPM frequency correction for DAB
+- Cheap generic blue dongles work; the frequency error of their crystals is found and followed automatically
 - Antenna suitable for FM (76-108 MHz depending on region) and/or DAB Band III (174-240 MHz)
 
 ## Supported Platforms
@@ -392,13 +392,11 @@ The plugin includes diagnostic tools to test your USB dongle before scanning:
 - Setting it by hand: lower it if the audio is distorted or stations appear where there are none, raise it if there is no signal
 - Note: This is RF amplification, not volume control
 
-**Understanding PPM Correction** (DAB only):
-- PPM corrects frequency error from cheap crystal oscillators
-- **Quality dongles** (Nooelec, RTL-SDR Blog V3/V4): Use PPM=0
-- **Cheap blue dongles**: Typically need PPM 40-60 (varies per dongle)
-- If DAB scan finds no stations, try PPM values from -100 to +100 in steps of 10
-- Each dongle has its own specific PPM value due to manufacturing variance
-- FM reception is more tolerant and usually works without PPM correction
+**PPM Correction** (DAB only):
+- Leave it at 0. The DAB decoder and the scan measure the frequency error of the dongle's crystal themselves and follow it as the dongle warms up
+- Errors up to about 7 kHz (30 ppm in Band III) are always found. Larger ones, up to about 25 kHz, are found at most values but not at all of them
+- For a dongle that is further off than 30 ppm (some cheap ones are 40 to 60 off), set its value roughly: within 30 of the right one is enough, where it used to need to be within 2
+- FM reception does not use it
 
 **DAB Metadata (DLS)**:
 The plugin automatically extracts now-playing information from DAB broadcasts:
@@ -537,11 +535,12 @@ Just a Nerd
 
 ### v1.3.26 (Current)
 - DAB with a dongle whose crystal is off frequency: the decoder and the scanner now
-  find and follow the error by themselves, up to 35 kHz either way (about 150 ppm).
-  Before, on every ARM board, a dongle more than about 2 ppm off found no ensemble
-  ("Failed to play station: fn-dab ended with code 22", an empty scan) unless the
-  PPM correction in the settings was set to within 2 of the right value by hand.
-  The setting stays for those who want it; it is no longer needed
+  find the error by themselves and follow it. Before, on every ARM board, a dongle
+  more than about 2 ppm off found no ensemble ("Failed to play station: fn-dab ended
+  with code 22", an empty scan) unless the PPM correction in the settings was within
+  2 of the right value. Errors up to about 30 ppm are now always found; for a dongle
+  further off, a PPM value within 30 of the right one is enough
+- The help text of the PPM settings says so, in all languages
 
 ### v1.3.25
 - Play/pause on a playing station stops it and every screen shows it as stopped. The

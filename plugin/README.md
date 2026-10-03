@@ -219,7 +219,7 @@ A picture stays on the screen for at least the cool-off time (2 seconds unless s
 
 For spoken word content (audiobooks, talk radio, long DJ sets), the last song's artwork may persist indefinitely since no new "artist" is detected.
 
-Setting a timeout (2-30 minutes) automatically reverts to the station icon when no artist change occurs. The timer resets each time a new artist is detected.
+Setting a timeout (2-30 minutes) automatically reverts to the station icon when no artist change occurs. The timer resets each time a new artist is detected. A cover whose time is up leaves the screen with the next text that brings nothing to take its place; while a new song is being looked up it stays, so that one cover gives way to the next and not to the station's logo in between.
 
 **Block List (Station Manager > Block List tab):**
 
@@ -535,7 +535,14 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.22 (Current)
+### v1.3.23 (Current)
+- With an artwork timeout set, a new song after a long one still showed the station's
+  logo before its cover, and the cool-off of v1.3.22 kept the logo there for its two
+  seconds. A cover whose time is up now stays while the next song is looked up and
+  gives way to that song's cover; with nothing to take its place it leaves the screen
+  as before
+
+### v1.3.22
 - Artwork no longer flickers when a station repeats a song's name. A song named again
   changes nothing; a new song keeps the picture on the screen until its own cover is
   found. Before, every such text showed the station's logo for a moment and then the

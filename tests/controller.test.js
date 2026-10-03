@@ -665,6 +665,38 @@ test('artwork: a song named again changes nothing, and a picture gives way only 
   await sleep(60);
   assert.deepStrictEqual(pictures(), ['ABBA/Gold', 'station', 'station']);
 
+  // A cover whose time is up (the artwork timeout) and a new song: the old cover stays
+  // until the new one is there, and does not give way to the station's picture first
+  plugin.config.set('artwork_ttl', 2);
+  try {
+    plugin.handleDabDls('Playing... Maria -- Blondie');
+    await sleep(60);
+    plugin.artworkTimestamp = Date.now() - 3 * 60 * 1000;
+    plugin.albumLookupCache = {};
+    states.length = 0;
+    plugin.handleDabDls('Playing... Waterloo -- ABBA');
+    await sleep(120);
+    assert.deepStrictEqual(pictures(), ['Blondie/Greatest Hits', 'ABBA/Gold']);
+
+    // With nothing to take its place, a cover whose time is up does leave the screen
+    plugin.artworkTimestamp = Date.now() - 3 * 60 * 1000;
+    states.length = 0;
+    plugin.handleDabDls('Discover more at magic.co.uk');
+    await sleep(60);
+    assert.deepStrictEqual(pictures(), ['station']);
+
+    // And so does one that only a text nobody knows as a song follows
+    plugin.handleDabDls('Playing... Maria -- Blondie');
+    await sleep(120);
+    plugin.artworkTimestamp = Date.now() - 3 * 60 * 1000;
+    states.length = 0;
+    plugin.handleDabDls('Mel is here for your Saturday night with the Best Variety from the 80s to Now.');
+    await sleep(120);
+    assert.deepStrictEqual(pictures(), ['Blondie/Greatest Hits', 'station']);
+  } finally {
+    plugin.config.set('artwork_ttl', 0);
+  }
+
   await plugin.stop();
   plugin.config.set('artwork_threshold', 60);
   plugin.lastValidArtwork = null;

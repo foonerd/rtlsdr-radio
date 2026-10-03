@@ -5582,6 +5582,22 @@ ControllerRtlsdrRadio.prototype.artworkFor = function(song, fallbackIcon, push) 
     return fallback;
   }
 
+  // The picture that is on the screen now, whatever becomes of it
+  var onScreen = kept();
+
+  // A cover is kept for the time the settings give it (0: without limit). One whose
+  // time is up is kept no longer; it leaves the screen when nothing takes its place.
+  // While the next song is being looked up it stays, so that one cover gives way to
+  // the next and not to the station's picture in between.
+  var limit = (Number(self.config.get('artwork_ttl', 0)) || 0) * 60 * 1000;
+  if (limit > 0 && self.lastValidArtwork && self.artworkTimestamp && Date.now() - self.artworkTimestamp > limit) {
+    if (debug) {
+      self.logger.info('[RTL-SDR Radio] Artwork TTL expired (' + (limit / 60000) + ' min) - clearing');
+    }
+    self.lastValidArtwork = null;
+    self.artworkTimestamp = null;
+  }
+
   // The picture a lookup's answer leads to
   function pictureOf(result) {
     if (result && !result.known && (result.album || result.artworkUrl)) {
@@ -5636,7 +5652,7 @@ ControllerRtlsdrRadio.prototype.artworkFor = function(song, fallbackIcon, push) 
   }
 
   // Not looked up yet: the text goes out with the picture that is on the screen
-  var shown = kept();
+  var shown = onScreen;
   push(shown);
   self.lookupAlbum(song.artist, song.title, function(err, result) {
     // A newer text has taken this one's place: its own handling shows what belongs to it
@@ -5734,22 +5750,7 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
     title = null;
   }
   
-  var artworkTtl = self.config.get('artwork_ttl', 0);  // 0 = disabled, else minutes
   var artworkDebugLogging = self.config.get('artwork_debug_logging', false);
-
-  // Check TTL expiration (only if TTL is enabled)
-  if (artworkTtl > 0 && self.lastValidArtwork && self.artworkTimestamp) {
-    var ttlMs = artworkTtl * 60 * 1000;  // Convert minutes to ms
-    var age = Date.now() - self.artworkTimestamp;
-    if (age > ttlMs) {
-      // TTL expired - clear artwork
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Artwork TTL expired (' + artworkTtl + ' min) - clearing');
-      }
-      self.lastValidArtwork = null;
-      self.artworkTimestamp = null;
-    }
-  }
 
   // Helper function to push state
   var pushFmState = function(artUrl) {
@@ -6104,7 +6105,6 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
   // Get artwork settings
   var bestEffortArtwork = self.config.get('best_effort_artwork', true);
   var artworkThreshold = self.config.get('artwork_threshold', 60);
-  var artworkTtl = self.config.get('artwork_ttl', 0);  // 0 = disabled, else minutes
   var artworkDebugLogging = self.config.get('artwork_debug_logging', false);
   
   // Default artwork is always our DAB icon - NEVER Volumio placeholder
@@ -6125,20 +6125,6 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
     albumartUrl = '/albumart?sourceicon=' + self.currentSlide.icon;
     if (artworkDebugLogging) {
       self.logger.info('[RTL-SDR Radio] Artwork from the station\'s slideshow: ' + motImage);
-    }
-  }
-  
-  // Check TTL expiration (only if TTL is enabled)
-  if (artworkTtl > 0 && self.lastValidArtwork && self.artworkTimestamp) {
-    var ttlMs = artworkTtl * 60 * 1000;  // Convert minutes to ms
-    var age = Date.now() - self.artworkTimestamp;
-    if (age > ttlMs) {
-      // TTL expired - clear artwork
-      if (artworkDebugLogging) {
-        self.logger.info('[RTL-SDR Radio] Artwork TTL expired (' + artworkTtl + ' min) - clearing');
-      }
-      self.lastValidArtwork = null;
-      self.artworkTimestamp = null;
     }
   }
   

@@ -392,6 +392,10 @@ The plugin includes diagnostic tools to test your USB dongle before scanning:
 - Setting it by hand: lower it if the audio is distorted or stations appear where there are none, raise it if there is no signal
 - Note: This is RF amplification, not volume control
 
+**Loudness of FM and DAB**:
+- A DAB station plays at the level the broadcaster sends, which is about that of a music track
+- An FM station is brought to the same range: a fully modulated station peaks 1 dB below full scale, whatever receiver sample rate is set. Nothing is compressed or levelled over time; quiet and loud passages stay as broadcast
+
 **PPM Correction** (DAB only):
 - Leave it at 0. The DAB decoder and the scan measure the frequency error of the dongle's crystal themselves and follow it as the dongle warms up
 - Errors up to about 7 kHz (30 ppm in Band III) are always found. Larger ones, up to about 25 kHz, are found at most values but not at all of them
@@ -533,7 +537,18 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.26 (Current)
+### v1.3.27 (Current)
+- FM plays at the level of DAB and of music tracks. Before, an FM station came out
+  7 to 11 dB quieter than the same station on DAB, and the difference changed with
+  the receiver sample rate; the volume had to be turned up for FM and down again for
+  everything else. A fixed gain, worked out from the sample rate, now puts a fully
+  modulated station 1 dB below full scale. Expect FM to be clearly louder than
+  before at the same volume setting
+- A DAB station that cannot be received says so in words ("could not be received:
+  no usable DAB signal on channel ...", with what to check) in place of "fn-dab ended
+  with code 22"
+
+### v1.3.26
 - DAB with a dongle whose crystal is off frequency: the decoder and the scanner now
   find the error by themselves and follow it. Before, on every ARM board, a dongle
   more than about 2 ppm off found no ensemble ("Failed to play station: fn-dab ended

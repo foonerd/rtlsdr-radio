@@ -161,6 +161,7 @@
   "TOAST_PURGE_FAILED": "Échec de la suppression",
   "TOAST_CONFIG_SAVED": "Configuration enregistrée",
   "TOAST_PLAY_FAILED": "Échec de la lecture: {0}",
+  "TOAST_DAB_NOT_RECEIVED": "{0} n'a pas pu etre recue : aucun signal DAB exploitable sur le canal {1}. Verifiez l'antenne, ou relancez un scan si la station a pu changer de canal.",
   "TOAST_RESTART_REQUIRED": "Paramètres enregistrés. Veuillez redémarrer Volumio pour que les modifications prennent effet.",
   "TOAST_DELETED_STATION": "Impossible de lire une station supprimée. Restaurez-la d'abord depuis les Paramètres.",
   "TOAST_DB_UPGRADED": "Base de données mise à niveau vers v2 (sauvegarde enregistrée)",

@@ -161,6 +161,7 @@
   "TOAST_PURGE_FAILED": "Löschen fehlgeschlagen",
   "TOAST_CONFIG_SAVED": "Konfiguration gespeichert",
   "TOAST_PLAY_FAILED": "Abspielen fehlgeschlagen: {0}",
+  "TOAST_DAB_NOT_RECEIVED": "{0} konnte nicht empfangen werden: kein brauchbares DAB-Signal auf Kanal {1}. Antenne pruefen oder neu scannen, falls der Sender umgezogen sein koennte.",
   "TOAST_RESTART_REQUIRED": "Einstellungen gespeichert. Bitte starten Sie Volumio neu, damit die Änderungen wirksam werden.",
   "TOAST_DELETED_STATION": "Gelöschter Sender kann nicht abgespielt werden. Stellen Sie ihn zuerst in den Einstellungen wieder her.",
   "TOAST_DB_UPGRADED": "Datenbank auf v2 aktualisiert (Sicherung gespeichert)",

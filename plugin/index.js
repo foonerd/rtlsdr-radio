@@ -152,9 +152,12 @@ function ControllerRtlsdrRadio(context) {
   
   // Scan timeouts (milliseconds)
   self.FM_SCAN_TIMEOUT = 30000;      // FM scan timeout (30s)
+  self.FM_DEVIATION = 75000;         // Hz: the deviation of a fully modulated FM broadcast
+  self.FM_PEAK_DB = -1;              // where that deviation is put, in dB of full scale
   self.FM_SURVEY_TIMEOUT = 180000;   // The FM band survey: seconds on a fast board, a minute or two on the slowest
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
   self.DAB_DETECTION_TIMEOUT = 30000; // DAB ensemble detection timeout
+  self.DAB_NOT_RECEIVED = 22;        // fn-dab's exit code when it finds no ensemble it can read
   
   // Audio constants
   self.FM_SAMPLE_RATE = '171k';      // FM sample rate for RDS (multiple of 57kHz)
@@ -5024,9 +5027,13 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
     { stdio: ['pipe', 'pipe', 'pipe'] });
   self.redseaProcess = redseaProcess;
   
-  // sox for resampling: FM sample rate mono -> output rate stereo
+  // sox for resampling: FM sample rate mono -> output rate stereo, and for the level
   var soxArgs = ['-t', 'raw', '-r', fmSampleRate, '-e', 'signed', '-b', '16', '-c', '1', '-',
                  '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-e', 'signed', '-b', '16', '-c', '2', '-'];
+  var levelGain = self.fmLevelGain(fmSampleRate);
+  if (levelGain !== null) {
+    soxArgs.push('vol', levelGain.toFixed(2) + 'dB');
+  }
   var soxProcess = job.spawn('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
   self.soxProcess = soxProcess;
   
@@ -6451,11 +6458,20 @@ ControllerRtlsdrRadio.prototype.playbackEnded = function(job, entry) {
     self.logger.error('[RTL-SDR Radio] ' + entry.command + ' said: ' + said.slice(0, 300));
   }
   
+  // What the user is told. The decoder ends with 22 when it finds no ensemble it can
+  // read on the channel in the time it is given: said in words, with what to check.
+  // Anything else is named as it is; the log above has the detail either way.
+  var message = self.formatString(self.getI18nString('TOAST_PLAY_FAILED'), what);
+  var dab = self.currentDabStation;
+  if (entry.command === 'fn-dab' && entry.code === self.DAB_NOT_RECEIVED && dab) {
+    message = self.formatString(self.getI18nString('TOAST_DAB_NOT_RECEIVED'),
+      String(dab.stationTitle || dab.serviceName || '').trim(), dab.channel);
+  }
+  
   // Through Volumio, so that the player shows the station as stopped
   self.commandRouter.stateMachine.stop();
   self.stop().then(function() {
-    self.commandRouter.pushToastMessage('error', 'FM/DAB Radio',
-      self.formatString(self.getI18nString('TOAST_PLAY_FAILED'), what));
+    self.commandRouter.pushToastMessage('error', 'FM/DAB Radio', message);
   });
 };
 
@@ -6843,6 +6859,20 @@ ControllerRtlsdrRadio.prototype.usbMark = function() {
 // The gain an FM station is received with: measured at its frequency and kept with the
 // station, so that it is measured once and not at every play; or, with automatic gain
 // switched off, the value set by hand.
+// The gain, in dB, that brings FM to the level of everything else that plays. The
+// receiver's output is the station's deviation as a share of its sample rate: a fully
+// modulated station (75 kHz) comes out 10 dB below full scale at 240k and 7 dB below
+// at 171k, where a DAB station or a track peaks at full scale. This puts 75 kHz at
+// FM_PEAK_DB below full scale, whatever the rate; null for a rate that cannot be read.
+ControllerRtlsdrRadio.prototype.fmLevelGain = function(rate) {
+  var match = /^(\d+(?:\.\d+)?)(k?)$/i.exec(String(rate).trim());
+  var hz = match ? parseFloat(match[1]) * (match[2] ? 1000 : 1) : 0;
+  if (!(hz > this.FM_DEVIATION)) {
+    return null;
+  }
+  return this.FM_PEAK_DB + 20 * Math.log10(hz / this.FM_DEVIATION);
+};
+
 ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
   var self = this;
   var manual = self.config.get('fm_gain', 50);

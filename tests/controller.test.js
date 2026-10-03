@@ -447,7 +447,42 @@ test('a DAB service that is not found ends the playback with a message', async f
   delete process.env.FAKE_DAB_FAILS;
   assert.deepStrictEqual(running(), []);
   assert.strictEqual(plugin.deviceState, 'idle');
-  assert.ok(toasts.some(function(t) { return /fn-dab ended with code 22/.test(t.message); }), JSON.stringify(toasts));
+  // Said in words a user can act on, with the station and the channel; the decoder's
+  // own line goes to the log
+  assert.ok(toasts.some(function(t) { return t.type === 'error' && /could not be received: no usable DAB signal on channel/.test(t.message); }), JSON.stringify(toasts));
+  assert.ok(!toasts.some(function(t) { return /code 22/.test(t.message); }), JSON.stringify(toasts));
+  assert.ok(logs.some(function(l) { return /Playback stopped: fn-dab ended with code 22/.test(l); }));
+});
+
+test('FM is brought to the level of everything else, whatever the receiver rate', async function() {
+  // A fully modulated station at 1 dB below full scale: 75 kHz of 240k is -10.1 dB, of 171k -7.2 dB
+  assert.strictEqual(plugin.fmLevelGain('240k').toFixed(2), '9.10');
+  assert.strictEqual(plugin.fmLevelGain('171k').toFixed(2), '6.16');
+  assert.strictEqual(plugin.fmLevelGain(200000).toFixed(2), '7.52');
+  assert.strictEqual(plugin.fmLevelGain('nonsense'), null);
+  assert.strictEqual(plugin.fmLevelGain('50k'), null);
+
+  var rate = plugin.config.get('fm_sample_rate');
+  try {
+    plugin.config.set('fm_sample_rate', '240k');
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - vol 9\.10dB$/);
+    await plugin.stop();
+    plugin.config.set('fm_sample_rate', '171k');
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -r 171k .* vol 6\.16dB$/);
+    await plugin.stop();
+  } finally {
+    plugin.config.set('fm_sample_rate', rate);
+  }
+
+  // A DAB station comes at the broadcaster's level and is left there
+  await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+  await sleep(500);
+  assert.doesNotMatch(fs.readFileSync('/tmp/fake-args-sox', 'utf8'), /vol/);
+  await plugin.stop();
 });
 
 test('FM scan: the band is surveyed as a job of its own, and the stations it shows are kept', async function() {

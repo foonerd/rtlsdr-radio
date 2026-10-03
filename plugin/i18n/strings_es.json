@@ -161,6 +161,7 @@
   "TOAST_PURGE_FAILED": "Eliminación fallida",
   "TOAST_CONFIG_SAVED": "Configuración guardada",
   "TOAST_PLAY_FAILED": "Reproducción fallida: {0}",
+  "TOAST_DAB_NOT_RECEIVED": "No se pudo recibir {0}: no hay una senal DAB utilizable en el canal {1}. Compruebe la antena o vuelva a escanear si la emisora puede haberse movido.",
   "TOAST_RESTART_REQUIRED": "Ajustes guardados. Reinicia Volumio para que los cambios surtan efecto.",
   "TOAST_DELETED_STATION": "No se puede reproducir una emisora eliminada. Restáurala primero desde Ajustes.",
   "TOAST_DB_UPGRADED": "Base de datos actualizada a v2 (copia guardada)",

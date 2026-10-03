@@ -1,5 +1,7 @@
 #!/bin/bash
-# Stand-in for sox: passes its input through, and ends when asked.
+# Stand-in for sox: passes its input through, and ends when asked. What it was
+# started with is kept for the tests.
+echo "$@" > /tmp/fake-args-sox
 cat <&0 &
 child=$!
 trap 'kill $child 2>/dev/null; exit 0' TERM

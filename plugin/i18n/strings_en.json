@@ -161,6 +161,7 @@
   "TOAST_PURGE_FAILED": "Failed to purge station",
   "TOAST_CONFIG_SAVED": "Configuration saved",
   "TOAST_PLAY_FAILED": "Failed to play station: {0}",
+  "TOAST_DAB_NOT_RECEIVED": "{0} could not be received: no usable DAB signal on channel {1}. Check the antenna, or scan again if the station may have moved.",
   "TOAST_RESTART_REQUIRED": "Settings saved. Please restart Volumio for changes to take effect.",
   "TOAST_DELETED_STATION": "Cannot play deleted station. Restore it first from Settings.",
   "TOAST_DB_UPGRADED": "Database upgraded to v2 (backup saved)",

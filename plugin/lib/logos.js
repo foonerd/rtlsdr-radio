@@ -18,6 +18,14 @@
 // The pictures are kept outside the plugin's folder, which an update of the plugin
 // empties, and are reached through a link in that folder, because Volumio's artwork
 // endpoint serves pictures to every screen from there.
+//
+// That endpoint tells a screen to keep what it was given for a month, and gives the
+// player's default picture, under the same terms, for a file it cannot find: which is
+// every picture of the plugin while an update has the plugin's folder away. So a
+// picture's address carries a mark that changes whenever what is behind the address may
+// have changed: with every installation (the link is made anew), and when the picture
+// itself is replaced. A screen then never reuses what it was given under an address of
+// before.
 
 var fs = require('fs-extra');
 var path = require('path');
@@ -77,6 +85,7 @@ function Logos(options) {
     Object.keys(this.index).forEach(function(part) {
       this.index[part] = stored[part] || {};
     }, this);
+    this.index.stamp = stored.stamp || 0;
   } catch (e) {
     // nothing kept yet
   }
@@ -94,6 +103,7 @@ Logos.prototype.prepare = function() {
   try {
     fs.ensureDirSync(this.dir);
     if (!this.link) {
+      this._stamp(0);
       return;
     }
     var found = null;
@@ -102,16 +112,34 @@ Logos.prototype.prepare = function() {
     } catch (e) {
       // not there yet
     }
-    if (found && found.isSymbolicLink() && fs.readlinkSync(this.link) === this.dir) {
-      return;
+    if (!(found && found.isSymbolicLink() && fs.readlinkSync(this.link) === this.dir)) {
+      if (found) {
+        fs.removeSync(this.link);
+      }
+      fs.symlinkSync(this.dir, this.link);
     }
-    if (found) {
-      fs.removeSync(this.link);
-    }
-    fs.symlinkSync(this.dir, this.link);
+    // The link is as old as the installation: made by the installer, or just now
+    this._stamp(fs.lstatSync(this.link).ctimeMs);
   } catch (e) {
     this.logger.info('[RTL-SDR Radio] Logos: cannot prepare ' + this.dir + ': ' + e.message);
+    this._stamp(0);
   }
+};
+
+// Note the time of the installation, for the mark the addresses carry
+Logos.prototype._stamp = function(time) {
+  var known = this.index.stamp || 0;
+  var stamp = Math.max(known, Math.floor(time) || 0) || Date.now();
+  if (stamp !== known) {
+    this.index.stamp = stamp;
+    this._save();
+  }
+};
+
+// The mark an address carries: that of the installation, or of the picture if it is newer
+Logos.prototype.mark = function(entry) {
+  var fetched = entry && entry.fetched ? Date.parse(entry.fetched) : 0;
+  return Math.max(this.index.stamp || 0, fetched || 0).toString(36);
 };
 
 function clean(value) {
@@ -135,12 +163,14 @@ Logos.prototype._file = function(entry) {
 // logo, failing that its broadcaster's, or null when neither is kept.
 Logos.prototype.icon = function(station) {
   var key = this.dabKey(station);
-  var file = key && this._file(this.index.logos[key]);
+  var entry = key && this.index.logos[key];
+  var file = this._file(entry);
   if (!file) {
     var group = this._groupOf(key, station);
-    file = group && this._file(this.index.groups[group]);
+    entry = group && this.index.groups[group];
+    file = this._file(entry);
   }
-  return file ? ICON_PREFIX + file : null;
+  return file ? ICON_PREFIX + file + '&v=' + this.mark(entry) : null;
 };
 
 Logos.prototype._save = function() {

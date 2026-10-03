@@ -481,7 +481,15 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.13 (Current)
+### v1.3.14 (Current)
+- Station logos and the plugin's own icons no longer turn into the player's default
+  picture on a screen after a plugin update. Volumio lets a screen keep what an artwork
+  address gave it for a month, its default picture included, which is what it gives
+  while an update has the plugin's folder away. The addresses the plugin hands out now
+  change with every installation and with every replaced picture, so a screen asks again
+- The installer makes the link to the station logos before anything else
+
+### v1.3.13
 - DAB signal level: classic DAB (MP2) stations no longer stay at one dot whatever the
   reception. Their level is judged by their own audio frames, as that of DAB+ stations
   is by theirs

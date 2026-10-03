@@ -332,7 +332,8 @@ test('station logos through the manager: the state is told, a refresh is taken, 
   var station = { channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensemble: 'BBC National DAB',
     ensembleId: 'CE15', serviceId: 'C221', deleted: false };
   plugin.stationsDb.dab = [station];
-  assert.strictEqual(plugin.dabIcon(station), 'music_service/rtlsdr_radio/assets/dab.svg', 'the DAB icon while no logo is kept');
+  assert.match(plugin.dabIcon(station), /^music_service\/rtlsdr_radio\/assets\/dab\.svg&v=[0-9a-z]+$/,
+    'the DAB icon while no logo is kept, under an address that carries the installation\'s mark');
 
   var before = JSON.parse((await get('/api/logos/status')).text);
   assert.strictEqual(before.stations, 1);

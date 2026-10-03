@@ -13,6 +13,17 @@ var FmQuality = require('./lib/fmquality');
 var Logos = require('./lib/logos');
 var Updater = require('./lib/update');
 
+// The plugin's own pictures as Volumio's artwork endpoint serves them. The endpoint
+// tells screens to keep an answer for a month, the player's default picture included,
+// which is what it answers with while an update has the plugin's folder away. So the
+// address carries a mark that changes with every installation (lib/logos.js keeps it):
+// a screen never reuses what it was given under the address of an earlier one.
+var artMark = '';
+
+function assetIcon(name) {
+  return 'music_service/rtlsdr_radio/assets/' + name + (artMark ? '&v=' + artMark : '');
+}
+
 module.exports = ControllerRtlsdrRadio;
 
 function ControllerRtlsdrRadio(context) {
@@ -187,6 +198,7 @@ ControllerRtlsdrRadio.prototype.onStart = function() {
       // Station logos that are due are fetched in the background, once the player is
       // done starting; a station listed or played before that is fetched at once
       self.logos.prepare();
+      artMark = self.logos.mark();
       self.logosTimer = setTimeout(function() {
         self.logosTimer = null;
         self.fetchLogos();
@@ -3200,7 +3212,7 @@ ControllerRtlsdrRadio.prototype.addToBrowseSources = function() {
     uri: 'rtlsdr',
     plugin_type: 'music_service',
     plugin_name: 'rtlsdr_radio',
-    albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/radio.svg'
+    albumart: '/albumart?sourceicon=' + assetIcon('radio.svg')
   };
   
   self.commandRouter.volumioAddToBrowseSources(data);
@@ -3822,7 +3834,7 @@ ControllerRtlsdrRadio.prototype.showFavoritesView = function() {
         title: fav.station.customName || fav.station.name,
         artist: fav.station.frequency + ' MHz',
         album: self.getI18nString('FAVORITES'),
-        albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/fm.svg',
+        albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
         icon: 'fa fa-star',
         uri: uri,
         menu: self.getStationContextMenu(uri, 'fm', false, fav.station.hidden || false)
@@ -3883,7 +3895,7 @@ ControllerRtlsdrRadio.prototype.showRecentView = function() {
         title: rec.station.customName || rec.station.name,
         artist: rec.station.frequency + ' MHz',
         album: self.getI18nString('RECENTLY_PLAYED'),
-        albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/fm.svg',
+        albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
         uri: uri,
         menu: self.getStationContextMenu(uri, 'fm', false, rec.station.hidden || false)
       });
@@ -3942,7 +3954,7 @@ ControllerRtlsdrRadio.prototype.showFmView = function() {
           title: station.customName || station.name,
           artist: station.frequency + ' MHz',
           album: self.getI18nString('FM_RADIO'),
-          albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/fm.svg',
+          albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
           icon: station.favorite ? 'fa fa-star' : '',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'fm', false, false)
@@ -4279,7 +4291,7 @@ ControllerRtlsdrRadio.prototype.showDeletedFmView = function() {
           title: station.customName || station.name,
           artist: artist,
           album: 'FM Deleted',
-          albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/fm.svg',
+          albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
           icon: 'fa fa-undo',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'fm', true, false)
@@ -4358,7 +4370,7 @@ ControllerRtlsdrRadio.prototype.showHiddenView = function() {
           title: station.customName || station.name,
           artist: station.frequency + ' MHz',
           album: 'FM Hidden',
-          albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/fm.svg',
+          albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
           icon: 'fa fa-eye-slash',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'fm', false, true)
@@ -4448,7 +4460,7 @@ ControllerRtlsdrRadio.prototype.explodeUri = function(uri) {
       title: station ? (station.customName || station.name) : ('FM ' + frequency),
       artist: frequency + ' MHz',
       album: self.getI18nString('FM_RADIO') || 'FM Radio',
-      albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/fm.svg',
+      albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
       uri: 'rtlsdr://fm/' + frequency
     };
     
@@ -4862,7 +4874,7 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
     title: stationName,
     artist: 'FM ' + freqStr + ' MHz',
     album: self.getI18nString('FM_RADIO'),
-    albumart: '/albumart?sourceicon=music_service/rtlsdr_radio/assets/fm.svg',
+    albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
     uri: 'rtlsdr://fm/' + freqStr,
     trackType: 'FM ' + self.getSignalBars(0),
     samplerate: '48 KHz',
@@ -5322,7 +5334,7 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
   var artworkThreshold = self.config.get('artwork_threshold', 60);
   
   // Default artwork is always our FM icon - NEVER Volumio placeholder
-  var fallbackIcon = 'music_service/rtlsdr_radio/assets/fm.svg';
+  var fallbackIcon = assetIcon('fm.svg');
   var albumart = '/albumart?sourceicon=' + fallbackIcon;
   
   // If best effort artwork is disabled, skip all parsing and lookups
@@ -6212,7 +6224,7 @@ ControllerRtlsdrRadio.prototype.dabIcon = function(station, now) {
   if (station) {
     this.logos.want(station, { now: !!now });
   }
-  return this.logos.icon(station) || 'music_service/rtlsdr_radio/assets/dab.svg';
+  return this.logos.icon(station) || assetIcon('dab.svg');
 };
 
 ControllerRtlsdrRadio.prototype.findDabStation = function(channel, exactName) {

@@ -108,6 +108,9 @@ function network(log, state) {
       if (known && known.etag === etag) {
         return Promise.resolve({ unchanged: true });
       }
+      if (state.bodies && state.bodies[url]) {
+        return Promise.resolve({ body: state.bodies[url], type: 'image/png', etag: etag, modified: null });
+      }
       return Promise.resolve({ body: /\.jpg$/.test(url) && etag === 'v1' ? JPG : PNG, type: 'image/png', etag: etag, modified: null });
     }
   };
@@ -139,6 +142,15 @@ function make(stations, options) {
     return rig.log.filter(function(entry) { return pattern.test(entry); });
   };
   return rig;
+}
+
+// A picture's address without the mark it carries
+function plain(icon) {
+  return icon && icon.replace(/&v=[0-9a-z]+$/, '');
+}
+
+function mark(icon) {
+  return icon && /&v=([0-9a-z]+)$/.exec(icon)[1];
 }
 
 function sleep(ms) {
@@ -233,7 +245,7 @@ test('a station\'s logo is fetched when the station is shown, kept, and handed o
   assert.strictEqual(rig.logos.icon(ABSOLUTE), null);
   assert.strictEqual(rig.logos.want(ABSOLUTE), true);
   await idle(rig);
-  assert.strictEqual(rig.logos.icon(ABSOLUTE), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.jpg');
+  assert.strictEqual(plain(rig.logos.icon(ABSOLUTE)), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.jpg');
   assert.ok(fs.existsSync(rig.dir + '/dab-c181-c1c0.jpg'));
   assert.deepStrictEqual(rig.asked(/^(dns|get)/), ['dns 0.c1c0.c181.ce1.dab.radiodns.org',
     'get http://epg.bauer.example/radiodns/spi/3.1/SI.xml', 'get https://bauer.example/abs/600.jpg']);
@@ -242,7 +254,7 @@ test('a station\'s logo is fetched when the station is shown, kept, and handed o
   // Kept across a restart, and not fetched twice
   var asked = rig.log.length;
   rig.open();
-  assert.strictEqual(rig.logos.icon(ABSOLUTE), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.jpg');
+  assert.strictEqual(plain(rig.logos.icon(ABSOLUTE)), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.jpg');
   assert.strictEqual(rig.logos.want(ABSOLUTE), false);
   rig.logos.sweep();
   await idle(rig);
@@ -411,7 +423,7 @@ test('a logo that is listed but not to be had gives way to the next best one lis
     'get https://bauer.example/abs/32.png?v=1&x=2',
     'get https://bauer.example/abs/320x240.png'
   ], 'the square ones first, then the one that is no banner');
-  assert.strictEqual(rig.logos.icon(ABSOLUTE), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.png');
+  assert.strictEqual(plain(rig.logos.icon(ABSOLUTE)), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.png');
 });
 
 test('a station whose listed logos are all dead is left for a week, like one without', async function() {
@@ -419,7 +431,7 @@ test('a station whose listed logos are all dead is left for a week, like one wit
     'https://bauer.example/kissxtra/600.png': true, 'http://bbc.example/r1/600.png': true } } });
   rig.logos.sweep();
   await idle(rig);
-  assert.strictEqual(rig.logos.icon(RADIO_1), 'music_service/rtlsdr_radio/logos/group-epg.bbc.example.png',
+  assert.strictEqual(plain(rig.logos.icon(RADIO_1)), 'music_service/rtlsdr_radio/logos/group-epg.bbc.example.png',
     'no logo of its own to be had: its broadcaster\'s');
   assert.strictEqual(rig.logos.icon(KISS_XTRA), null, 'and its broadcaster has none');
   assert.ok(rig.logos.index.misses['dab-ce15-c221']);
@@ -489,7 +501,7 @@ test('a refresh fetches only what is new', async function() {
   rig.state.etags['https://bauer.example/abs/600.jpg'] = 'v2';
   rig.logos.refresh();
   await idle(rig);
-  assert.strictEqual(rig.logos.icon(ABSOLUTE), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.png');
+  assert.strictEqual(plain(rig.logos.icon(ABSOLUTE)), 'music_service/rtlsdr_radio/logos/dab-c181-c1c0.png');
   assert.ok(!fs.existsSync(file), 'the old picture is not left behind');
   assert.strictEqual(rig.asked(/^arrived/).length, 1);
 });
@@ -511,7 +523,7 @@ test('a station its broadcaster lists on another ensemble gets its own logo', as
   var rig = make([KISS_XTRA, ABSOLUTE]);
   rig.logos.sweep();
   await idle(rig);
-  assert.strictEqual(rig.logos.icon(KISS_XTRA), 'music_service/rtlsdr_radio/logos/dab-c185-cdd1.png');
+  assert.strictEqual(plain(rig.logos.icon(KISS_XTRA)), 'music_service/rtlsdr_radio/logos/dab-c185-cdd1.png');
   assert.ok(rig.asked(/^get/).indexOf('get https://bauer.example/kissxtra/600.png') !== -1);
   assert.strictEqual(rig.logos.index.misses['dab-c185-cdd1'], undefined);
 
@@ -530,9 +542,9 @@ test('a station without a logo of its own is shown with its broadcaster\'s', asy
   rig.logos.sweep();
   await idle(rig);
 
-  assert.strictEqual(rig.logos.icon(RADIO_1), 'music_service/rtlsdr_radio/logos/dab-ce15-c221.png', 'its own');
-  assert.strictEqual(rig.logos.icon(BBC_LOCAL), 'music_service/rtlsdr_radio/logos/group-epg.bbc.example.png', 'the BBC\'s');
-  assert.strictEqual(rig.logos.icon(typedIn), 'music_service/rtlsdr_radio/logos/group-epg.bbc.example.png', 'by its name alone');
+  assert.strictEqual(plain(rig.logos.icon(RADIO_1)), 'music_service/rtlsdr_radio/logos/dab-ce15-c221.png', 'its own');
+  assert.strictEqual(plain(rig.logos.icon(BBC_LOCAL)), 'music_service/rtlsdr_radio/logos/group-epg.bbc.example.png', 'the BBC\'s');
+  assert.strictEqual(plain(rig.logos.icon(typedIn)), 'music_service/rtlsdr_radio/logos/group-epg.bbc.example.png', 'by its name alone');
   assert.strictEqual(rig.logos.icon(LOOKALIKE), null, 'BBCX is not the BBC');
   assert.strictEqual(rig.logos.icon(BARE), null, 'its broadcaster has no logo of its own');
   assert.strictEqual(rig.asked(/^get http:\/\/bbc\.example\/bbc\//).join(), 'get http://bbc.example/bbc/600.png', 'fetched once, in the size screens ask for');
@@ -591,6 +603,56 @@ test('the pictures outlive the plugin\'s folder, which an update empties', async
   fs.ensureDirSync(base + '/plugin/logos');
   rig.open();
   assert.ok(fs.lstatSync(base + '/plugin/logos').isSymbolicLink());
+});
+
+test('a picture\'s address changes with every installation and every replaced picture, and not otherwise', async function() {
+  // Volumio tells screens to keep what an address gave them for a month, its default
+  // picture included, which is what it gives while an update has the plugin folder away
+  var base = '/tmp/logos-test-mark-' + Math.random().toString(36).slice(2);
+  fs.ensureDirSync(base + '/plugin');
+  var rig = make([RADIO_1], { dir: base + '/store', link: base + '/plugin/logos' });
+  rig.logos.sweep();
+  await idle(rig);
+  var first = rig.logos.icon(RADIO_1);
+  assert.strictEqual(plain(first), 'music_service/rtlsdr_radio/logos/dab-ce15-c221.png');
+  assert.ok(mark(first), 'the address carries a mark');
+
+  // The player restarts: the same picture under the same address
+  await sleep(15);
+  rig.open();
+  assert.strictEqual(rig.logos.icon(RADIO_1), first);
+
+  // An update replaces the plugin folder; the link is made anew: a new address
+  await sleep(15);
+  fs.removeSync(base + '/plugin');
+  fs.ensureDirSync(base + '/plugin');
+  rig.open();
+  var afterUpdate = rig.logos.icon(RADIO_1);
+  assert.strictEqual(plain(afterUpdate), plain(first), 'the same picture');
+  assert.notStrictEqual(mark(afterUpdate), mark(first), 'under an address no screen has seen');
+
+  // The same when the installer has made the link before the plugin starts
+  await sleep(15);
+  fs.removeSync(base + '/plugin/logos');
+  fs.symlinkSync(base + '/store', base + '/plugin/logos');
+  rig.open();
+  var afterInstaller = rig.logos.icon(RADIO_1);
+  assert.notStrictEqual(mark(afterInstaller), mark(afterUpdate));
+
+  // The broadcaster replaces the picture: a new address again, the file name the same
+  await sleep(15);
+  rig.state.etags['http://bbc.example/r1/600.png'] = 'v2';
+  rig.state.bodies = { 'http://bbc.example/r1/600.png': Buffer.concat([PNG, Buffer.from('new artwork')]) };
+  rig.logos.refresh();
+  await idle(rig);
+  var afterRefresh = rig.logos.icon(RADIO_1);
+  assert.strictEqual(plain(afterRefresh), plain(first));
+  assert.notStrictEqual(mark(afterRefresh), mark(afterInstaller));
+
+  // A refresh that finds nothing newer leaves the address alone
+  rig.logos.refresh();
+  await idle(rig);
+  assert.strictEqual(rig.logos.icon(RADIO_1), afterRefresh);
 });
 
 test('a stop leaves what is not done, without a trace', async function() {

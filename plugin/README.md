@@ -479,7 +479,11 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.10 (Current)
+### v1.3.11 (Current)
+- No functional change. Published to try the plugin's own update path (Station Manager >
+  Maintenance > Plugin Update) from one version to the next.
+
+### v1.3.10
 - The station list and the artwork block list survive plugin updates
   - They are kept with the plugin's settings instead of in the plugin's own folder,
     which Volumio replaces on every update

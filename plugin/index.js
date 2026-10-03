@@ -94,6 +94,7 @@ function ControllerRtlsdrRadio(context) {
   self.QUEUE_TIMEOUT = 60000;        // Operation queue timeout (60s)
   self.RDS_UPDATE_INTERVAL = 2000;   // Minimum between RDS state pushes
   self.SIGNAL_HOLD = 4000;           // A new tune level must hold this long before it is shown
+  self.LOGOS_START_DELAY = 30000;    // Station logos are looked for this long after the plugin starts
   self.DLS_UPDATE_INTERVAL = 2000;   // Minimum between DLS state pushes
   self.DLS_POLL_INTERVAL = 2000;     // DLS file polling interval
   self.TMC_THROTTLE = 30000;         // Traffic alert throttle (30s)
@@ -165,8 +166,13 @@ ControllerRtlsdrRadio.prototype.onStart = function() {
       return self.loadStations();
     })
     .then(function() {
-      // Station logos that are missing are fetched in the background
-      self.fetchLogos();
+      // Station logos that are due are fetched in the background, once the player is
+      // done starting; a station listed or played before that is fetched at once
+      self.logosTimer = setTimeout(function() {
+        self.logosTimer = null;
+        self.fetchLogos();
+      }, self.LOGOS_START_DELAY);
+      self.logosTimer.unref();
       
       // Load artwork blocklist and set debug logging
       self.loadBlocklistOnStartup();
@@ -210,6 +216,8 @@ ControllerRtlsdrRadio.prototype.onStop = function() {
   self.deviceState = 'idle';
   
   // Logos not fetched yet are fetched after the next start
+  clearTimeout(self.logosTimer);
+  self.logosTimer = null;
   self.logos.stop();
   
   // Remove browse source

@@ -306,6 +306,21 @@ test('station logos through the manager: the state is told, a refresh is taken, 
   plugin.stationsDb.dab = [];
 });
 
+test('station logos are looked for a while after the start, not in the middle of it', async function() {
+  await plugin.onStop();
+  logoChecks = 0;
+  plugin.LOGOS_START_DELAY = 150;
+  plugin.stationsDb.dab = [];
+  await plugin.onStart();
+  plugin.stationsDb.dab = [{ channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensembleId: 'CE15', serviceId: 'C221' }];
+  await sleep(60);
+  assert.strictEqual(logoChecks, 0, 'not yet');
+  await sleep(250);
+  assert.ok(logoChecks > 0, 'now');
+  assert.strictEqual(plugin.logos.status().state, 'waiting');
+  plugin.stationsDb.dab = [];
+});
+
 test('the plugin stops: nothing is left running and the port is free', async function() {
   await plugin.clearAddPlayTrack(fmTrack('94.9'));
   await sleep(200);

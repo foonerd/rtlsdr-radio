@@ -15,6 +15,12 @@
 // A station without a logo of its own is shown with the logo of its broadcaster, when
 // the broadcaster publishes one.
 //
+// A DAB station names itself by the identifiers it transmits. An FM station does so only
+// when RDS has been received from it (its PI code); until then, and where RDS never
+// comes, it is found by its name: among the user's own DAB stations that have a logo,
+// then among the services the broadcasters' lists name. A logo found by name gives way
+// to the one found by the PI code once that is known.
+//
 // The pictures are kept outside the plugin's folder, which an update of the plugin
 // empties, and are reached through a link in that folder, because Volumio's artwork
 // endpoint serves pictures to every screen from there.
@@ -30,6 +36,7 @@
 var fs = require('fs-extra');
 var path = require('path');
 var radiodns = require('./radiodns');
+var names = require('./names');
 
 var STORE = '/data/rtlsdr_radio_logos';
 var LINK = path.join(__dirname, '..', 'logos');
@@ -48,6 +55,10 @@ var ONLINE_FOR = 60 * 1000;
 // Without a network: how long to wait before looking again, each time a little longer
 var OFFLINE_WAITS = [30000, 60000, 120000, 300000, 600000];
 
+// What is taken from a broadcaster's list. A list fetched before the plugin took as much
+// is fetched once more.
+var LISTS_READ = 2;
+
 // The order of the work
 var NOW = 0;
 var MISSING = 1;
@@ -55,8 +66,10 @@ var FOLLOW_UP = 2;
 var REFRESH = 3;
 
 // options.stations(): the DAB stations as they are now
+// options.fmStations(): the FM stations as they are now
 // options.region(): the listener's region setting
 // options.onLogo(): a picture has arrived
+// options.onName(station, name): the broadcaster's list says what an FM station is called
 function Logos(options) {
   options = options || {};
   this.dir = options.dir || STORE;
@@ -64,6 +77,8 @@ function Logos(options) {
   this.lookup = options.lookup || new radiodns.Lookup();
   this.logger = options.logger || { info: function() {}, error: function() {} };
   this.stations = options.stations || function() { return []; };
+  this.fmStations = options.fmStations || function() { return []; };
+  this.onName = options.onName || function() {};
   this.region = options.region || function() { return 'europe'; };
   this.onLogo = options.onLogo || function() {};
   this.waits = options.waits || OFFLINE_WAITS;
@@ -78,8 +93,10 @@ function Logos(options) {
   this.review = false;
   this.fetched = 0;
   this.leads = null;
+  this.changedAt = 0;
 
-  this.index = { logos: {}, misses: {}, gcc: {}, member: {}, groups: {}, directory: {} };
+  this.index = { logos: {}, misses: {}, gcc: {}, member: {}, groups: {}, directory: {},
+    tried: {}, fmDirectory: {}, named: {} };
   try {
     var stored = fs.readJsonSync(path.join(this.dir, 'index.json'));
     Object.keys(this.index).forEach(function(part) {
@@ -155,6 +172,50 @@ Logos.prototype.dabKey = function(station) {
   return eid && sid && sid !== '0000' ? 'dab-' + eid + '-' + sid : null;
 };
 
+// A station of the FM list: it has a frequency and none of what names a DAB service
+function isFm(station) {
+  return !!station && station.frequency !== undefined && station.frequency !== null &&
+    !station.channel && !station.serviceId;
+}
+
+// The name an FM station's logo is kept under: its frequency, which is what the user's
+// list knows it by
+Logos.prototype.fmKey = function(station) {
+  if (!isFm(station)) {
+    return null;
+  }
+  var units = Math.round(parseFloat(station.frequency) * 100);
+  return units >= 6500 && units <= 10800 ? 'fm-' + ('00000' + units).slice(-5) : null;
+};
+
+Logos.prototype.keyOf = function(station) {
+  return isFm(station) ? this.fmKey(station) : this.dabKey(station);
+};
+
+// The names an FM station goes by: the user's, the one learnt for it, the one RDS
+// sends. "FM 98.5" is no name.
+function fmNames(station) {
+  var list = [];
+  [station.customName, station.name, station.ps].forEach(function(name) {
+    var text = String(name || '').trim();
+    if (text && !/^FM \d/i.test(text) && list.indexOf(text) === -1) {
+      list.push(text);
+    }
+  });
+  return list;
+}
+
+function fmCode(station) {
+  var code = clean(station && station.pi);
+  return code && code.length === 4 ? code : null;
+}
+
+// What a logo for an FM station is looked for by. When it changes (RDS has told the PI
+// code, the user has renamed the station) the station is looked up again.
+function fmSignature(station) {
+  return (fmCode(station) || '') + '|' + fmNames(station).join('|').toLowerCase();
+}
+
 Logos.prototype._file = function(entry) {
   return entry && entry.file && fs.existsSync(path.join(this.dir, entry.file)) ? entry.file : null;
 };
@@ -162,7 +223,7 @@ Logos.prototype._file = function(entry) {
 // The picture to hand to Volumio's artwork endpoint (sourceicon) for a station: its own
 // logo, failing that its broadcaster's, or null when neither is kept.
 Logos.prototype.icon = function(station) {
-  var key = this.dabKey(station);
+  var key = this.keyOf(station);
   var entry = key && this.index.logos[key];
   var file = this._file(entry);
   if (!file) {
@@ -191,7 +252,10 @@ Logos.prototype._failedLately = function(id) {
 
 // Whether a lookup is due for a station: no logo of its own is kept, and it was not
 // asked about in vain lately
-Logos.prototype._due = function(key) {
+Logos.prototype._due = function(key, station) {
+  if (key && key.indexOf('fm-') === 0) {
+    return this._dueFm(key, station);
+  }
   if (!key || this._file(this.index.logos[key])) {
     return false;
   }
@@ -202,13 +266,29 @@ Logos.prototype._due = function(key) {
   return !this._failedLately('station:' + key);
 };
 
+// An FM station is looked up when there is something to find it by that has not been
+// tried: with a logo kept, only when that has changed; without one, again after a week.
+Logos.prototype._dueFm = function(key, station) {
+  var signature = fmSignature(station);
+  if (signature === '|') {
+    return false;
+  }
+  var tried = this.index.tried[key];
+  if (tried && tried.signature === signature) {
+    if (this._file(this.index.logos[key]) || Date.now() - tried.at < RETRY_AFTER) {
+      return false;
+    }
+  }
+  return !this._failedLately('station:' + key);
+};
+
 // --- what is asked of the store ---------------------------------------------------------
 
 // A station is being shown or played: fetch its logo if that is due.
 // options.now: it is on the screen now, so it goes before everything else.
 Logos.prototype.want = function(station, options) {
-  var key = this.dabKey(station);
-  if (!this._due(key)) {
+  var key = this.keyOf(station);
+  if (!this._due(key, station)) {
     return false;
   }
   var now = !!(options && options.now);
@@ -230,6 +310,20 @@ Logos.prototype.sweep = function() {
       self._enqueue({ kind: 'station', key: self.dabKey(station), station: station, rank: MISSING });
     }
   });
+  var fm = self.fmStations().filter(function(station) {
+    return station && !station.deleted && self._due(self.fmKey(station), station);
+  });
+  if (fm.length > 0) {
+    // FM stations are found in what the lists say; lists read before that was kept are read again
+    Object.keys(self.index.groups).forEach(function(url) {
+      if ((self.index.groups[url].read || 0) < LISTS_READ && !self._failedLately('list:' + url)) {
+        self._enqueue({ kind: 'list', key: url, rank: MISSING });
+      }
+    });
+  }
+  fm.forEach(function(station) {
+    self._enqueue({ kind: 'station', key: self.fmKey(station), station: station, rank: MISSING });
+  });
   self.leads = null;
   self.review = true;
   self._kick();
@@ -250,6 +344,18 @@ Logos.prototype.refresh = function() {
       self._enqueue({ kind: 'station', key: key, station: station, rank: REFRESH, refresh: true });
     } else {
       delete self.index.misses[key];
+      self._enqueue({ kind: 'station', key: key, station: station, rank: MISSING });
+    }
+  });
+  self.fmStations().forEach(function(station) {
+    var key = self.fmKey(station);
+    if (!station || station.deleted || !key || fmSignature(station) === '|') {
+      return;
+    }
+    if (self._file(self.index.logos[key])) {
+      self._enqueue({ kind: 'station', key: key, station: station, rank: REFRESH, refresh: true });
+    } else {
+      delete self.index.tried[key];
       self._enqueue({ kind: 'station', key: key, station: station, rank: MISSING });
     }
   });
@@ -280,11 +386,11 @@ Logos.prototype.status = function() {
     group: 0,
     none: 0
   };
-  self.stations().forEach(function(station) {
+  self.stations().concat(self.fmStations()).forEach(function(station) {
     if (!station || station.deleted) {
       return;
     }
-    var key = self.dabKey(station);
+    var key = self.keyOf(station);
     status.stations++;
     if (key && self._file(self.index.logos[key])) {
       status.own++;
@@ -413,7 +519,9 @@ Logos.prototype._work = function(job) {
   var work;
   try {
     if (job.kind === 'station') {
-      work = self._fetchStation(job);
+      work = job.key.indexOf('fm-') === 0 ? self._fetchFm(job) : self._fetchStation(job);
+    } else if (job.kind === 'list') {
+      work = self.lookup.listAt(job.key).then(function() {});
     } else if (job.kind === 'listed') {
       work = self._keep(job.key, [job.url], false);
     } else {
@@ -459,6 +567,11 @@ Logos.prototype._unavailable = function(job, error) {
   self.logger.info('[RTL-SDR Radio] Logos: ' + job.key + ': the logo listed is not to be had: ' + (error && error.message || error));
   if (job.kind === 'group') {
     self.index.groups[job.key].url = null;
+  } else if (job.kind === 'list') {
+    // The broadcaster's list is gone: not asked for again
+    self.index.groups[job.key].read = LISTS_READ;
+  } else if (job.key.indexOf('fm-') === 0) {
+    self.index.tried[job.key] = { at: Date.now(), signature: fmSignature(job.station) };
   } else if (!job.refresh) {
     self.index.misses[job.key] = Date.now();
   }
@@ -520,6 +633,126 @@ Logos.prototype._fetchStation = function(job) {
       self._save();
     });
   });
+};
+
+// An FM station: by its PI code where RDS has told it (the broadcasters' lists already
+// read, then RadioDNS), otherwise and failing that by its name.
+Logos.prototype._fetchFm = function(job) {
+  var self = this;
+  var key = job.key;
+  var station = job.station;
+  var signature = fmSignature(station);
+  var pi = fmCode(station);
+
+  function tried() {
+    self.index.tried[key] = { at: Date.now(), signature: signature };
+    self._save();
+  }
+
+  function byName() {
+    var found = self._byName(station);
+    if (!found) {
+      tried();
+      return Promise.resolve();
+    }
+    self.logger.info('[RTL-SDR Radio] Logos: FM ' + station.frequency + ' goes by the name "' + found.wanted +
+      '": the logo of "' + found.name + '" (' + found.how + ')');
+    var how = { by: 'name', ref: found.name };
+    var kept = found.file ? Promise.resolve(self._borrow(key, found, how)) : self._keep(key, [found.url], job.refresh, how);
+    return kept.then(tried);
+  }
+
+  if (!pi) {
+    return byName();
+  }
+
+  var known = self._country('', pi);
+  var listed = known ? self.index.fmDirectory[known + '.' + pi] : null;
+  var candidates = radiodns.fmCandidates(pi, station.frequency, self.region(), known);
+  if (known) {
+    candidates = candidates.filter(function(candidate) { return candidate.gcc === known; });
+  }
+
+  return (listed ? Promise.resolve(null) : self.lookup.find(candidates)).then(function(found) {
+    var urls = listed ? [listed] : [];
+    if (found) {
+      self.index.gcc['pi-' + pi] = found.gcc;
+      self.index.member[key] = found.list;
+      urls = found.logos.map(function(logo) { return logo.url; });
+      if (urls.length === 0 && self.index.fmDirectory[found.gcc + '.' + pi]) {
+        urls = [self.index.fmDirectory[found.gcc + '.' + pi]];
+      }
+      if (found.called) {
+        self.onName(station, found.called);
+      }
+    }
+    if (urls.length > 0) {
+      return self._keep(key, urls, job.refresh, { by: 'pi', ref: pi }).then(tried);
+    }
+    if (found || listed) {
+      return byName();
+    }
+    // Nobody answers for the code. That is the broadcasters' word only if the network
+    // was there to be asked.
+    return self.lookup.reachable().then(function(online) {
+      if (!online) {
+        throw new Error('no network');
+      }
+      self.onlineAt = Date.now();
+      return byName();
+    });
+  });
+};
+
+// The logo an FM station's name leads to: { wanted, name, how, file | url }, or null.
+// The user's own DAB stations first: they are what is on the air where the player
+// stands, and their logos are kept already. Then the broadcasters' lists, where only a
+// name that means one station counts.
+Logos.prototype._byName = function(station) {
+  var self = this;
+  var wanted = fmNames(station);
+  var mine = [];
+  self.stations().forEach(function(dab) {
+    var entry = dab && !dab.deleted && self.index.logos[self.dabKey(dab)];
+    var file = self._file(entry);
+    if (file && broadcastName(dab)) {
+      mine.push({ name: broadcastName(dab), file: file, url: entry.url });
+    }
+  });
+  var listed = Object.keys(self.index.named).map(function(name) {
+    return { name: name, url: self.index.named[name] };
+  });
+
+  var found = null;
+  wanted.some(function(name) {
+    var hit = names.match(name, mine) || names.match(name, listed, { sure: true });
+    if (hit) {
+      found = { wanted: name, name: hit.found.name, how: hit.how, file: hit.found.file || null, url: hit.found.url };
+    }
+    return !!hit;
+  });
+  return found;
+};
+
+// Give an FM station the logo kept for one of the DAB stations: a copy, so that each
+// has its own to be refreshed or replaced
+Logos.prototype._borrow = function(key, found, how) {
+  var extension = path.extname(found.file) || '.png';
+  var file = key + extension;
+  var held = this.index.logos[key];
+  var picture = fs.readFileSync(path.join(this.dir, found.file));
+  if (held && held.file === file && this._file(held) && picture.equals(fs.readFileSync(path.join(this.dir, file)))) {
+    return;   // the same picture again is left alone
+  }
+  fs.writeFileSync(path.join(this.dir, file), picture);
+  if (held && held.file && held.file !== file) {
+    fs.removeSync(path.join(this.dir, held.file));
+  }
+  this.index.logos[key] = { file: file, url: found.url, fetched: new Date().toISOString(), by: how.by, ref: how.ref };
+  this.fetched++;
+  this.changedAt = Date.now();
+  this._save();
+  this.onLogo();
 };
 
 // The country code of a service, as far as it is known: from another service of its
@@ -592,8 +825,9 @@ Logos.prototype._store = function(name, url, held, refresh) {
   });
 };
 
-// Keep a station's logo: the first of the pictures listed that is to be had
-Logos.prototype._keep = function(key, urls, refresh) {
+// Keep a station's logo: the first of the pictures listed that is to be had.
+// how: { by, ref }, what the logo was found by, noted with it.
+Logos.prototype._keep = function(key, urls, refresh, how) {
   var self = this;
 
   function from(at) {
@@ -607,8 +841,13 @@ Logos.prototype._keep = function(key, urls, refresh) {
 
   return from(0).then(function(kept) {
     if (kept) {
+      if (how) {
+        kept.by = how.by;
+        kept.ref = how.ref;
+      }
       self.index.logos[key] = kept;
       self.fetched++;
+      self.changedAt = Date.now();
     }
     if (kept || self.index.misses[key]) {
       delete self.index.misses[key];
@@ -655,10 +894,21 @@ Logos.prototype._absorb = function(url, xml) {
   group.url = provider.logo;
   this.index.groups[url] = group;
 
+  group.read = LISTS_READ;
+
   var services = radiodns.dabServicesOf(xml);
   Object.keys(services).forEach(function(name) {
     this.index.directory[name] = services[name];
   }, this);
+  var programmes = radiodns.fmServicesOf(xml);
+  Object.keys(programmes).forEach(function(name) {
+    this.index.fmDirectory[name] = programmes[name];
+  }, this);
+  var named = radiodns.namedServicesOf(xml);
+  Object.keys(named).forEach(function(name) {
+    this.index.named[name] = named[name];
+  }, this);
+  this.changedAt = Date.now();
 
   this.review = true;
   this._save();
@@ -684,6 +934,25 @@ Logos.prototype._followUp = function() {
         self._enqueue({ kind: 'listed', key: key, url: url, rank: FOLLOW_UP });
         return;
       }
+    }
+    var group = self._groupOf(key, station);
+    if (group && self.index.groups[group].url && !self._file(self.index.groups[group]) &&
+        !self._failedLately('group:' + group)) {
+      self._enqueue({ kind: 'group', key: group, rank: FOLLOW_UP });
+    }
+  });
+
+  self.fmStations().forEach(function(station) {
+    var key = station && !station.deleted && self.fmKey(station);
+    if (!key || self._file(self.index.logos[key])) {
+      return;
+    }
+    // Tried before the logos and lists of this round were there: once more, with them
+    var tried = self.index.tried[key];
+    if (tried && tried.at < self.changedAt && fmSignature(station) !== '|' && !self._failedLately('station:' + key)) {
+      delete self.index.tried[key];
+      self._enqueue({ kind: 'station', key: key, station: station, rank: FOLLOW_UP });
+      return;
     }
     var group = self._groupOf(key, station);
     if (group && self.index.groups[group].url && !self._file(self.index.groups[group]) &&
@@ -738,14 +1007,16 @@ Logos.prototype._groupOf = function(key, station) {
   if (member && groups[member]) {
     return member;
   }
-  var name = broadcastName(station);
-  if (!name) {
+  // An FM station goes by the names it has; a DAB station by the one it is broadcast under
+  var known = isFm(station) ? fmNames(station) : [broadcastName(station)].filter(Boolean);
+  if (known.length === 0) {
     return null;
   }
   var leads = this._leads();
   var best = null;
   Object.keys(leads).forEach(function(lead) {
-    if (leads[lead] && radiodns.startsWith(name, lead) && (!best || lead.length > best.length)) {
+    var carried = known.some(function(name) { return radiodns.startsWith(name, lead); });
+    if (leads[lead] && carried && (!best || lead.length > best.length)) {
       best = lead;
     }
   });

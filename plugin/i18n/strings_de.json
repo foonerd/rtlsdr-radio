@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "{0} gelöschte Sender entfernt",
   "TOAST_PURGE_ALL_FAILED": "Fehler beim Entfernen gelöschter Sender",
   "TOAST_FM_REAPPEARED": "{0} gelöschte(r) Sender wieder verfügbar",
+  "TOAST_FM_REMOVED": "{0} nicht mehr gefundene(r) Sender entfernt",
   "TOAST_DAB_REAPPEARED": "{0} gelöschte(r) Dienst(e) wieder verfügbar",
   "TOAST_SCAN_COMPLETE": "Suche abgeschlossen: {0} gefunden, {1} gesamt",
   "MODAL_SCANNING_FM_TITLE": "FM-Sender scannen",

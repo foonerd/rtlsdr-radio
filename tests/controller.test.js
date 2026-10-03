@@ -191,6 +191,31 @@ test('FM: the gain is measured at the station\'s frequency before the receiver s
   assert.ok(logs.some(function(m) { return /taken down 7\.4 dB: the tuner was overloaded/.test(m); }));
 });
 
+test('FM: what RDS says of the station is kept with it: the PI code, and a name that has stood', async function() {
+  plugin.stationsDb.fm = [{ frequency: '94.9', name: 'FM 94.9' }];
+  plugin.RDS_PS_HOLD = 0;
+  try {
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+  } finally {
+    plugin.RDS_PS_HOLD = 30000;
+  }
+  var station = plugin.stationsDb.fm[0];
+  assert.strictEqual(station.pi, 'c201');
+  assert.strictEqual(station.ps, 'TEST FM');
+  assert.deepStrictEqual([station.name, station.nameFrom], ['TEST FM', 'rds']);
+
+  // The user's own name is shown before it and is never touched; a scan leaves the learnt name
+  station.customName = 'My station';
+  plugin.nameFmStation(station, 'BBC Radio London', 'radiodns');
+  assert.deepStrictEqual([station.customName, station.name, station.nameFrom], ['My station', 'BBC Radio London', 'radiodns']);
+  plugin.nameFmStation(station, 'TEST FM', 'rds');
+  assert.strictEqual(station.name, 'BBC Radio London', 'the broadcaster\'s list stands above RDS');
+  var merged = plugin.mergeStationData(station, { frequency: '94.9', name: 'FM 94.9', signal_strength: '-20.0', quality: 30, level: 4 }, 'fm');
+  assert.strictEqual(merged.name, 'BBC Radio London');
+  plugin.stationsDb.fm = [];
+});
+
 test('FM: with automatic gain switched off, the gain the user set reaches the receiver and nothing is measured', async function() {
   var before = gainRuns();
   plugin.config.set('fm_gain_auto', false);
@@ -339,8 +364,11 @@ test('a DAB service that is not found ends the playback with a message', async f
 test('FM scan: the band is surveyed as a job of its own, and the stations it shows are kept', async function() {
   plugin.stationsDb.fm = [
     { frequency: '100.0', name: 'FM 100.0', customName: 'Kiss', favorite: true, playCount: 4 },
-    { frequency: '98.3', name: 'FM 98.3', customName: 'Not on the air' }
+    { frequency: '98.3', name: 'FM 98.3', customName: 'Not on the air' },
+    { frequency: '99.3', name: 'FM 99.3', playCount: 0 },
+    { frequency: '87.25', name: 'FM 87.25', playCount: 0 }
   ];
+  toasts.length = 0;
   var found = await plugin.scanFm();
   assert.deepStrictEqual(running(), []);
   assert.strictEqual(plugin.deviceState, 'idle');
@@ -354,14 +382,32 @@ test('FM scan: the band is surveyed as a job of its own, and the stations it sho
   assert.ok(kiss.quality > 30 && kiss.level === 4, JSON.stringify(kiss));
   // a station the user keeps and the scan did not find is not removed
   assert.ok(fm.some(function(s) { return s.frequency === '98.3' && s.customName === 'Not on the air'; }));
+  // one an earlier scan listed and nobody touched goes with this scan; the user is told
+  assert.ok(!fm.some(function(s) { return s.frequency === '99.3'; }));
+  assert.ok(toasts.some(function(t) { return /1 station\(s\) no longer found were removed/.test(t.message); }), JSON.stringify(toasts));
+  // one the scan did not look at (off the raster) is left alone
+  assert.ok(fm.some(function(s) { return s.frequency === '87.25'; }));
   // a station found for the first time
   var classic = fm.find(function(s) { return s.frequency === '100.9'; });
   assert.deepStrictEqual([classic.name, classic.level, classic.deleted], ['FM 100.9', 4, false]);
   // the channels beside a station are not in the list
   assert.ok(!fm.some(function(s) { return s.frequency === '100.1' || s.frequency === '100.8'; }));
-  assert.strictEqual(fm.length, 24);
+  // the stations strong enough for RDS were listened to, strongest first, each at the
+  // gain of its part of the band, and their PI codes kept; the others were not
+  assert.deepStrictEqual(fm.filter(function(s) { return s.pi; }).map(function(s) { return s.frequency + ' ' + s.pi; }),
+    ['89.6 c201', '98.5 c201', '100.9 c201', '105.4 c201']);
+  assert.strictEqual(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8').trim(), '-f 98.5M -M fm -s 171k -l 0 -A std -g 49.6 -F 9');
+  assert.strictEqual(kiss.pi, undefined);
+  assert.strictEqual(fm.length, 25);
   var status = JSON.parse((await get('/api/status')).text);
   assert.strictEqual(status.scan, null);
+
+  // Scanned again: a station whose code is kept is not listened to a second time
+  fs.removeSync('/tmp/fake-args-fn-rtl_fm');
+  await plugin.scanFm();
+  assert.ok(!fs.existsSync('/tmp/fake-args-fn-rtl_fm'));
+  assert.strictEqual(plugin.stationsDb.fm.find(function(s) { return s.frequency === '100.9'; }).pi, 'c201');
+  assert.deepStrictEqual(running(), []);
 });
 
 test('FM scan: signals made in an overloaded tuner are left out, and named in the log', async function() {
@@ -515,6 +561,9 @@ test('station logos through the manager: the state is told, a refresh is taken, 
   var station = { channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensemble: 'BBC National DAB',
     ensembleId: 'CE15', serviceId: 'C221', deleted: false };
   plugin.stationsDb.dab = [station];
+  plugin.stationsDb.fm = [];
+  // What earlier tests left waiting for a network is dropped
+  plugin.logos.stop();
   assert.match(plugin.dabIcon(station), /^music_service\/rtlsdr_radio\/assets\/dab\.svg&v=[0-9a-z]+$/,
     'the DAB icon while no logo is kept, under an address that carries the installation\'s mark');
 
@@ -532,7 +581,17 @@ test('station logos through the manager: the state is told, a refresh is taken, 
   assert.ok(logoChecks > 0);
   assert.deepStrictEqual(logs.filter(function(l) { return /^(ERROR|WARN)/.test(l); }), []);
   assert.ok(fs.lstatSync(__dirname + '/../plugin/logos').isSymbolicLink(), 'the pictures are reached through a link in the plugin folder');
+
+  // FM stations count too, and are shown with the FM icon while no logo is kept
+  var fm = { frequency: '100.0', name: 'FM 100.0', customName: 'Kiss' };
+  plugin.stationsDb.fm = [fm];
+  assert.strictEqual(JSON.parse((await get('/api/logos/status')).text).stations, 2);
+  assert.match(plugin.fmIcon(fm), /^music_service\/rtlsdr_radio\/assets\/fm\.svg&v=[0-9a-z]+$/);
+  var listed = await plugin.handleBrowseUri('rtlsdr://fm');
+  var item = listed.navigation.lists[0].items.find(function(i) { return i.uri === 'rtlsdr://fm/100.0'; });
+  assert.match(item.albumart, /^\/albumart\?sourceicon=music_service\/rtlsdr_radio\/assets\/fm\.svg&v=/);
   plugin.stationsDb.dab = [];
+  plugin.stationsDb.fm = [];
 });
 
 test('plugin update through the manager: the store is asked through the player, and only a signed-in player is answered', async function() {

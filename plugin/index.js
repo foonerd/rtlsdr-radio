@@ -120,8 +120,10 @@ function ControllerRtlsdrRadio(context) {
   self.logos = new Logos({
     logger: self.logger,
     stations: function() { return (self.stationsDb && self.stationsDb.dab) || []; },
+    fmStations: function() { return (self.stationsDb && self.stationsDb.fm) || []; },
     region: function() { return self.config ? self.config.get('fm_region', 'europe') : 'europe'; },
-    onLogo: function() { self.logoArrived(); }
+    onLogo: function() { self.logoArrived(); },
+    onName: function(station, name) { self.nameFmStation(station, name, 'radiodns'); }
   });
   
   self.CLEANUP_TIMEOUT = 500;        // Wait for processes to fully terminate
@@ -133,6 +135,11 @@ function ControllerRtlsdrRadio(context) {
   self.STORE_TIMEOUT = 15000;        // How long the plugin store is given to say which versions it has
   self.GAIN_SAMPLE_RATE = 1200000;   // About the rate fn-rtl_fm reads the dongle at, and so what the gain is measured at
   self.FM_GAIN_KEEP = 7 * 24 * 3600 * 1000;  // How long a station's measured gain is used before it is measured again
+  self.RDS_WORTH_DB = 36;            // The pilot (dB) from which RDS can be read within seconds: such stations are listened to in a scan
+  self.RDS_LISTEN = 4000;            // How long a scan listens to one of them for its PI code
+  self.RDS_LISTEN_MOST = 20;         // How many stations a scan listens to at most
+  self.RDS_PI_READINGS = 5;          // A PI code read alike this many times running is the station's
+  self.RDS_PS_HOLD = 30000;          // An RDS name that has stood this long is the station's name, not running text
   self.GAIN_RULE = 2;                // How the gain is measured: 1 not cut off, 2 not cut off and the tuner not overloaded
   self.DLS_UPDATE_INTERVAL = 2000;   // Minimum between DLS state pushes
   self.DLS_POLL_INTERVAL = 2000;     // DLS file polling interval
@@ -1523,7 +1530,9 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
           signal: signalInfo,
           scan: self.scanProgress ? {
             type: self.scanProgress.type,
-            percent: Math.round(100 * self.scanProgress.done / self.scanProgress.total)
+            // The survey is nine tenths of a scan; listening to the strongest stations the rest
+            percent: Math.round(90 * self.scanProgress.done / self.scanProgress.total +
+              (self.scanProgress.listens ? 10 * self.scanProgress.listened / self.scanProgress.listens : 0))
           } : null,
           timestamp: new Date().toISOString()
         });
@@ -3865,7 +3874,7 @@ ControllerRtlsdrRadio.prototype.showFavoritesView = function() {
         title: fav.station.customName || fav.station.name,
         artist: fav.station.frequency + ' MHz',
         album: self.getI18nString('FAVORITES'),
-        albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
+        albumart: '/albumart?sourceicon=' + self.fmIcon(fav.station),
         icon: 'fa fa-star',
         uri: uri,
         menu: self.getStationContextMenu(uri, 'fm', false, fav.station.hidden || false)
@@ -3926,7 +3935,7 @@ ControllerRtlsdrRadio.prototype.showRecentView = function() {
         title: rec.station.customName || rec.station.name,
         artist: rec.station.frequency + ' MHz',
         album: self.getI18nString('RECENTLY_PLAYED'),
-        albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
+        albumart: '/albumart?sourceicon=' + self.fmIcon(rec.station),
         uri: uri,
         menu: self.getStationContextMenu(uri, 'fm', false, rec.station.hidden || false)
       });
@@ -3985,7 +3994,7 @@ ControllerRtlsdrRadio.prototype.showFmView = function() {
           title: station.customName || station.name,
           artist: station.frequency + ' MHz',
           album: self.getI18nString('FM_RADIO'),
-          albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
+          albumart: '/albumart?sourceicon=' + self.fmIcon(station),
           icon: station.favorite ? 'fa fa-star' : '',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'fm', false, false)
@@ -4401,7 +4410,7 @@ ControllerRtlsdrRadio.prototype.showHiddenView = function() {
           title: station.customName || station.name,
           artist: station.frequency + ' MHz',
           album: 'FM Hidden',
-          albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
+          albumart: '/albumart?sourceicon=' + self.fmIcon(station),
           icon: 'fa fa-eye-slash',
           uri: uri,
           menu: self.getStationContextMenu(uri, 'fm', false, true)
@@ -4491,7 +4500,7 @@ ControllerRtlsdrRadio.prototype.explodeUri = function(uri) {
       title: station ? (station.customName || station.name) : ('FM ' + frequency),
       artist: frequency + ' MHz',
       album: self.getI18nString('FM_RADIO') || 'FM Radio',
-      albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
+      albumart: '/albumart?sourceicon=' + self.fmIcon(station),
       uri: 'rtlsdr://fm/' + frequency
     };
     
@@ -4765,6 +4774,7 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   self.lastSignalLevel = undefined;
   self.psHistory = [];
   self.stablePs = null;
+  self.rdsLearning = null;
   self.currentFmFrequency = freq;
   
   // Build fn-rtl_fm command for RDS-compatible output
@@ -4914,13 +4924,14 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // Update Volumio state machine
   self.commandRouter.stateMachine.setConsumeUpdateService('rtlsdr_radio');
   
+  var playing = self.getStationByUri('rtlsdr://fm/' + freqStr);
   var state = {
     status: 'play',
     service: 'rtlsdr_radio',
     title: stationName,
     artist: 'FM ' + freqStr + ' MHz',
     album: self.getI18nString('FM_RADIO'),
-    albumart: '/albumart?sourceicon=' + assetIcon('fm.svg'),
+    albumart: '/albumart?sourceicon=' + self.fmIcon(playing ? playing.station : null, true),
     uri: 'rtlsdr://fm/' + freqStr,
     trackType: 'FM ' + self.getSignalBars(0),
     samplerate: '48 KHz',
@@ -4934,6 +4945,7 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // first push starts the playback in Volumio's eyes; the second, a moment later, is
   // taken as an update and carries the details the first cannot.
   self.playingJob = job;
+  self.fmFirstState = state;
   self.pushPlayingState(state);
   setTimeout(function() {
     self.pushPlayingState(state);
@@ -5032,6 +5044,9 @@ ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationNam
     }
   }
   
+  // What RDS tells of the station itself is kept with the station
+  self.learnFromRds(rds, freq);
+  
   // Sanitize radiotext
   var sanitizedRt = rds.radiotext ? self.sanitizeRdsText(rds.radiotext) : null;
   
@@ -5077,6 +5092,78 @@ ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationNam
     // Attempt to push updated state (will be throttled internally)
     self.pushRdsState(freq, stationName);
   }
+};
+
+// A name the scan gave a station for want of a better one
+function unnamed(station) {
+  return !station.name || /^FM \d+(\.\d+)?$/.test(station.name);
+}
+
+// Keep with the station what RDS says it is. The PI code names the programme: it is
+// what the broadcaster's list, and so the station's logo and name, are found by. The
+// name RDS sends (PS) is taken only once it has stood unchanged for a while, because
+// some stations put running text there.
+ControllerRtlsdrRadio.prototype.learnFromRds = function(rds, freq) {
+  var self = this;
+  var found = self.getStationByUri('rtlsdr://fm/' + freq);
+  var station = found && found.station;
+  if (!station) {
+    return;
+  }
+  var learning = self.rdsLearning;
+  if (!learning || learning.freq !== freq) {
+    learning = self.rdsLearning = { freq: freq, pi: null, readings: 0, ps: null, since: 0 };
+  }
+  var changed = false;
+  
+  var pi = typeof rds.pi === 'string' && /^(0x)?[0-9a-f]{4}$/i.test(rds.pi) ?
+    rds.pi.replace(/^0x/i, '').toLowerCase() : null;
+  if (pi) {
+    learning.readings = pi === learning.pi ? learning.readings + 1 : 1;
+    learning.pi = pi;
+    if (learning.readings === self.RDS_PI_READINGS && station.pi !== pi) {
+      self.logger.info('[RTL-SDR Radio] FM ' + freq + ' MHz: PI code ' + pi + (station.pi ? ' (was ' + station.pi + ')' : ''));
+      station.pi = pi;
+      changed = true;
+    }
+  }
+  
+  if (self.stablePs) {
+    if (self.stablePs !== learning.ps) {
+      learning.ps = self.stablePs;
+      learning.since = Date.now();
+    } else if (Date.now() - learning.since >= self.RDS_PS_HOLD && station.ps !== learning.ps) {
+      station.ps = learning.ps;
+      changed = true;
+      if (unnamed(station) || station.nameFrom === 'rds') {
+        self.nameFmStation(station, learning.ps, 'rds');
+      }
+    }
+  }
+  
+  if (changed) {
+    self.saveStations();
+    // Its logo may now be found, or a better one than its name led to
+    self.logos.want(station, { now: true });
+  }
+};
+
+// Give an FM station the name learnt for it. The user's own name for it (customName) is
+// shown before any other and is never touched; a name from the broadcaster's list
+// stands above the one RDS sends.
+ControllerRtlsdrRadio.prototype.nameFmStation = function(station, name, from) {
+  var self = this;
+  var text = String(name || '').trim();
+  if (!station || !text || station.name === text) {
+    return;
+  }
+  if (!unnamed(station) && !(station.nameFrom === 'rds' || (station.nameFrom === 'radiodns' && from === 'radiodns'))) {
+    return;
+  }
+  self.logger.info('[RTL-SDR Radio] FM ' + station.frequency + ' MHz is "' + text + '" (' + from + ')');
+  station.name = text;
+  station.nameFrom = from;
+  self.saveStations();
 };
 
 // Sanitize RDS text - remove invalid characters and validate
@@ -5379,8 +5466,8 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
   var bestEffortArtwork = self.config.get('best_effort_artwork', true);
   var artworkThreshold = self.config.get('artwork_threshold', 60);
   
-  // Default artwork is always our FM icon - NEVER Volumio placeholder
-  var fallbackIcon = assetIcon('fm.svg');
+  // Default artwork is the station's logo, failing that our FM icon - NEVER Volumio placeholder
+  var fallbackIcon = self.fmIcon(station, true);
   var albumart = '/albumart?sourceicon=' + fallbackIcon;
   
   // If best effort artwork is disabled, skip all parsing and lookups
@@ -6128,6 +6215,10 @@ ControllerRtlsdrRadio.prototype.restoreQueueItem = function() {
       // not a name that can be read back: the artwork the item came with
     }
   }
+  var fm = /^rtlsdr:\/\/fm\//.test(String(shown.item.uri)) ? self.getStationByUri(String(shown.item.uri)) : null;
+  if (fm) {
+    icon = self.logos.icon(fm.station);
+  }
   shown.item.albumart = icon ? '/albumart?sourceicon=' + icon : shown.albumart;
 };
 
@@ -6274,6 +6365,15 @@ ControllerRtlsdrRadio.prototype.dabIcon = function(station, now) {
   return this.logos.icon(station) || assetIcon('dab.svg');
 };
 
+// The same for an FM station: its logo (found by its PI code or by its name), failing
+// that its broadcaster's, the FM icon otherwise.
+ControllerRtlsdrRadio.prototype.fmIcon = function(station, now) {
+  if (station) {
+    this.logos.want(station, { now: !!now });
+  }
+  return this.logos.icon(station) || assetIcon('fm.svg');
+};
+
 ControllerRtlsdrRadio.prototype.findDabStation = function(channel, exactName) {
   var list = (this.stationsDb && this.stationsDb.dab) || [];
   for (var i = 0; i < list.length; i++) {
@@ -6289,9 +6389,31 @@ ControllerRtlsdrRadio.prototype.fetchLogos = function() {
   this.logos.sweep();
 };
 
-// A logo has arrived: if a DAB station is playing, show it where the station's icon is.
+// A logo has arrived: if a station is playing, show it where the station's icon is.
 ControllerRtlsdrRadio.prototype.logoArrived = function() {
   var self = this;
+  if (self.deviceState === 'playing_fm' && self.playingJob && self.currentStation) {
+    var uri = String(self.currentStation.uri);
+    var rds = self.currentRds;
+    if (rds && (rds.ps || rds.radiotext)) {
+      // The state as RDS has made it, with the logo where no song's artwork is; not
+      // held back, since the picture is what has changed
+      self.lastRdsUpdate = 0;
+      self.pushRdsState(uri.replace('rtlsdr://fm/', ''), self.currentStation.name);
+      return;
+    }
+    // No text from the station yet: the state it started with, with the logo
+    var begun = self.fmFirstState;
+    var fm = self.getStationByUri(uri);
+    if (begun && begun.uri === uri && fm) {
+      var art = '/albumart?sourceicon=' + self.fmIcon(fm.station);
+      if (begun.albumart !== art) {
+        begun.albumart = art;
+        self.pushPlayingState(begun);
+      }
+    }
+    return;
+  }
   if (!self.currentDabStation || !self.playingJob) {
     return;
   }
@@ -7589,7 +7711,18 @@ ControllerRtlsdrRadio.prototype.purgeDeletedStations = function() {
 
 // ========== RESCAN MERGE LOGIC - Phase 5.5 ==========
 
-ControllerRtlsdrRadio.prototype.mergeFmScanResults = function(newStations) {
+// Whether a station carries anything of the user's: a name, a mark, a play. Such a
+// station is never removed by a scan.
+function touched(station) {
+  return !!(station.customName || station.favorite || station.hidden || station.deleted ||
+    station.userCreated || station.playCount > 0 || station.lastPlayed || station.notes ||
+    (station.groups && station.groups.length > 0));
+}
+
+// surveyed(frequency): whether the scan looked at that frequency. A station the scan
+// looked for and did not find is removed if nothing of the user's is on it; where the
+// scan did not look, nothing is concluded.
+ControllerRtlsdrRadio.prototype.mergeFmScanResults = function(newStations, surveyed) {
   var self = this;
   
   self.logger.info('[RTL-SDR Radio] Merging FM scan results with existing database');
@@ -7633,13 +7766,24 @@ ControllerRtlsdrRadio.prototype.mergeFmScanResults = function(newStations) {
     }
   });
   
-  // Add remaining existing stations that weren't in scan
-  // (Keep user-deleted stations, manual entries, etc.)
+  // The existing stations that weren't in the scan: kept when the user has made
+  // something of them (a name, a favourite, plays, a deletion) or when the scan did not
+  // look at their frequency; the rest were an earlier scan's and go with this one
+  var removed = [];
   for (var frequency in existingMap) {
     if (existingMap.hasOwnProperty(frequency)) {
+      if (surveyed && surveyed(frequency) && !touched(existingMap[frequency])) {
+        removed.push(frequency);
+        continue;
+      }
       mergedStations.push(existingMap[frequency]);
       self.logger.info('[RTL-SDR Radio] Keeping existing FM station not in scan: ' + frequency + ' MHz');
     }
+  }
+  if (removed.length > 0) {
+    self.logger.info('[RTL-SDR Radio] No longer found, and never named, marked or played: removed ' + removed.join(', ') + ' MHz');
+    self.commandRouter.pushToastMessage('info', self.getI18nString('FM_RADIO'),
+      self.formatString(self.getI18nString('TOAST_FM_REMOVED'), removed.length));
   }
   
   // Sort by frequency
@@ -7745,11 +7889,17 @@ ControllerRtlsdrRadio.prototype.mergeStationData = function(existingStation, new
   
   // Update scan-related fields from new station
   if (type === 'fm') {
-    // FM: Update name, signal_strength, last_seen
-    merged.name = newStation.name;
+    // FM: Update name, signal_strength, last_seen. A name learnt for the station (from
+    // RDS or the broadcaster's list) stays; the scan knows only "FM <frequency>"
+    if (!existingStation.nameFrom) {
+      merged.name = newStation.name;
+    }
     merged.signal_strength = newStation.signal_strength;
     merged.quality = newStation.quality;
     merged.level = newStation.level;
+    if (newStation.pi) {
+      merged.pi = newStation.pi;
+    }
     merged.last_seen = newStation.last_seen;
     merged.frequency = newStation.frequency; // Ensure frequency stays correct
   } else if (type === 'dab') {
@@ -7796,6 +7946,9 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
     .then(function(job) {
       self.intentionalStop = false;
       self.setDeviceState('scanning_fm');
+      // The survey, then a short listen to the stations strong enough for RDS: several
+      // processes one after another, so the job ends when the scan says so
+      job.keepOpen = true;
       
       self.logger.info('[RTL-SDR Radio] Starting FM scan...');
       self.commandRouter.pushToastMessage('info', self.getI18nString('FM_RADIO'), self.getI18nString('TOAST_FM_SCANNING_UI'));
@@ -7825,13 +7978,17 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
         }
       }, self.SCAN_PROGRESS_DELAY);
       
-      // The device goes back to idle only if this scan still is what the device is doing
-      function scanOver() {
-        self.scanProcess = null;
-        self.scanProgress = null;
-        if (self.deviceState === 'scanning_fm' && !self.tuner.busy()) {
-          self.setDeviceState('idle');
-        }
+      // The scan is over: the job is ended, and the device goes back to idle only if
+      // this scan still is what the device is doing
+      function scanOver(then) {
+        job.stop('scan over').then(function() {
+          self.scanProcess = null;
+          self.scanProgress = null;
+          if (self.deviceState === 'scanning_fm' && !self.tuner.busy()) {
+            self.setDeviceState('idle');
+          }
+          then();
+        });
       }
       
       var printed = '';
@@ -7850,8 +8007,7 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
             self.commandRouter.pushToastMessage('error', self.getI18nString('FM_RADIO'), 
               self.getI18nStringFormatted('TOAST_SCAN_FAILED', reason));
           }
-          scanOver();
-          defer.reject(new Error(reason));
+          scanOver(function() { defer.reject(new Error(reason)); });
           return;
         }
         if (entry.code !== 0) {
@@ -7859,27 +8015,51 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
             (entry.said || '').trim().split('\n').pop() + '); the rest is used');
         }
         
+        var stations;
         try {
-          var stations = self.stationsFromSurvey(survey, regionSettings);
+          stations = self.stationsFromSurvey(survey, regionSettings);
           self.logger.info('[RTL-SDR Radio] Found ' + stations.length + ' FM stations');
+        } catch (e) {
+          self.logger.error('[RTL-SDR Radio] Failed to use the scan results: ' + e);
+          self.commandRouter.pushToastMessage('error', self.getI18nString('FM_RADIO'), 
+            self.getI18nString('TOAST_PARSE_FAILED'));
+          scanOver(function() { defer.reject(e); });
+          return;
+        }
+        
+        self.identifyByRds(job, stations, survey).then(function() {
+          if (job.stopping) {
+            // Stopped while listening: no result, as when stopped during the survey
+            scanOver(function() { defer.reject(new Error('stopped')); });
+            return;
+          }
           
-          // Merge with existing database (preserves user data)
-          self.stationsDb.fm = self.mergeFmScanResults(stations);
+          // Merge with existing database (preserves user data). Where the scan
+          // looked: every channel the survey reports.
+          var looked = {};
+          var places = (regionSettings.spacing_khz < 100 || regionSettings.scan_offset_khz % 100 !== 0) ? 2 : 1;
+          survey.channels.forEach(function(channel) {
+            looked[(channel.freq / 1e6).toFixed(places)] = true;
+          });
+          self.stationsDb.fm = self.mergeFmScanResults(stations, function(frequency) {
+            return looked[parseFloat(frequency).toFixed(places)] === true;
+          });
           self.saveStations();
           
           var totalStations = self.stationsDb.fm.length;
           self.commandRouter.pushToastMessage('success', self.getI18nString('FM_RADIO'), 
             self.formatString(self.getI18nString('TOAST_SCAN_COMPLETE'), stations.length, totalStations));
           
-          scanOver();
-          defer.resolve(stations);
-        } catch (e) {
+          // Logos, and names, for the stations the scan added
+          self.fetchLogos();
+          
+          scanOver(function() { defer.resolve(stations); });
+        }).catch(function(e) {
           self.logger.error('[RTL-SDR Radio] Failed to use the scan results: ' + e);
           self.commandRouter.pushToastMessage('error', self.getI18nString('FM_RADIO'), 
             self.getI18nString('TOAST_PARSE_FAILED'));
-          scanOver();
-          defer.reject(e);
-        }
+          scanOver(function() { defer.reject(e); });
+        });
       });
       if (self.scanProcess.stdout) {
         self.scanProcess.stdout.on('data', function(data) {
@@ -7897,6 +8077,149 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
     });
   
   return defer.promise;
+};
+
+// Listen briefly to the stations of a scan that are strong enough for RDS, and note the
+// PI code of each: it names the programme, and is what the station's name and logo are
+// found by. RDS needs a pilot some 36 dB above the noise to be read within seconds; a
+// weaker station tells its code while it is played. A station whose code is already
+// kept is not listened to. Resolves when done; never rejects.
+ControllerRtlsdrRadio.prototype.identifyByRds = function(job, stations, survey) {
+  var self = this;
+  var worth = stations.filter(function(station) {
+    var kept = self.getStationByUri('rtlsdr://fm/' + station.frequency);
+    return station.quality >= self.RDS_WORTH_DB && !(kept && kept.station.pi);
+  }).sort(function(a, b) { return b.quality - a.quality; }).slice(0, self.RDS_LISTEN_MOST);
+  
+  if (self.scanProgress) {
+    self.scanProgress.listens = worth.length;
+    self.scanProgress.listened = 0;
+  }
+  
+  function gainAt(frequency) {
+    var hz = parseFloat(frequency) * 1e6;
+    var slice = survey.slices.filter(function(s) { return Math.abs(s.freq - hz) <= 1e6; })[0];
+    return slice && slice.gain !== null ? slice.gain : self.config.get('fm_gain', 50);
+  }
+  
+  var at = 0;
+  function next() {
+    if (at >= worth.length || job.stopping || job.finished) {
+      return Promise.resolve();
+    }
+    var station = worth[at++];
+    return Promise.resolve(job.settle()).then(function() {
+      return self.listenForPi(job, station.frequency, gainAt(station.frequency));
+    }).then(function(pi) {
+      if (pi) {
+        station.pi = pi;
+      }
+      self.logger.info('[RTL-SDR Radio] FM scan: ' + station.frequency + ' MHz, PI code ' + (pi || 'not read'));
+      if (self.scanProgress) {
+        self.scanProgress.listened = at;
+      }
+      return next();
+    });
+  }
+  return next().catch(function(e) {
+    self.logger.info('[RTL-SDR Radio] FM scan: listening for RDS ended: ' + e);
+  });
+};
+
+// Tune to an FM station and read its PI code from RDS: resolves with the code (four
+// hex digits) once it has been read alike several times running, or with null when the
+// time is up. The two processes are gone when it resolves.
+ControllerRtlsdrRadio.prototype.listenForPi = function(job, frequency, gain) {
+  var self = this;
+  return new Promise(function(resolve) {
+    if (job.stopping || job.finished) {
+      resolve(null);
+      return;
+    }
+    var receiver, decoder;
+    try {
+      // 171k: the rate the RDS decoder works best at
+      receiver = job.spawn('fn-rtl_fm', ['-f', frequency + 'M', '-M', 'fm', '-s', '171k', '-l', '0', '-A', 'std',
+        '-g', String(gain), '-F', '9'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      decoder = job.spawn('fn-redsea', ['-r', '171k'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (e) {
+      if (receiver) {
+        try { receiver.kill('SIGKILL'); } catch (ignored) { /* gone */ }
+      }
+      resolve(null);
+      return;
+    }
+    
+    var over = false;
+    var timer = null;
+    var code = null;
+    var readings = 0;
+    var text = '';
+    
+    function done(found) {
+      if (over) {
+        return;
+      }
+      over = true;
+      clearTimeout(timer);
+      try { decoder.stdin.end(); } catch (ignored) { /* closed already */ }
+      // Both are gone before the next process opens the dongle
+      var left = 2;
+      function gone() {
+        if (--left === 0) {
+          resolve(found);
+        }
+      }
+      [receiver, decoder].forEach(function(child) {
+        if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+          gone();
+          return;
+        }
+        var hard = setTimeout(function() {
+          try { child.kill('SIGKILL'); } catch (ignored) { /* gone */ }
+        }, 1500);
+        child.once('exit', function() {
+          clearTimeout(hard);
+          gone();
+        });
+        try { child.kill('SIGTERM'); } catch (ignored) { /* gone */ }
+      });
+    }
+    
+    receiver.stdout.on('data', function(chunk) {
+      if (!over && decoder.stdin.writable) {
+        try { decoder.stdin.write(chunk); } catch (ignored) { /* the decoder has gone */ }
+      }
+    });
+    decoder.stdout.on('data', function(data) {
+      text += data.toString();
+      var lines = text.split('\n');
+      text = lines.pop();
+      lines.forEach(function(line) {
+        var rds;
+        try {
+          rds = JSON.parse(line);
+        } catch (ignored) {
+          return;
+        }
+        var pi = typeof rds.pi === 'string' && /^(0x)?[0-9a-f]{4}$/i.test(rds.pi) ?
+          rds.pi.replace(/^0x/i, '').toLowerCase() : null;
+        if (!pi) {
+          return;
+        }
+        readings = pi === code ? readings + 1 : 1;
+        code = pi;
+        if (readings >= self.RDS_PI_READINGS) {
+          done(code);
+        }
+      });
+    });
+    receiver.on('error', function() { done(null); });
+    decoder.on('error', function() { done(null); });
+    // Ended by itself, or with the job
+    receiver.on('exit', function() { done(null); });
+    timer = setTimeout(function() { done(null); }, self.RDS_LISTEN);
+  });
 };
 
 // The stations of a band survey, as the station list keeps them. What was measured is

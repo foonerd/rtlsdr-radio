@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "{0} estações eliminadas purgadas",
   "TOAST_PURGE_ALL_FAILED": "Purgação de estações eliminadas falhou",
   "TOAST_FM_REAPPEARED": "{0} estação/ões eliminada(s) disponível/eis novamente",
+  "TOAST_FM_REMOVED": "{0} estação/ões não encontrada(s) removida(s)",
   "TOAST_DAB_REAPPEARED": "{0} serviço(s) eliminado(s) disponível/eis novamente",
   "TOAST_SCAN_COMPLETE": "Procura concluída: {0} encontradas, {1} no total",
   "MODAL_SCANNING_FM_TITLE": "Digitalizando Estações FM",

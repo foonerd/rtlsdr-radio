@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "{0} 個の削除された局を消去しました",
   "TOAST_PURGE_ALL_FAILED": "削除された局の消去に失敗しました",
   "TOAST_FM_REAPPEARED": "{0} 個の削除された局が再び利用可能になりました",
+  "TOAST_FM_REMOVED": "見つからなくなった {0} 個の局を削除しました",
   "TOAST_DAB_REAPPEARED": "{0} 個の削除されたサービスが再び利用可能になりました",
   "TOAST_SCAN_COMPLETE": "スキャン完了：{0} 個が見つかりました、合計 {1} 個",
   "MODAL_SCANNING_FM_TITLE": "FM局をスキャン中",

@@ -40,8 +40,9 @@ var BBC = '<?xml version="1.0"?><serviceInformation><services>' +
   '</serviceProvider>' +
   '<service><shortName>Radio 1</shortName><mediumName>BBC Radio 1</mediumName>' + picture(600, 'http://bbc.example/r1/600.png') +
   '<bearer id="dab:ce1.ce15.c221.0" cost="20"/></service>' +
+  // Named for FM on every frequency it is sent on
   '<service><shortName>Radio 2</shortName><mediumName>BBC Radio 2</mediumName>' + picture(600, 'http://bbc.example/r2/600.png') +
-  '<bearer id="dab:ce1.ce15.c222.0" cost="20"/></service>' +
+  '<bearer id="dab:ce1.ce15.c222.0" cost="20"/><bearer id="fm:ce1.c202.*" cost="30"/></service>' +
   '<service><shortName>CBeebies</shortName><mediumName>CBeebies Radio</mediumName>' + picture(600, 'http://bbc.example/cb/600.png') +
   '<bearer id="dab:ce1.ce15.c22a.0" cost="20"/></service>' +
   '</services></serviceInformation>';
@@ -50,7 +51,8 @@ var REGISTERED = {
   '0.c1c0.c181.ce1.dab.radiodns.org': 'epg.bauer.example',
   '0.c2a1.c181.ce1.dab.radiodns.org': 'epg.bauer.example',
   '0.c221.ce15.ce1.dab.radiodns.org': 'epg.bbc.example',
-  '0.c222.ce15.ce1.dab.radiodns.org': 'epg.bbc.example'
+  '0.c222.ce15.ce1.dab.radiodns.org': 'epg.bbc.example',
+  '08910.c202.ce1.fm.radiodns.org': 'epg.bbc.example'
 };
 
 var ABSOLUTE = { ensembleId: 'C181', serviceId: 'C1C0', name: 'Absolute Radio', exactName: 'Absolute Radio  ' };
@@ -123,6 +125,7 @@ function make(stations, options) {
     lines: [],
     state: Object.assign({ online: true }, options.network),
     stations: stations || [],
+    fm: options.fm || [],
     dir: options.dir || '/tmp/logos-test-' + Math.random().toString(36).slice(2)
   };
   rig.open = function() {
@@ -132,8 +135,10 @@ function make(stations, options) {
       lookup: new radiodns.Lookup(network(rig.log, rig.state)),
       logger: { info: function(m) { rig.lines.push(m); }, error: function(m) { rig.lines.push('ERROR ' + m); } },
       stations: function() { return rig.stations; },
+      fmStations: function() { return rig.fm; },
       waits: [20],
-      onLogo: function() { rig.log.push('arrived'); }
+      onLogo: function() { rig.log.push('arrived'); },
+      onName: function(station, name) { rig.log.push('named ' + station.frequency + ' ' + name); }
     });
     return rig.logos;
   };
@@ -670,4 +675,141 @@ test('a stop leaves what is not done, without a trace', async function() {
   rig.logos.sweep();
   await idle(rig);
   assert.ok(rig.logos.icon(ABSOLUTE));
+});
+
+// --- FM ---------------------------------------------------------------------------------
+
+var OTHER_PNG = Buffer.concat([PNG, Buffer.from('another picture')]);
+
+test('an FM station whose PI code is known is found through RadioDNS, whatever frequency its list names', async function() {
+  var station = { frequency: '89.1', name: 'FM 89.1', pi: 'C202' };
+  var rig = make([], { fm: [station] });
+  assert.strictEqual(rig.logos.fmKey(station), 'fm-08910');
+  assert.strictEqual(rig.logos.icon(station), null);
+  assert.strictEqual(rig.logos.want(station), true);
+  await idle(rig);
+  assert.strictEqual(plain(rig.logos.icon(station)), 'music_service/rtlsdr_radio/logos/fm-08910.png');
+  assert.deepStrictEqual(rig.asked(/^(dns|get|named)/), ['dns 08910.c202.ce1.fm.radiodns.org',
+    'get http://epg.bbc.example/radiodns/spi/3.1/SI.xml', 'named 89.1 BBC Radio 2', 'get http://bbc.example/r2/600.png']);
+  assert.strictEqual(rig.asked(/^arrived/).length, 1);
+
+  // Not looked up again, in this run or the next
+  assert.strictEqual(rig.logos.want(station), false);
+  rig.open();
+  assert.strictEqual(rig.logos.want(station), false);
+  assert.deepStrictEqual(rig.logos.status(), { state: 'idle', queued: 0, stations: 1, own: 1, group: 0, none: 0 });
+});
+
+test('an FM station with neither a PI code nor a name is not looked up', async function() {
+  var station = { frequency: '98.5', name: 'FM 98.5' };
+  var rig = make([], { fm: [station] });
+  assert.strictEqual(rig.logos.want(station), false);
+  rig.logos.sweep();
+  await idle(rig);
+  assert.deepStrictEqual(rig.asked(/^(dns|get)/), []);
+  assert.strictEqual(rig.logos.icon(station), null);
+  assert.strictEqual(rig.logos.status().none, 1);
+});
+
+test('an FM station is found by its name among the user\'s DAB stations, and given a copy of the logo kept', async function() {
+  var fm = { frequency: '88.8', name: 'FM 88.8', customName: 'BBC Radio 2 National' };
+  var rig = make([RADIO_2], { fm: [fm] });
+  rig.logos.sweep();
+  await idle(rig);
+  assert.strictEqual(plain(rig.logos.icon(fm)), 'music_service/rtlsdr_radio/logos/fm-08880.png');
+  assert.ok(fs.readFileSync(rig.dir + '/fm-08880.png').equals(fs.readFileSync(rig.dir + '/dab-ce15-c222.png')));
+  // nothing was asked of the network for it
+  assert.deepStrictEqual(rig.asked(/^(dns|get)/), ['dns 0.c222.ce15.ce1.dab.radiodns.org',
+    'get http://epg.bbc.example/radiodns/spi/3.1/SI.xml', 'get http://bbc.example/r2/600.png']);
+  assert.ok(rig.lines.some(function(m) { return /FM 88\.8 goes by the name "BBC Radio 2 National": the logo of "BBC Radio 2" \(within\)/.test(m); }), rig.lines.join('\n'));
+
+  // A refresh leaves the same picture, and its address, alone
+  var before = rig.logos.icon(fm);
+  rig.logos.refresh();
+  await idle(rig);
+  assert.strictEqual(rig.logos.icon(fm), before);
+});
+
+test('an FM station is found by its name in the broadcasters\' lists, when the name means one station there', async function() {
+  // The user has Absolute on DAB, so Bauer's list is read; it names KISS XTRA too
+  var kissXtra = { frequency: '100.0', name: 'FM 100.0', customName: 'Kiss Xtra' };
+  var kiss = { frequency: '100.3', name: 'FM 100.3', customName: 'Kiss' };
+  var rig = make([ABSOLUTE], { fm: [kissXtra, kiss] });
+  rig.logos.sweep();
+  await idle(rig);
+  assert.strictEqual(plain(rig.logos.icon(kissXtra)), 'music_service/rtlsdr_radio/logos/fm-10000.png');
+  assert.strictEqual(rig.asked(/^get https:\/\/bauer\.example\/kissxtra/).length, 1);
+  assert.strictEqual(rig.logos.icon(kiss), null, '"Kiss" is of the family of KISS XTRA, not that station');
+  // and is not tried again at every sweep
+  var asked = rig.log.length;
+  rig.logos.sweep();
+  await idle(rig);
+  assert.strictEqual(rig.log.length, asked);
+});
+
+test('the PI code, once RDS has told it, finds the station its name did not', async function() {
+  // Named by the user for the wrong programme
+  var fm = { frequency: '89.1', name: 'FM 89.1', customName: 'BBC Radio 1' };
+  var rig = make([RADIO_1], { fm: [fm], network: { bodies: { 'http://bbc.example/r2/600.png': OTHER_PNG } } });
+  rig.logos.sweep();
+  await idle(rig);
+  assert.ok(fs.readFileSync(rig.dir + '/fm-08910.png').equals(PNG), 'the logo its name leads to');
+  var before = rig.logos.icon(fm);
+  assert.strictEqual(rig.logos.want(fm), false);
+
+  fm.pi = 'c202';
+  assert.strictEqual(rig.logos.want(fm, { now: true }), true);
+  await idle(rig);
+  assert.ok(fs.readFileSync(rig.dir + '/fm-08910.png').equals(OTHER_PNG), 'the logo of the programme it is');
+  assert.notStrictEqual(rig.logos.icon(fm), before, 'under an address a screen has not seen');
+  // the BBC's list, read for the DAB station, already named the programme: no question asked
+  assert.deepStrictEqual(rig.asked(/^dns .*fm\.radiodns/), []);
+});
+
+test('an FM station of a broadcaster whose stations carry its name is shown with the broadcaster\'s logo', async function() {
+  var kent = { frequency: '96.7', name: 'FM 96.7', customName: 'BBC Radio Kent' };
+  var rig = make([RADIO_1], { fm: [kent] });
+  rig.logos.sweep();
+  await idle(rig);
+  assert.strictEqual(plain(rig.logos.icon(kent)), 'music_service/rtlsdr_radio/logos/group-epg.bbc.example.png');
+  assert.deepStrictEqual(rig.logos.status(), { state: 'idle', queued: 0, stations: 2, own: 1, group: 1, none: 0 });
+});
+
+test('a list read before FM stations were looked for is read once more, and then says what they need', async function() {
+  var rig = make([RADIO_1]);
+  rig.logos.sweep();
+  await idle(rig);
+  // The index as a version before FM logos left it
+  var index = fs.readJsonSync(rig.dir + '/index.json');
+  Object.keys(index.groups).forEach(function(url) { delete index.groups[url].read; });
+  index.named = {};
+  index.fmDirectory = {};
+  fs.writeJsonSync(rig.dir + '/index.json', index);
+
+  var fm = { frequency: '89.1', name: 'FM 89.1', customName: 'BBC Radio 2' };
+  rig.fm = [fm];
+  rig.open();
+  rig.log.length = 0;
+  rig.logos.sweep();
+  await idle(rig);
+  assert.deepStrictEqual(rig.asked(/^(dns|get)/), ['get http://epg.bbc.example/radiodns/spi/3.1/SI.xml', 'get http://bbc.example/r2/600.png']);
+  assert.strictEqual(plain(rig.logos.icon(fm)), 'music_service/rtlsdr_radio/logos/fm-08910.png');
+
+  // Read once: not at the next sweep
+  rig.fm = [fm, { frequency: '99.9', name: 'FM 99.9', customName: 'Nobody FM' }];
+  rig.log.length = 0;
+  rig.logos.sweep();
+  await idle(rig);
+  assert.deepStrictEqual(rig.asked(/^(dns|get)/), []);
+});
+
+test('without a network an FM station is neither found nor written off', async function() {
+  var station = { frequency: '89.1', name: 'FM 89.1', pi: 'c202' };
+  var rig = make([], { fm: [station], network: { online: false } });
+  rig.logos.sweep();
+  await waiting(rig);
+  assert.strictEqual(rig.logos.icon(station), null);
+  rig.state.online = true;
+  await idle(rig);
+  assert.strictEqual(plain(rig.logos.icon(station)), 'music_service/rtlsdr_radio/logos/fm-08910.png');
 });

@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.3.19",
+  "version": "1.3.20",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.19 - The check for an overloaded tuner compares with a gain 20 dB lower: a tuner deep in overload no longer passes it"
+    "changelog": "v1.3.20 - FM stations shown with their logo, found by RDS programme code or by name; a rescan removes untouched stations it no longer finds"
   },
   "engines": {
     "node": ">=20",

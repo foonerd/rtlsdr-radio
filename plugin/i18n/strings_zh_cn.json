@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "已清除 {0} 个已删除的电台",
   "TOAST_PURGE_ALL_FAILED": "清除已删除的电台失败",
   "TOAST_FM_REAPPEARED": "{0} 个已删除的电台再次可用",
+  "TOAST_FM_REMOVED": "已移除 {0} 个不再找到的电台",
   "TOAST_DAB_REAPPEARED": "{0} 个已删除的服务再次可用",
   "TOAST_SCAN_COMPLETE": "扫描完成：找到 {0} 个，总计 {1} 个",
   "MODAL_SCANNING_FM_TITLE": "扫描FM电台",

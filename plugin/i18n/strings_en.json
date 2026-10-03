@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "Purged {0} deleted stations",
   "TOAST_PURGE_ALL_FAILED": "Failed to purge deleted stations",
   "TOAST_FM_REAPPEARED": "{0} deleted station(s) available again",
+  "TOAST_FM_REMOVED": "{0} station(s) no longer found were removed",
   "TOAST_DAB_REAPPEARED": "{0} deleted service(s) available again",
   "TOAST_SCAN_COMPLETE": "Scan complete: {0} found, {1} total",
   "TRAFFIC_ALERT": "Traffic Alert",

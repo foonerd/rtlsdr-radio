@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "{0} emisoras eliminadas purgadas",
   "TOAST_PURGE_ALL_FAILED": "Purgado de emisoras eliminadas fallido",
   "TOAST_FM_REAPPEARED": "{0} emisora(s) eliminada(s) disponible(s) de nuevo",
+  "TOAST_FM_REMOVED": "{0} emisora(s) que ya no se encuentra(n) eliminada(s)",
   "TOAST_DAB_REAPPEARED": "{0} servicio(s) eliminado(s) disponible(s) de nuevo",
   "TOAST_SCAN_COMPLETE": "Escaneo completado: {0} encontradas, {1} en total",
   "MODAL_SCANNING_FM_TITLE": "Escaneando Emisoras FM",

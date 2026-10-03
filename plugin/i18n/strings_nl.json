@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "{0} verwijderde stations gewist",
   "TOAST_PURGE_ALL_FAILED": "Wissen van verwijderde stations mislukt",
   "TOAST_FM_REAPPEARED": "{0} verwijderd(e) station(s) weer beschikbaar",
+  "TOAST_FM_REMOVED": "{0} niet meer gevonden station(s) verwijderd",
   "TOAST_DAB_REAPPEARED": "{0} verwijderde dienst(en) weer beschikbaar",
   "TOAST_SCAN_COMPLETE": "Scan voltooid: {0} gevonden, {1} totaal",
   "MODAL_SCANNING_FM_TITLE": "FM-stations scannen",

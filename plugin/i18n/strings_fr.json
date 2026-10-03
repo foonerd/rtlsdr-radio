@@ -169,6 +169,7 @@
   "TOAST_PURGED_COUNT": "{0} stations supprimées purgées",
   "TOAST_PURGE_ALL_FAILED": "Échec de la purge des stations supprimées",
   "TOAST_FM_REAPPEARED": "{0} station(s) supprimée(s) à nouveau disponible(s)",
+  "TOAST_FM_REMOVED": "{0} station(s) introuvable(s) supprimée(s)",
   "TOAST_DAB_REAPPEARED": "{0} service(s) supprimé(s) à nouveau disponible(s)",
   "TOAST_SCAN_COMPLETE": "Recherche terminée: {0} trouvées, {1} au total",
   "MODAL_SCANNING_FM_TITLE": "Balayage des stations FM",

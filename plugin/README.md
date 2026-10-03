@@ -223,14 +223,16 @@ A scan measures every channel of the FM band and keeps the ones that are station
 - A channel counts as a station when it holds more than the channels next to it, its carrier lies on the channel, the 19 kHz pilot every stereo station sends stands clear of the noise for the whole time it is listened to, and the pilot is still there when the gain is lowered.
 - That last check tells stations from signals a tuner manufactures when a very strong station nearby overloads it. Such signals look like stations, pilot included, but go when the gain is lowered; a station does not.
 - Each station found is given a reception level from 1 to 5, the same measure the player shows while a station plays.
+- Stations received well enough for RDS (the pilot about 36 dB above the noise) are then listened to for up to four seconds each, for their RDS programme code. It is what a station's name and logo are found by. A station whose code is already kept is not listened to again; a weaker station tells its code while it is played.
 - **FM Scan Sensitivity** (Settings > FM) is how far the pilot must stand above the noise, from +3 dB (faint stations too) to +15 dB (very strong ones only).
-- Stations you named, marked or added stay as they are, whether the scan finds them or not.
+- Stations you named, marked as favourite, hid, deleted, added by hand or played stay as they are, whether the scan finds them or not.
+- A station an earlier scan listed, that this scan looked for and did not find, and that you never touched, is removed. The scan says how many.
 - A station that sends no stereo pilot (mono) is not found by the scan; it can be added by hand in the Station Manager.
 
-The scan takes about half a minute on a Raspberry Pi 4 or 5, longer on the slowest boards. What it measured is written to the player's log, slice by slice.
+The scan takes about half a minute on a Raspberry Pi 4 or 5, and a few seconds more for each station strong enough for RDS; longer on the slowest boards. What it measured is written to the player's log, slice by slice.
 
 ### Station Logos
-DAB stations are shown with their logo in the station lists, and on the player screen whenever the station has no artwork of its own to show.
+DAB and FM stations are shown with their logo in the station lists, and on the player screen whenever the station has no artwork of its own to show.
 
 **Where the logos come from:**
 
@@ -241,9 +243,19 @@ The logos are published by the broadcasters themselves and found through RadioDN
 - A station without a logo of its own is shown with its broadcaster's logo, when the broadcaster publishes one and the station carries the broadcaster's name (a local BBC station, for example).
 - A station nobody publishes a logo for keeps the DAB icon.
 
+**FM stations:**
+
+A DAB station says what it is by the identifiers it transmits. An FM station does so only through RDS, and RDS needs better reception than listening does. So an FM station is found in two ways:
+
+- By its RDS programme code (PI). The plugin keeps the code with the station once it has been received while the station plays, and looks the station up by it. The broadcaster's list also says what the station is called; a station still named "FM 98.5" takes that name.
+- By its name, until the code is known and where RDS never comes: the name you gave the station, or the one RDS sends. It is looked for among your own DAB stations that have a logo, then in the broadcasters' lists. "Magic Radio" finds "Magic", "Classic" finds "Classic FM", "BBC Radio 2 National" finds "BBC Radio 2". A name that only begins like several stations ("Heart" with "Heart UK", "Heart 80s" and "Heart London" on DAB) takes the logo of the nearest of that family from your DAB stations.
+- A logo found by name gives way to the one found by the programme code once RDS has told it.
+- A station without a name and without RDS keeps the FM icon. Naming it in the Station Manager is what finds its logo.
+- The name RDS sends is taken as the station's name only after it has stood unchanged for half a minute: some stations put running text there. A name you gave a station is never changed.
+
 **When they are fetched:**
 
-- In the background after the plugin starts and after a DAB scan, and whenever a station without a logo is listed or played. The station being played is fetched first.
+- In the background after the plugin starts and after a scan, and whenever a station without a logo is listed or played. The station being played is fetched first.
 - Only when there is an internet connection. Without one (flight mode, hotspot mode, a network that is down) nothing is fetched, nothing is reported as an error, and fetching carries on by itself when the connection is back.
 - A station without a published logo is asked about again after a week.
 
@@ -497,7 +509,22 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.19 (Current)
+### v1.3.20 (Current)
+- FM stations are shown with their logo. A station is found by its RDS programme code
+  once that has been received while it plays, and until then by its name: among your
+  DAB stations that have a logo, then in the broadcasters' lists
+- What RDS says of a station is kept with it: the programme code, and the name once it
+  has stood unchanged for half a minute. A station still called "FM 98.5" takes the
+  name its broadcaster's list or RDS gives it; a name you gave it is never changed
+- An FM scan listens briefly to the stations strong enough for RDS and keeps their
+  programme codes, so that such stations are named and shown with their logo straight
+  after the scan
+- A rescan removes FM stations that an earlier scan listed, that it looked for and did
+  not find, and that were never named, marked or played. Everything you have touched
+  stays
+- The Station Manager's logo count includes FM stations
+
+### v1.3.19
 - The check for an overloaded tuner compares the band with how it looks at a gain
   20 dB lower and takes the highest gain at which it looks the same. v1.3.18 compared
   with a gain only 6 dB lower, and a tuner deep in overload looked the same at both:

@@ -251,7 +251,7 @@ Job.prototype.spawn = function(command, args, options) {
   }
 
   var child = childProcess.spawn(command, args || [], options || {});
-  var entry = { child: child, command: command, exited: false, code: null, signal: null, error: null };
+  var entry = { child: child, command: command, exited: false, code: null, signal: null, error: null, said: '' };
   self.children.push(entry);
 
   [child.stdin, child.stdout, child.stderr].forEach(function(stream) {
@@ -259,6 +259,14 @@ Job.prototype.spawn = function(command, args, options) {
       stream.on('error', function() {});
     }
   });
+
+  // The last of what the process wrote to its error stream is kept: when it ends by
+  // itself, that is usually the reason. Reading it also keeps the pipe from filling.
+  if (child.stderr) {
+    child.stderr.on('data', function(data) {
+      entry.said = (entry.said + data.toString()).slice(-600);
+    });
+  }
 
   function gone() {
     if (entry.exited) {
@@ -317,7 +325,7 @@ Job.prototype.settle = function() {
 };
 
 // Be told when a process of the job ends without the job having been stopped:
-// handler({ command, code, signal, error }).
+// handler({ command, code, signal, error, said }).
 Job.prototype.onUnexpectedExit = function(handler) {
   this.unexpectedExitHandlers.push(handler);
 };

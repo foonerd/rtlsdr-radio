@@ -232,3 +232,13 @@ test('settle removes what a wrapper left holding the dongle', async function() {
   assert.deepStrictEqual(named('fn-dab-scanner'), []);
   await t.stop();
 });
+
+test('what a process wrote to its error stream is kept for the report', async function() {
+  var t = tuner();
+  var job = await t.acquire('audio');
+  var reports = [];
+  job.onUnexpectedExit(function(entry) { reports.push(entry.code + ':' + entry.said.trim()); });
+  job.spawn('bash', ['-c', 'echo "audio open error: Device or resource busy" >&2; exit 1'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  await sleep(300);
+  assert.deepStrictEqual(reports, ['1:audio open error: Device or resource busy']);
+});

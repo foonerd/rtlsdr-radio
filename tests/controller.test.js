@@ -14,6 +14,7 @@ var CONFIG_DIR = '/data/configuration/music_service/rtlsdr_radio';
 var toasts = [];
 var states = [];
 var modals = [];
+var coreStops = 0;
 
 // A commandRouter that accepts whatever it is asked and records what matters here
 function anything() {
@@ -27,7 +28,9 @@ var coreCommand = new Proxy({
   servicePushState: function(state) { states.push(Object.assign({}, state)); },
   broadcastMessage: function(name, data) { modals.push({ name: name, data: data }); },
   stateMachine: new Proxy({
-    getState: function() { return { status: 'play', service: 'rtlsdr_radio', title: 'x' }; }
+    getState: function() { return { status: 'play', service: 'rtlsdr_radio', title: 'x' }; },
+    // Volumio's stop reaches the service of the current queue item
+    stop: function() { coreStops++; return plugin.stop(); }
   }, { get: function(target, name) { return name in target ? target[name] : function() {}; } }),
   sharedVars: { get: function() { return 'en'; } },
   pluginManager: { getConfigurationFile: function(context, file) { return CONFIG_DIR + '/' + file; } }
@@ -165,7 +168,7 @@ test('stop, then play at once: the new station is not caught by the stop', async
 
 test('a decoder that dies is reported, and the player is not left showing "playing"', async function() {
   toasts.length = 0;
-  states.length = 0;
+  coreStops = 0;
   fs.readdirSync('/proc').forEach(function(entry) {
     try {
       if (/^\d+$/.test(entry) && fs.readFileSync('/proc/' + entry + '/comm', 'utf8').trim() === 'fn-dab') {
@@ -177,7 +180,7 @@ test('a decoder that dies is reported, and the player is not left showing "playi
   assert.deepStrictEqual(running(), []);
   assert.strictEqual(plugin.deviceState, 'idle');
   assert.ok(toasts.some(function(t) { return t.type === 'error' && /fn-dab ended/.test(t.message); }), JSON.stringify(toasts));
-  assert.ok(states.some(function(s) { return s.status === 'pause'; }));
+  assert.ok(coreStops >= 1, 'the stop went through Volumio');
 });
 
 test('a DAB service that is not found ends the playback with a message', async function() {

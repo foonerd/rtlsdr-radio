@@ -16,5 +16,5 @@ docker run --rm -v "$PWD:/src:ro" node:20-bookworm-slim bash -c '
   export PATH=/tmp/tests/fakes:$PATH
   # One file after another: the tuner removes processes named like the decoders,
   # and test files running side by side would remove those of each other
-  cd /tmp && NODE_PATH=/tmp/plugin/node_modules node --test --test-concurrency=1 tests/
+  cd /tmp && NODE_PATH=/tmp/plugin/node_modules node --test --test-concurrency=1 --test-timeout=40000 tests/
 '

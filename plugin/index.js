@@ -80,7 +80,6 @@ function ControllerRtlsdrRadio(context) {
   self.tuner = new Tuner({ logger: self.logger, settle: self.USB_RESET_DELAY });
   
   self.CLEANUP_TIMEOUT = 500;        // Wait for processes to fully terminate
-  self.PKILL_TIMEOUT = 2000;         // Timeout for pkill commands
   self.RESTART_DELAY = 2000;         // Delay before restarting plugin
   self.QUEUE_TIMEOUT = 60000;        // Operation queue timeout (60s)
   self.RDS_UPDATE_INTERVAL = 2000;   // Minimum between RDS state pushes
@@ -4646,25 +4645,25 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
   // The FM chain: fn-rtl_fm feeds the RDS decoder and, through sox, the audio output.
   // The processes belong to the tuner's job, which stops them and absorbs the errors
   // of their pipes.
-  var rtlProcess = job.spawn('fn-rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
+  var rtlProcess = job.spawn('fn-rtl_fm', rtlArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
   self.decoderProcess = rtlProcess;
   
   // fn-redsea for RDS decoding
   // -E flag enables BLER (Block Error Rate) output for signal quality
   var redseaProcess = job.spawn('fn-redsea', ['-r', fmSampleRate, '--show-partial', '-E'],
-    { stdio: ['pipe', 'pipe', 'ignore'] });
+    { stdio: ['pipe', 'pipe', 'pipe'] });
   self.redseaProcess = redseaProcess;
   
   // sox for resampling: FM sample rate mono -> output rate stereo
   var soxArgs = ['-t', 'raw', '-r', fmSampleRate, '-e', 'signed', '-b', '16', '-c', '1', '-',
                  '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-e', 'signed', '-b', '16', '-c', '2', '-'];
-  var soxProcess = job.spawn('sox', soxArgs, { stdio: ['pipe', 'pipe', 'ignore'] });
+  var soxProcess = job.spawn('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
   self.soxProcess = soxProcess;
   
   // aplay for audio output
   var aplayProcess = job.spawn('aplay',
     ['-D', 'volumio', '-f', 'S16_LE', '-r', String(self.OUTPUT_SAMPLE_RATE), '-c', '2'],
-    { stdio: ['pipe', 'ignore', 'ignore'] });
+    { stdio: ['pipe', 'ignore', 'pipe'] });
   self.aplayProcess = aplayProcess;
   
   // Pipe sox -> aplay
@@ -6004,6 +6003,10 @@ ControllerRtlsdrRadio.prototype.playbackEnded = function(job, entry) {
     what += ' ended by ' + entry.signal;
   }
   self.logger.error('[RTL-SDR Radio] Playback stopped: ' + what);
+  var said = (entry.said || '').trim().split('\n').pop();
+  if (said) {
+    self.logger.error('[RTL-SDR Radio] ' + entry.command + ' said: ' + said.slice(0, 300));
+  }
   
   // Through Volumio, so that the player shows the station as stopped
   self.commandRouter.stateMachine.stop();
@@ -7848,10 +7851,10 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
       var soxProcess = job.spawn('sox',
         ['-t', 'raw', '-r', String(sampleRate), '-c', String(channels), '-e', 'signed-integer', '-b', '16', '-',
          '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-c', '2', '-'],
-        { stdio: ['pipe', 'pipe', 'ignore'] });
+        { stdio: ['pipe', 'pipe', 'pipe'] });
       var aplayProcess = job.spawn('aplay',
         ['-D', 'volumio', '-f', 'S16_LE', '-r', String(self.OUTPUT_SAMPLE_RATE), '-c', '2'],
-        { stdio: ['pipe', 'ignore', 'ignore'] });
+        { stdio: ['pipe', 'ignore', 'pipe'] });
       
       dabProcess.stdout.pipe(soxProcess.stdin);
       soxProcess.stdout.pipe(aplayProcess.stdin);

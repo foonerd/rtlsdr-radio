@@ -80,7 +80,7 @@ function sleep(ms) {
 
 // The names of the running stand-ins
 function running() {
-  var names = ['fn-rtl_fm', 'fn-redsea', 'fn-dab', 'fn-dab-scanner', 'fn-rtl_power', 'sox', 'aplay'];
+  var names = ['fn-rtl_fm', 'fn-redsea', 'fn-dab', 'fn-dab-scanner', 'fn-rtl_power', 'fn-rtl-gain', 'sox', 'aplay'];
   var found = [];
   fs.readdirSync('/proc').forEach(function(entry) {
     if (!/^\d+$/.test(entry)) { return; }
@@ -142,6 +142,84 @@ test('FM: the four processes of the chain run, and the player is told', async fu
   assert.strictEqual(plugin.tuner.busy(), 'playing_fm');
   assert.ok(states.some(function(s) { return s.status === 'play' && s.uri === 'rtlsdr://fm/94.9'; }));
   assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 94\.9M -M fm /);
+});
+
+function gainRuns() {
+  try {
+    return fs.readFileSync('/tmp/fake-runs-fn-rtl-gain', 'utf8').split('\n').filter(Boolean).length;
+  } catch (e) {
+    return 0;
+  }
+}
+
+test('FM: the gain is measured at the station\'s frequency before the receiver starts, and kept with the station', async function() {
+  plugin.stationsDb.fm = [{ frequency: '94.9', name: 'FM 94.9' }];
+  var before = gainRuns();
+  await plugin.clearAddPlayTrack(fmTrack('94.9'));
+  await sleep(300);
+  assert.strictEqual(gainRuns(), before + 1);
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), /^-f 94900000 -s 1200000$/m);
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), / -g 37\.2 /);
+  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  assert.strictEqual(plugin.stationsDb.fm[0].gain, 37.2);
+  assert.ok(plugin.stationsDb.fm[0].gainMeasured);
+
+  // Played again: the gain kept with the station is used, nothing is measured
+  await plugin.clearAddPlayTrack(fmTrack('94.9'));
+  await sleep(300);
+  assert.strictEqual(gainRuns(), before + 1);
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), / -g 37\.2 /);
+
+  // A measurement that has grown old is made again
+  plugin.stationsDb.fm[0].gainMeasured = new Date(Date.now() - plugin.FM_GAIN_KEEP - 1000).toISOString();
+  await plugin.clearAddPlayTrack(fmTrack('94.9'));
+  await sleep(300);
+  assert.strictEqual(gainRuns(), before + 2);
+});
+
+test('FM: with automatic gain switched off, the gain the user set reaches the receiver and nothing is measured', async function() {
+  var before = gainRuns();
+  plugin.config.set('fm_gain_auto', false);
+  plugin.config.set('fm_gain', 28);
+  try {
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(300);
+    assert.strictEqual(gainRuns(), before);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), / -g 28 /);
+  } finally {
+    plugin.config.set('fm_gain_auto', true);
+    plugin.config.set('fm_gain', 50);
+  }
+});
+
+test('FM: a gain that cannot be measured does not stop the station from playing', async function() {
+  plugin.stationsDb.fm = [{ frequency: '97.3', name: 'FM 97.3' }];
+  process.env.FAKE_GAIN_FAILS = '1';
+  try {
+    await plugin.clearAddPlayTrack(fmTrack('97.3'));
+    await sleep(300);
+  } finally {
+    delete process.env.FAKE_GAIN_FAILS;
+  }
+  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 97\.3M .* -g 50 /);
+  assert.strictEqual(plugin.stationsDb.fm[0].gain, undefined);
+  assert.ok(logs.some(function(m) { return /Gain could not be measured: fn-rtl-gain: cannot open device 0/.test(m); }));
+});
+
+test('FM: a station asked for while another\'s gain is being measured takes its place; the first never starts', async function() {
+  plugin.stationsDb.fm = [];
+  process.env.FAKE_GAIN_SECONDS = '2';
+  var first = Promise.resolve(plugin.clearAddPlayTrack(fmTrack('91.0'))).catch(function() {});
+  await sleep(500);
+  assert.deepStrictEqual(running(), ['fn-rtl-gain']);
+  delete process.env.FAKE_GAIN_SECONDS;
+  await plugin.clearAddPlayTrack(fmTrack('102.5'));
+  await first;
+  await sleep(300);
+  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 102\.5M /);
+  plugin.stationsDb.fm = [];
 });
 
 test('DAB straight after FM: the FM chain is gone before the DAB decoder starts', async function() {

@@ -17,6 +17,8 @@
   "COMMON_OK": "OK",
   "ENABLE_FM": "FM ラジオ設定を表示",
   "ENABLE_FM_DOC": "FM ラジオ設定の表示を切り替え",
+  "FM_GAIN_AUTO": "FMゲインの自動設定",
+  "FM_GAIN_AUTO_DOC": "局ごとにゲインを測定し、受信機が過負荷にならない最も高い段階に設定します。推奨: ゲインが高すぎると、存在しない場所に強い局が現れます。自分でゲインを設定するにはオフにしてください。",
   "FM_GAIN": "FM ゲイン",
   "FM_GAIN_DOC": "FM 受信用 RTL-SDR ゲイン (0-100)",
   "FM_OVERSAMPLING": "FMオーバーサンプリング",

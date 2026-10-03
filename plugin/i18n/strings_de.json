@@ -17,6 +17,8 @@
   "COMMON_OK": "OK",
   "ENABLE_FM": "FM Radio-Konfiguration anzeigen",
   "ENABLE_FM_DOC": "FM Radio-Einstellungen ein-/ausblenden",
+  "FM_GAIN_AUTO": "Automatische FM-Verstärkung",
+  "FM_GAIN_AUTO_DOC": "Die Verstärkung wird für jeden Sender gemessen und auf die höchste Stufe gestellt, die den Empfänger nicht übersteuert. Empfohlen: Bei zu hoher Verstärkung erscheinen starke Sender dort, wo keine sind. Ausschalten, um die Verstärkung selbst einzustellen.",
   "FM_GAIN": "FM Verstärkung",
   "FM_GAIN_DOC": "RTL-SDR Verstärkung für FM-Empfang (0-100)",
   "FM_OVERSAMPLING": "FM-Oversampling",

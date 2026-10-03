@@ -17,6 +17,8 @@
   "COMMON_OK": "OK",
   "ENABLE_FM": "Mostrar configuração de rádio FM",
   "ENABLE_FM_DOC": "Alternar para mostrar definições de rádio FM",
+  "FM_GAIN_AUTO": "Ganho FM automático",
+  "FM_GAIN_AUTO_DOC": "O ganho é medido para cada estação e ajustado para o nível mais alto que não sobrecarrega o receptor. Recomendado: com ganho alto demais, estações fortes aparecem onde não existem. Desative para definir o ganho você mesmo.",
   "FM_GAIN": "Ganho FM",
   "FM_GAIN_DOC": "Ganho RTL-SDR para receção FM (0-100)",
   "FM_OVERSAMPLING": "Sobreamostragem FM",

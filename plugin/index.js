@@ -129,6 +129,8 @@ function ControllerRtlsdrRadio(context) {
   self.SIGNAL_HOLD = 4000;           // A new tune level must hold this long before it is shown
   self.LOGOS_START_DELAY = 30000;    // Station logos are looked for this long after the plugin starts
   self.STORE_TIMEOUT = 15000;        // How long the plugin store is given to say which versions it has
+  self.GAIN_SAMPLE_RATE = 1200000;   // About the rate fn-rtl_fm reads the dongle at, and so what the gain is measured at
+  self.FM_GAIN_KEEP = 7 * 24 * 3600 * 1000;  // How long a station's measured gain is used before it is measured again
   self.DLS_UPDATE_INTERVAL = 2000;   // Minimum between DLS state pushes
   self.DLS_POLL_INTERVAL = 2000;     // DLS file polling interval
   self.TMC_THROTTLE = 30000;         // Traffic alert throttle (30s)
@@ -2609,6 +2611,11 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
       fmEnabled.value = self.config.get('fm_enabled', false);
     }
     
+    var fmGainAuto = findContentItem(fmSection, 'fm_gain_auto');
+    if (fmGainAuto) {
+      fmGainAuto.value = self.config.get('fm_gain_auto', true);
+    }
+    
     var fmGain = findContentItem(fmSection, 'fm_gain');
     if (fmGain) {
       fmGain.value = self.config.get('fm_gain', 50);
@@ -3028,6 +3035,9 @@ ControllerRtlsdrRadio.prototype.saveFmSettings = function(data) {
     }
     
     // Save FM gain
+    if (data.fm_gain_auto !== undefined) {
+      self.config.set('fm_gain_auto', data.fm_gain_auto === true || data.fm_gain_auto === 'true');
+    }
     if (data.fm_gain !== undefined) {
       var fmGain = parseInt(data.fm_gain);
       if (!isNaN(fmGain) && fmGain >= 0 && fmGain <= 100) {
@@ -4714,8 +4724,23 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
     self.saveStations();
   }
   
+  // The gain first: measured for this station, or the value set by hand
+  self.fmGainFor(job, freq, stationInfo ? stationInfo.station : null).then(function(gain) {
+    if (self.tuner.current !== job || job.stopping || job.finished) {
+      // Another request has taken the tuner while the gain was measured
+      defer.resolve();
+      return;
+    }
+    self.launchFmReceiver(job, freq, freqStr, stationName, gain, defer);
+  });
+};
+
+// Start the FM chain at the given gain: fn-rtl_fm feeding the RDS decoder and, through
+// sox, the audio output.
+ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, stationName, gain, defer) {
+  var self = this;
+  
   // Get settings from config
-  var gain = self.config.get('fm_gain', 50);
   var fmOversampling = self.config.get('fm_oversampling', false);
   var fmSampleRate = self.config.get('fm_sample_rate', '171k');
   var fmDeemphasis = self.config.get('fm_deemphasis', false);
@@ -4741,7 +4766,7 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
   // -l 0: Squelch off
   // -A std: Standard audio
   // -F 9: FIR filter size
-  var rtlArgs = ['-f', freq + 'M', '-M', 'fm', '-s', fmSampleRate, '-l', '0', '-A', 'std', '-g', gain.toString(), '-F', '9'];
+  var rtlArgs = ['-f', freq + 'M', '-M', 'fm', '-s', fmSampleRate, '-l', '0', '-A', 'std', '-g', String(gain), '-F', '9'];
   
   // Add oversampling if enabled (helps with strong signals, may reduce RDS quality)
   if (fmOversampling) {
@@ -6426,6 +6451,94 @@ ControllerRtlsdrRadio.prototype.restartBackend = function() {
   }
 };
 
+// What fn-rtl-gain printed: { list: [{ freq, gain, step, of, level, cut }], band }.
+// gain in dB; band is the gain that suits every frequency asked for, or null.
+function parseGainOutput(text) {
+  var result = { list: [], band: null };
+  String(text || '').split('\n').forEach(function(line) {
+    var found = /^GAIN: freq=(\d+) gain=([\d.]+) step=(\d+) of=(\d+) level=([\d.]+) cut=([\d.]+)/.exec(line);
+    if (found) {
+      result.list.push({ freq: Number(found[1]), gain: Number(found[2]), step: Number(found[3]),
+        of: Number(found[4]), level: Number(found[5]), cut: Number(found[6]) });
+    }
+    var band = /^BAND: gain=([\d.]+)/.exec(line);
+    if (band) {
+      result.band = Number(band[1]);
+    }
+  });
+  return result;
+}
+
+// Measure the gain the dongle should be set to at the given frequencies (Hz), as a
+// step of the tuner job that holds the dongle. Resolves with what parseGainOutput
+// gives; an empty list when the tool could not be run. Never rejects.
+ControllerRtlsdrRadio.prototype.measureGain = function(job, frequencies, rate) {
+  var self = this;
+  return new Promise(function(resolve) {
+    var args = [];
+    frequencies.forEach(function(hz) { args.push('-f', String(hz)); });
+    args.push('-s', String(rate || self.GAIN_SAMPLE_RATE));
+    
+    // The tool ends before the receiver starts: the job outlives it
+    var keepOpen = job.keepOpen;
+    job.keepOpen = true;
+    var printed = '';
+    try {
+      var child = job.run('fn-rtl-gain', args, { stdio: ['ignore', 'pipe', 'pipe'] }, function(entry) {
+        job.keepOpen = keepOpen;
+        var result = parseGainOutput(printed);
+        if (entry.error || entry.code !== 0) {
+          self.logger.info('[RTL-SDR Radio] Gain could not be measured' +
+            (entry.error ? ' (' + entry.error.code + ')' : ': ' + (entry.said || 'code ' + entry.code).trim().split('\n').pop()));
+        }
+        if (job.stopping || job.finished) {
+          resolve(result);
+          return;
+        }
+        // The dongle has its moment before the next process opens it
+        job.settle().then(function() { resolve(result); });
+      });
+      if (child.stdout) {
+        child.stdout.on('data', function(data) { printed += data.toString(); });
+      }
+    } catch (e) {
+      job.keepOpen = keepOpen;
+      resolve({ list: [], band: null });
+    }
+  });
+};
+
+// The gain an FM station is received with: measured at its frequency and kept with the
+// station, so that it is measured once and not at every play; or, with automatic gain
+// switched off, the value set by hand.
+ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
+  var self = this;
+  var manual = self.config.get('fm_gain', 50);
+  if (!self.config.get('fm_gain_auto', true)) {
+    return Promise.resolve(manual);
+  }
+  var measured = station && typeof station.gain === 'number' && station.gainMeasured ?
+    Date.now() - new Date(station.gainMeasured).getTime() : Infinity;
+  if (measured < self.FM_GAIN_KEEP) {
+    return Promise.resolve(station.gain);
+  }
+  return self.measureGain(job, [Math.round(freq * 1e6)]).then(function(result) {
+    var found = result.list[0];
+    if (!found) {
+      // No measurement: the last one if there is one, the manual value otherwise
+      return station && typeof station.gain === 'number' ? station.gain : manual;
+    }
+    self.logger.info('[RTL-SDR Radio] FM gain at ' + freq + ' MHz, set by measurement: ' + found.gain +
+      ' dB (step ' + found.step + ' of ' + found.of + '), level ' + found.level + ' of 127, cut off ' + found.cut + '%');
+    if (station) {
+      station.gain = found.gain;
+      station.gainMeasured = new Date().toISOString();
+      self.saveStations();
+    }
+    return found.gain;
+  });
+};
+
 // The gain the DAB decoder and the scanner are started with: measured by the tool itself
 // every time it tunes (the default), or the step the user has set.
 ControllerRtlsdrRadio.prototype.dabGainArgs = function() {
@@ -6570,6 +6683,9 @@ ControllerRtlsdrRadio.prototype.saveConfig = function(data) {
   }
   if (data.dab_enabled !== undefined) {
     self.config.set('dab_enabled', data.dab_enabled);
+  }
+  if (data.fm_gain_auto !== undefined) {
+    self.config.set('fm_gain_auto', data.fm_gain_auto === true || data.fm_gain_auto === 'true');
   }
   if (data.fm_gain !== undefined) {
     var fmGain = parseInt(data.fm_gain);

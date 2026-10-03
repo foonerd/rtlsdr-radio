@@ -308,6 +308,11 @@ echo "Installing RDS decoder binary..."
 cp "$BIN_SOURCE/fn-redsea" /usr/local/bin/
 chmod +x /usr/local/bin/fn-redsea
 
+# Copy the tool that measures the gain the dongle should be set to
+echo "Installing gain measurement tool..."
+cp "$BIN_SOURCE/fn-rtl-gain" /usr/local/bin/
+chmod +x /usr/local/bin/fn-rtl-gain
+
 # Verify installation
 if [ ! -f /usr/local/bin/fn-dab ]; then
   echo "ERROR: fn-dab installation failed"
@@ -359,7 +364,7 @@ echo ""
 echo "=========================================="
 echo "FM/DAB Radio plugin installation complete"
 echo "=========================================="
-echo "Version: 1.3.16"
+echo "Version: 1.3.17"
 echo "Architecture: $ARCH"
 echo ""
 echo "Installed packages:"

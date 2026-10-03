@@ -11,6 +11,10 @@
     "type": "boolean",
     "value": false
   },
+  "fm_gain_auto": {
+    "type": "boolean",
+    "value": true
+  },
   "fm_gain": {
     "type": "number",
     "value": 50

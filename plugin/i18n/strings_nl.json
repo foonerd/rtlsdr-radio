@@ -17,6 +17,8 @@
   "COMMON_OK": "OK",
   "ENABLE_FM": "Toon FM Radio-configuratie",
   "ENABLE_FM_DOC": "Schakel om FM radio-instellingen te tonen",
+  "FM_GAIN_AUTO": "Automatische FM-versterking",
+  "FM_GAIN_AUTO_DOC": "De versterking wordt voor elke zender gemeten en ingesteld op de hoogste stap die de ontvanger niet overstuurt. Aanbevolen: bij een te hoge versterking verschijnen sterke zenders waar er geen zijn. Schakel uit om de versterking zelf in te stellen.",
   "FM_GAIN": "FM Versterking",
   "FM_GAIN_DOC": "RTL-SDR versterking voor FM-ontvangst (0-100)",
   "FM_OVERSAMPLING": "FM-oversampling",

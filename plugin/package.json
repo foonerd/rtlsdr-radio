@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.3.16",
+  "version": "1.3.17",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.16 - DAB gain measured automatically at every tuning and every scanned channel"
+    "changelog": "v1.3.17 - FM gain is measured for each station instead of guessed; new setting Automatic FM gain"
   },
   "engines": {
     "node": ">=20",

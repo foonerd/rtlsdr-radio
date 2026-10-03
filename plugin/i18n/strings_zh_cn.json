@@ -17,6 +17,8 @@
   "COMMON_OK": "OK",
   "ENABLE_FM": "显示 FM 收音机配置",
   "ENABLE_FM_DOC": "切换显示 FM 收音机设置",
+  "FM_GAIN_AUTO": "FM 自动增益",
+  "FM_GAIN_AUTO_DOC": "为每个电台测量增益，并设为不使接收机过载的最高一档。推荐使用：增益过高时，强台会出现在本不存在的位置。关闭后可自行设置增益。",
   "FM_GAIN": "FM 增益",
   "FM_GAIN_DOC": "FM 接收的 RTL-SDR 增益 (0-100)",
   "FM_OVERSAMPLING": "FM过采样",

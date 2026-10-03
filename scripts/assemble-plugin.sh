@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 for t in $TARGETS; do
-  for f in bin/fn-dab bin/fn-dab-scanner bin/fn-redsea manifest.json; do
+  for f in bin/fn-dab bin/fn-dab-scanner bin/fn-redsea bin/fn-rtl-gain manifest.json; do
     [[ -f "$from/$t/$f" ]] || { echo "error: $from/$t/$f is missing; build target '$t' first" >&2; exit 1; }
   done
   ls "$from/$t"/packages/libfn-rtlsdr0_*_"$t".deb "$from/$t"/packages/foonerd-rtlsdr_*_"$t".deb > /dev/null
@@ -42,7 +42,8 @@ rm -rf "$dist/logos" "$dist/slides"
 
 for t in $TARGETS; do
   mkdir -p "$dist/bin/$t" "$dist/packages/$t"
-  install -m 755 "$from/$t"/bin/fn-dab "$from/$t"/bin/fn-dab-scanner "$from/$t"/bin/fn-redsea "$dist/bin/$t/"
+  install -m 755 "$from/$t"/bin/fn-dab "$from/$t"/bin/fn-dab-scanner "$from/$t"/bin/fn-redsea \
+    "$from/$t"/bin/fn-rtl-gain "$dist/bin/$t/"
   install -m 644 "$from/$t"/packages/*.deb "$dist/packages/$t/"
 done
 

@@ -17,6 +17,8 @@
   "COMMON_OK": "OK",
   "ENABLE_FM": "Show FM Radio Configuration",
   "ENABLE_FM_DOC": "Toggle to show FM radio settings",
+  "FM_GAIN_AUTO": "Automatic FM gain",
+  "FM_GAIN_AUTO_DOC": "The gain is measured for each station and set to the highest step that does not overload the receiver. Recommended: a gain set too high makes strong stations appear where there are none. Switch off to set the gain yourself.",
   "FM_GAIN": "FM Gain",
   "FM_GAIN_DOC": "RTL-SDR gain for FM reception (0-100)",
   "FM_OVERSAMPLING": "FM Oversampling",

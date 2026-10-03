@@ -17,6 +17,8 @@
   "COMMON_OK": "OK",
   "ENABLE_FM": "Pokaż konfigurację radia FM",
   "ENABLE_FM_DOC": "Przełącz, aby pokazać ustawienia radia FM",
+  "FM_GAIN_AUTO": "Automatyczne wzmocnienie FM",
+  "FM_GAIN_AUTO_DOC": "Wzmocnienie jest mierzone dla każdej stacji i ustawiane na najwyższy stopień, który nie przesterowuje odbiornika. Zalecane: przy zbyt dużym wzmocnieniu silne stacje pojawiają się tam, gdzie ich nie ma. Wyłącz, aby ustawić wzmocnienie samodzielnie.",
   "FM_GAIN": "Wzmocnienie FM",
   "FM_GAIN_DOC": "Wzmocnienie RTL-SDR dla odbioru FM (0-100)",
   "FM_OVERSAMPLING": "Oversampling FM",

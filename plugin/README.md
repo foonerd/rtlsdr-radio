@@ -334,9 +334,9 @@ The plugin includes diagnostic tools to test your USB dongle before scanning:
 
 **Understanding Gain Settings**:
 - Gain controls the RTL-SDR RF amplifier, affecting signal-to-noise ratio and overload threshold
-- **NESDR Smart dongles**: Start with gain 20 (better amplifiers, prevent overload)
-- **Generic RTL-SDR**: Start with gain 80 (needs higher amplification)
-- Adjust if: distorted (lower gain) or no signal (higher gain)
+- By default the plugin measures it: for FM once per station (kept for a week, then measured again), for DAB at every tuning. It sets the highest step at which the signal does not overload the receiver
+- "Automatic FM gain" and "Automatic DAB gain" in the settings switch this off; the gain set by hand is then used
+- Setting it by hand: lower it if the audio is distorted or stations appear where there are none, raise it if there is no signal
 - Note: This is RF amplification, not volume control
 
 **Understanding PPM Correction** (DAB only):
@@ -481,7 +481,16 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.16 (Current)
+### v1.3.17 (Current)
+- FM gain is measured instead of guessed. The first time a station is played, the gain
+  is set to the highest step at which its signal does not overload the receiver, and
+  kept with the station; after a week it is measured again. The first play of a station
+  takes a second or two longer for it
+- New setting "Automatic FM gain" (Settings > FM), on by default. Switched off, the
+  gain set by hand is used as before
+- If the gain cannot be measured, the station plays at the gain set by hand
+
+### v1.3.16
 - DAB gain is measured instead of guessed. Every time a station is tuned, and at every
   channel of a scan, the decoder sets the gain to the highest step at which the signal
   does not overload the receiver. A gain set too low leaves a DAB signal in the noise

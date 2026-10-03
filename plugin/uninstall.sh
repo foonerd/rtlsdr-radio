@@ -5,6 +5,7 @@ echo "Uninstalling FM/DAB Radio plugin"
 # Stop any running decoder processes
 pkill -f fn-rtl_fm
 pkill -f fn-rtl_power
+pkill -f fn-rtl-gain
 pkill -f fn-dab
 pkill -f fn-dab-scanner
 pkill -f fn-redsea
@@ -26,6 +27,7 @@ fi
 rm -f /usr/local/bin/fn-dab
 rm -f /usr/local/bin/fn-dab-scanner
 rm -f /usr/local/bin/fn-redsea
+rm -f /usr/local/bin/fn-rtl-gain
 
 # "Auto-backup before uninstall" (Station Manager > Maintenance). Volumio does not tell a
 # plugin that it is being uninstalled, so the backup is made here: this script runs

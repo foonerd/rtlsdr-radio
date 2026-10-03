@@ -1,0 +1,14 @@
+#!/bin/bash
+# Stand-in for the gain tool: records its arguments, counts how often it is run, and
+# reports a gain for every frequency it is given, as the real one does.
+echo "$@" > /tmp/fake-args-fn-rtl-gain
+echo x >> /tmp/fake-runs-fn-rtl-gain
+sleep "${FAKE_GAIN_SECONDS:-0.05}"
+[ "$FAKE_GAIN_FAILS" = "1" ] && { echo "fn-rtl-gain: cannot open device 0" >&2; exit 1; }
+n=0; prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-f" ]; then n=$((n+1)); echo "GAIN: freq=$arg gain=37.2 step=21 of=29 level=31.0 cut=0.10"; fi
+  prev="$arg"
+done
+[ $n -gt 1 ] && echo "BAND: gain=37.2 step=21 of=29"
+exit 0

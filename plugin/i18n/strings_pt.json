@@ -162,6 +162,7 @@
   "TOAST_CONFIG_SAVED": "Configuração guardada",
   "TOAST_PLAY_FAILED": "Reprodução falhou: {0}",
   "TOAST_DAB_NOT_RECEIVED": "Nao foi possivel receber {0}: nenhum sinal DAB utilizavel no canal {1}. Verifique a antena ou pesquise novamente se a estacao puder ter mudado.",
+  "TOAST_DONGLE_SILENT": "O dongle nao esta a fornecer sinal. Desligue-o, volte a liga-lo e reproduza a estacao novamente.",
   "TOAST_RESTART_REQUIRED": "Definições guardadas. Reinicie o Volumio para que as alterações tenham efeito.",
   "TOAST_DELETED_STATION": "Não é possível reproduzir uma estação eliminada. Restaure-a primeiro a partir das Definições.",
   "TOAST_DB_UPGRADED": "Base de dados atualizada para v2 (cópia guardada)",

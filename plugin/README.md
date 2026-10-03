@@ -536,7 +536,16 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.29 (Current)
+### v1.3.30 (Current)
+- A dongle that opens and then delivers no signal (seen on a cheap one after a run of
+  starts, until it was unplugged) no longer leaves a station "playing" over silence
+  or a start that never ends. Every wait for the dongle has a time limit, for FM and
+  for DAB; the player shows the station as stopped, and a message says what brings
+  the dongle back: unplug it, plug it in again, play the station once more
+- Stop during the start of an FM station takes effect at once: the player is told the
+  station is starting before its gain is measured, as it already was for DAB
+
+### v1.3.29
 - DAB with a dongle that is far off frequency (the usual cheap ones, 40 to 60 ppm):
   the station is now found every time and without a PPM value. Before, the first
   search for the signal succeeded at some frequency errors and failed at others, so

@@ -439,6 +439,104 @@ test('pause stops the station through Volumio, so that the player shows it as st
   await plugin.stop();
 });
 
+test('a dongle that delivers nothing: every wait ends, the player shows stopped, and the user is told what to do', async function() {
+  var kept = { gain: plugin.GAIN_LIMIT, fm: plugin.FM_SILENT_LIMIT, dab: plugin.DAB_SILENT_LIMIT, audio: plugin.DAB_AUDIO_LIMIT };
+  function told(text) { return toasts.some(function(t) { return t.type === 'error' && text.test(t.message); }); }
+  var SILENT = /not delivering a signal\. Unplug it, plug it in again/;
+  async function ended(what) {
+    assert.deepStrictEqual(running(), [], what + ': nothing left running');
+    assert.strictEqual(plugin.deviceState, 'idle', what);
+    assert.ok(coreStops >= 1, what + ': stopped through Volumio');
+  }
+  try {
+    // FM, the gain tool says the dongle gave it nothing: no receiver is started
+    plugin.stationsDb.fm = [];
+    toasts.length = 0; coreStops = 0; states.length = 0;
+    process.env.FAKE_GAIN_SILENT = '1';
+    await plugin.clearAddPlayTrack(fmTrack('97.3'));
+    await sleep(400);
+    delete process.env.FAKE_GAIN_SILENT;
+    await ended('gain tool');
+    assert.ok(told(SILENT), JSON.stringify(toasts));
+    // Volumio had been told the station was starting before the measurement began
+    assert.ok(states.some(function(s) { return s.status === 'play' && s.uri === 'rtlsdr://fm/97.3'; }));
+
+    // FM, a gain tool that never ends is ended, with the same outcome
+    toasts.length = 0; coreStops = 0;
+    plugin.GAIN_LIMIT = 300;
+    process.env.FAKE_GAIN_SECONDS = '30';
+    await plugin.clearAddPlayTrack(fmTrack('97.3'));
+    await sleep(900);
+    delete process.env.FAKE_GAIN_SECONDS;
+    plugin.GAIN_LIMIT = kept.gain;
+    await ended('gain limit');
+    assert.ok(told(SILENT), JSON.stringify(toasts));
+
+    // FM, stop while the gain is being measured reaches the plugin and nothing starts afterwards
+    toasts.length = 0;
+    process.env.FAKE_GAIN_SECONDS = '2';
+    var starting = Promise.resolve(plugin.clearAddPlayTrack(fmTrack('97.3'))).catch(function() {});
+    await sleep(300);
+    assert.deepStrictEqual(running(), ['fn-rtl-gain']);
+    await plugin.stop();
+    delete process.env.FAKE_GAIN_SECONDS;
+    await starting;
+    await sleep(400);
+    assert.deepStrictEqual(running(), []);
+    assert.strictEqual(toasts.length, 0, JSON.stringify(toasts));
+
+    // FM, a receiver that gives no signal
+    toasts.length = 0; coreStops = 0;
+    plugin.FM_SILENT_LIMIT = 400;
+    process.env.FAKE_FM_SILENT = '1';
+    await plugin.clearAddPlayTrack(fmTrack('97.3'));
+    await sleep(1200);
+    delete process.env.FAKE_FM_SILENT;
+    plugin.FM_SILENT_LIMIT = kept.fm;
+    await ended('FM receiver');
+    assert.ok(told(SILENT), JSON.stringify(toasts));
+
+    // DAB, a decoder that never measures its gain: the dongle gives it nothing
+    toasts.length = 0; coreStops = 0;
+    plugin.DAB_SILENT_LIMIT = 400;
+    process.env.FAKE_DAB_SILENT = '1';
+    await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+    await sleep(1200);
+    delete process.env.FAKE_DAB_SILENT;
+    plugin.DAB_SILENT_LIMIT = kept.dab;
+    await ended('DAB decoder silent');
+    assert.ok(told(SILENT), JSON.stringify(toasts));
+
+    // DAB, a decoder that gets samples, finds no station and does not end by itself
+    toasts.length = 0; coreStops = 0;
+    plugin.DAB_AUDIO_LIMIT = 500;
+    process.env.FAKE_DAB_NO_AUDIO = '1';
+    await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+    await sleep(1400);
+    delete process.env.FAKE_DAB_NO_AUDIO;
+    plugin.DAB_AUDIO_LIMIT = kept.audio;
+    await ended('DAB decoder without audio');
+    assert.ok(told(/could not be received: no usable DAB signal on channel/), JSON.stringify(toasts));
+    assert.ok(!told(SILENT));
+  } finally {
+    ['FAKE_GAIN_SILENT', 'FAKE_GAIN_SECONDS', 'FAKE_FM_SILENT', 'FAKE_DAB_SILENT', 'FAKE_DAB_NO_AUDIO'].forEach(function(k) { delete process.env[k]; });
+    plugin.GAIN_LIMIT = kept.gain; plugin.FM_SILENT_LIMIT = kept.fm; plugin.DAB_SILENT_LIMIT = kept.dab; plugin.DAB_AUDIO_LIMIT = kept.audio;
+    await plugin.stop();
+  }
+
+  // And a dongle that works is not disturbed by any of it
+  toasts.length = 0;
+  await plugin.clearAddPlayTrack(fmTrack('97.3'));
+  await sleep(600);
+  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  await plugin.stop();
+  await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+  await sleep(600);
+  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  await plugin.stop();
+  assert.strictEqual(toasts.length, 0, JSON.stringify(toasts));
+});
+
 test('a DAB service that is not found ends the playback with a message', async function() {
   toasts.length = 0;
   process.env.FAKE_DAB_FAILS = '1';

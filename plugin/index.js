@@ -158,6 +158,13 @@ function ControllerRtlsdrRadio(context) {
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
   self.DAB_DETECTION_TIMEOUT = 30000; // DAB ensemble detection timeout
   self.DAB_NOT_RECEIVED = 22;        // fn-dab's exit code when it finds no ensemble it can read
+  // A dongle can open, tune and then deliver nothing (seen on a cheap one, until it was
+  // unplugged). Every wait for its signal has an end, and the user is told what to do.
+  self.GAIN_NO_SAMPLES = 3;          // fn-rtl-gain's exit code when the dongle delivered no samples
+  self.GAIN_LIMIT = 20000;           // a gain measurement for one station normally takes two seconds
+  self.FM_SILENT_LIMIT = 8000;       // the FM receiver gives a steady stream, noise included, while samples come
+  self.DAB_SILENT_LIMIT = 15000;     // the DAB decoder measures its gain within two seconds when samples come
+  self.DAB_AUDIO_LIMIT = 45000;      // it gives up by itself after DAB_DETECTION_TIMEOUT; this is for when it cannot
   
   // Audio constants
   self.FM_SAMPLE_RATE = '171k';      // FM sample rate for RDS (multiple of 57kHz)
@@ -4950,6 +4957,13 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
     self.saveStations();
   }
   
+  // Volumio is told at once that the station is starting, as it is for DAB. Until it
+  // has been told, its stop does not reach this plugin, and the gain measured next can
+  // take a moment (or, with a dongle that delivers nothing, its whole time limit).
+  self.commandRouter.stateMachine.setConsumeUpdateService('rtlsdr_radio');
+  self.playingJob = job;
+  self.pushPlayingState(self.fmStartState(freqStr, stationName));
+  
   // The gain first: measured for this station, or the value set by hand
   self.fmGainFor(job, freq, stationInfo ? stationInfo.station : null).then(function(gain) {
     if (self.tuner.current !== job || job.stopping || job.finished) {
@@ -4957,8 +4971,34 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
       defer.resolve();
       return;
     }
+    if (job.dongleSilent) {
+      self.dongleSilent(job, 'the gain measurement got no samples');
+      defer.resolve();
+      return;
+    }
     self.launchFmReceiver(job, freq, freqStr, stationName, gain, defer);
   });
+};
+
+// The state an FM station starts with: its name and picture, no signal reading yet
+ControllerRtlsdrRadio.prototype.fmStartState = function(freqStr, stationName) {
+  var self = this;
+  var playing = self.getStationByUri('rtlsdr://fm/' + freqStr);
+  return {
+    status: 'play',
+    service: 'rtlsdr_radio',
+    title: stationName,
+    artist: 'FM ' + freqStr + ' MHz',
+    album: self.getI18nString('FM_RADIO'),
+    albumart: '/albumart?sourceicon=' + self.fmIcon(playing ? playing.station : null, true),
+    uri: 'rtlsdr://fm/' + freqStr,
+    trackType: 'FM ' + self.getSignalBars(0),
+    samplerate: '48 KHz',
+    bitdepth: '16 bit',
+    channels: 2,
+    duration: 0,
+    seek: 0
+  };
 };
 
 // Start the FM chain at the given gain: fn-rtl_fm feeding the RDS decoder and, through
@@ -5060,8 +5100,21 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
     });
   }
   
+  // The receiver gives a steady stream while the dongle gives samples, noise included.
+  // None for FM_SILENT_LIMIT, at the start or later, and the dongle has stopped giving.
+  var lastSignal = Date.now();
+  var signalWatch = setInterval(function() {
+    if (self.tuner.current !== job || job.stopping || job.finished) {
+      clearInterval(signalWatch);
+    } else if (Date.now() - lastSignal > self.FM_SILENT_LIMIT) {
+      clearInterval(signalWatch);
+      self.dongleSilent(job, 'fn-rtl_fm has delivered nothing for ' + (self.FM_SILENT_LIMIT / 1000) + ' s');
+    }
+  }, Math.min(1000, self.FM_SILENT_LIMIT / 2));
+  
   // Split rtl_fm output to both redsea and sox
   rtlProcess.stdout.on('data', function(chunk) {
+    lastSignal = Date.now();
     if (meter) {
       meter.feed(chunk);
     }
@@ -5137,22 +5190,7 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // Update Volumio state machine
   self.commandRouter.stateMachine.setConsumeUpdateService('rtlsdr_radio');
   
-  var playing = self.getStationByUri('rtlsdr://fm/' + freqStr);
-  var state = {
-    status: 'play',
-    service: 'rtlsdr_radio',
-    title: stationName,
-    artist: 'FM ' + freqStr + ' MHz',
-    album: self.getI18nString('FM_RADIO'),
-    albumart: '/albumart?sourceicon=' + self.fmIcon(playing ? playing.station : null, true),
-    uri: 'rtlsdr://fm/' + freqStr,
-    trackType: 'FM ' + self.getSignalBars(0),
-    samplerate: '48 KHz',
-    bitdepth: '16 bit',
-    channels: 2,
-    duration: 0,
-    seek: 0
-  };
+  var state = self.fmStartState(freqStr, stationName);
   
   // Volumio takes this station's state from the plugin (text, artwork, signal). The
   // first push starts the playback in Volumio's eyes; the second, a moment later, is
@@ -6475,6 +6513,24 @@ ControllerRtlsdrRadio.prototype.playbackEnded = function(job, entry) {
   });
 };
 
+// The dongle opened and tuned and then gave no samples: nothing can be measured or
+// played, and waiting does not help. Stop through Volumio, so that the player shows the
+// station as stopped, and say what brings a dongle back.
+ControllerRtlsdrRadio.prototype.dongleSilent = function(job, what) {
+  var self = this;
+  
+  if (job.reported || self.tuner.current !== job) {
+    return;
+  }
+  job.reported = true;
+  self.logger.error('[RTL-SDR Radio] Playback stopped, the dongle delivers no signal: ' + what);
+  
+  self.commandRouter.stateMachine.stop();
+  self.stop().then(function() {
+    self.commandRouter.pushToastMessage('error', 'FM/DAB Radio', self.getI18nString('TOAST_DONGLE_SILENT'));
+  });
+};
+
 // The FM tune level, from a reading of the reception (lib/fmquality.js, once a second).
 // A station without a pilot gives no reading; then what RDS tells is all there is.
 // A new level is shown when it has held for a few seconds, the first one at once.
@@ -6801,10 +6857,16 @@ ControllerRtlsdrRadio.prototype.measureGain = function(job, frequencies, rate) {
     var keepOpen = job.keepOpen;
     job.keepOpen = true;
     var printed = '';
+    var limit = null;
+    var overdue = false;
     try {
       var child = job.run('fn-rtl-gain', args, { stdio: ['ignore', 'pipe', 'pipe'] }, function(entry) {
+        clearTimeout(limit);
         job.keepOpen = keepOpen;
         var result = parseGainOutput(printed);
+        // The tool says so itself when the dongle gave it nothing; a tool that had to be
+        // ended here has waited for the dongle in some other way
+        result.silent = overdue || entry.code === self.GAIN_NO_SAMPLES;
         if (entry.error || entry.code !== 0) {
           self.logger.info('[RTL-SDR Radio] Gain could not be measured' +
             (entry.error ? ' (' + entry.error.code + ')' : ': ' + (entry.said || 'code ' + entry.code).trim().split('\n').pop()));
@@ -6819,7 +6881,17 @@ ControllerRtlsdrRadio.prototype.measureGain = function(job, frequencies, rate) {
       if (child.stdout) {
         child.stdout.on('data', function(data) { printed += data.toString(); });
       }
+      limit = setTimeout(function() {
+        overdue = true;
+        self.logger.error('[RTL-SDR Radio] Gain measurement ended after ' + (self.GAIN_LIMIT / 1000) + ' s without a result');
+        // asked to end first; ended if it does not
+        try { child.kill('SIGTERM'); } catch (e) { /* gone */ }
+        limit = setTimeout(function() {
+          try { child.kill('SIGKILL'); } catch (e) { /* gone */ }
+        }, 2000);
+      }, self.GAIN_LIMIT + 3000 * Math.max(0, frequencies.length - 1));
     } catch (e) {
+      clearTimeout(limit);
       job.keepOpen = keepOpen;
       resolve({ list: [], band: null });
     }
@@ -6890,6 +6962,7 @@ ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
   }
   return self.measureGain(job, [Math.round(freq * 1e6)]).then(function(result) {
     var found = result.list[0];
+    job.dongleSilent = !!result.silent;
     if (!found) {
       // No measurement: the last one if there is one, the manual value otherwise
       return station && typeof station.gain === 'number' ? station.gain : manual;
@@ -8840,6 +8913,27 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
   
   var pcmDetected = false;
   
+  // The decoder measures its gain first, which takes samples and nothing else: no gain
+  // line within DAB_SILENT_LIMIT means the dongle delivers none, and the decoder would
+  // wait for ever. With the gain set by hand there is no such line; then, and in any
+  // case, a decoder that has neither delivered audio nor ended by DAB_AUDIO_LIMIT is
+  // ended as a station that could not be received.
+  var gainSeen = false;
+  var gainMeasured = self.config.get('dab_gain_auto', true);
+  var dabStarted = Date.now();
+  var startWatch = setInterval(function() {
+    var waited = Date.now() - dabStarted;
+    if (self.tuner.current !== job || job.stopping || job.finished || pcmDetected) {
+      clearInterval(startWatch);
+    } else if (gainMeasured && !gainSeen && waited > self.DAB_SILENT_LIMIT) {
+      clearInterval(startWatch);
+      self.dongleSilent(job, 'fn-dab has measured no gain within ' + (self.DAB_SILENT_LIMIT / 1000) + ' s');
+    } else if (waited > self.DAB_AUDIO_LIMIT) {
+      clearInterval(startWatch);
+      self.playbackEnded(job, { command: 'fn-dab', code: self.DAB_NOT_RECEIVED, said: 'no audio within ' + (self.DAB_AUDIO_LIMIT / 1000) + ' s, and it had not ended' });
+    }
+  }, Math.min(1000, self.DAB_SILENT_LIMIT / 2));
+  
   // Store station info for DLS updates
   self.currentDabStation = {
     channel: channel,
@@ -8856,6 +8950,7 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
     // The gain the decoder has measured and set for this ensemble
     var gainMatch = output.match(/GAIN: ([^\n]*)/);
     if (gainMatch) {
+      gainSeen = true;
       self.lastDabGain = { channel: channel, measured: gainMatch[1].trim(), at: new Date().toISOString() };
       self.logger.info('[RTL-SDR Radio] DAB gain on ' + channel + ', set by measurement: ' + self.lastDabGain.measured);
     }

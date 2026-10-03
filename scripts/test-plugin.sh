@@ -26,5 +26,5 @@ docker run --rm --network none -v "$PWD:/src:ro" "$image" bash -c '
   export PATH=/tmp/tests/fakes:$PATH
   # One file after another: the tuner removes processes named like the decoders,
   # and test files running side by side would remove those of each other
-  cd /tmp && NODE_PATH=/tmp/plugin/node_modules node --test --test-concurrency=1 --test-timeout=40000 tests/
+  cd /tmp && NODE_PATH=/tmp/plugin/node_modules node --test --test-concurrency=1 --test-timeout=120000 tests/
 '

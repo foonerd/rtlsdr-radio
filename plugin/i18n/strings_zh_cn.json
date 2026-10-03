@@ -162,6 +162,7 @@
   "TOAST_CONFIG_SAVED": "配置已保存",
   "TOAST_PLAY_FAILED": "播放失败：{0}",
   "TOAST_DAB_NOT_RECEIVED": "无法接收 {0}：频道 {1} 上没有可用的 DAB 信号。请检查天线；如果电台可能已更换频道，请重新扫描。",
+  "TOAST_DONGLE_SILENT": "接收器没有输出信号。请拔下后重新插入，然后再次播放电台。",
   "TOAST_RESTART_REQUIRED": "设置已保存。请重启 Volumio 以使更改生效。",
   "TOAST_DELETED_STATION": "无法播放已删除的电台。请先从设置中恢复它。",
   "TOAST_DB_UPGRADED": "数据库已升级到 v2（已保存备份）",

@@ -56,7 +56,8 @@
  * runs the measurements on a signal made up in memory and says whether they came out
  * as they must. No dongle is needed.
  *
- * The exit status is 0 when everything asked for was measured.
+ * The exit status is 0 when everything asked for was measured, and 3 when the dongle
+ * opened and then delivered no samples.
  *
  * This program is free software; you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software Foundation,
@@ -69,6 +70,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include <rtl-sdr.h>
 
@@ -518,6 +520,35 @@ struct tuner {
 	int piece_bytes;
 };
 
+/*
+ * A dongle can open, tune and then deliver nothing: seen on a cheap one after a run
+ * of starts, and it stayed so until it was unplugged. The library's read then waits
+ * for ever. A read is given NO_SAMPLES_S seconds; after that the tool says what
+ * happened, in a line and with a status of its own, and ends.
+ */
+#define NO_SAMPLES_S	5
+#define EXIT_NO_SAMPLES	3
+
+static void no_samples(int sig)
+{
+	static const char said[] = "fn-rtl-gain: the dongle delivers no samples\n";
+	ssize_t written = write(2, said, sizeof said - 1);
+
+	(void)sig;
+	(void)written;
+	_exit(EXIT_NO_SAMPLES);
+}
+
+static int read_samples(rtlsdr_dev_t *dev, uint8_t *into, int bytes, int *got)
+{
+	int result;
+
+	alarm(NO_SAMPLES_S);
+	result = rtlsdr_read_sync(dev, into, bytes, got);
+	alarm(0);
+	return result;
+}
+
 /* Read so many bytes of signal; returns the number read, in whole samples */
 static int capture(struct tuner *tuner, uint8_t *into, int bytes)
 {
@@ -530,7 +561,7 @@ static int capture(struct tuner *tuner, uint8_t *into, int bytes)
 		want -= want % 512;
 		if (want == 0)
 			break;
-		if (rtlsdr_read_sync(tuner->dev, into + done, want, &got) < 0 || got <= 0)
+		if (read_samples(tuner->dev, into + done, want, &got) < 0 || got <= 0)
 			break;
 		done += got;
 	}
@@ -547,7 +578,7 @@ static int set_step(struct tuner *tuner, int index)
 	usleep(20000);			/* the tuner settles */
 	rtlsdr_reset_buffer(tuner->dev);
 	/* the first block still holds samples of the step before */
-	rtlsdr_read_sync(tuner->dev, tuner->block, tuner->block_bytes, &got);
+	read_samples(tuner->dev, tuner->block, tuner->block_bytes, &got);
 	return 0;
 }
 
@@ -561,7 +592,7 @@ static int measure(struct tuner *tuner, int index, double *share, double *level)
 
 	if (set_step(tuner, index) < 0)
 		return -1;
-	if (rtlsdr_read_sync(tuner->dev, tuner->block, tuner->block_bytes, &got) < 0 ||
+	if (read_samples(tuner->dev, tuner->block, tuner->block_bytes, &got) < 0 ||
 	    got < tuner->block_bytes / 2)
 		return -1;
 
@@ -721,6 +752,7 @@ static int settle(struct tuner *tuner, const struct slice *slice, int start,
 static int open_tuner(struct tuner *tuner, int device, uint32_t rate, int ppm, int piece_ms)
 {
 	memset(tuner, 0, sizeof(*tuner));
+	signal(SIGALRM, no_samples);
 	if (rtlsdr_open(&tuner->dev, (uint32_t)device) < 0 || tuner->dev == NULL) {
 		fprintf(stderr, "fn-rtl-gain: cannot open device %d\n", device);
 		return -1;

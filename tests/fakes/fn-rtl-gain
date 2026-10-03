@@ -10,6 +10,8 @@ trap 'kill $! 2>/dev/null; exit 143' TERM INT
 wait $!
 trap - TERM INT
 [ "$FAKE_GAIN_FAILS" = "1" ] && { echo "fn-rtl-gain: cannot open device 0" >&2; exit 1; }
+# A dongle that opens and delivers nothing: the real tool ends so after five seconds
+[ "$FAKE_GAIN_SILENT" = "1" ] && { echo "fn-rtl-gain: the dongle delivers no samples" >&2; exit 3; }
 if [ "$1" = "-b" ]; then
   cat "$(dirname "$0")/../fixtures/${FAKE_SURVEY:-fm-survey.txt}"
   exit 0

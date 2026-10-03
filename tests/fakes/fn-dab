@@ -3,6 +3,10 @@
 # audio format on stderr as the real one does, then streams silence.
 printf '%s\n' "$@" > /tmp/fake-args-fn-dab
 [ "$FAKE_DAB_FAILS" = "1" ] && exit 22
+# The decoder of a dongle that delivers nothing waits for ever without a word; one that
+# gets samples and no station measures its gain and then, here, does not end by itself
+[ "$FAKE_DAB_SILENT" = "1" ] && exec sleep 600
+[ "$FAKE_DAB_NO_AUDIO" = "1" ] && { echo "GAIN: 40.2 dB (step 23 of 29), level 30.0 of 127, cut off 0.10%" >&2; exec sleep 600; }
 sleep 0.1
 echo "PCM: rate=48000 stereo=1 size=3840" >&2
 # With FAKE_DAB_SLIDE set, a picture arrives a moment into the programme, written the

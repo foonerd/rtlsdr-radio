@@ -215,6 +215,20 @@ Default blocklist includes: traffic update, news update, weather, breaking news,
 
 Add station-specific phrases as you encounter false matches. The blocklist has separate backup/restore from stations.
 
+### FM Scan
+
+A scan measures every channel of the FM band and keeps the ones that are stations.
+
+- The band is taken in slices of 2 MHz, each at its own gain: the highest at which the signal is not cut off and the tuner is not overloaded.
+- A channel counts as a station when it holds more than the channels next to it, the 19 kHz pilot every stereo station sends stands clear of the noise for the whole time it is listened to, and the pilot is still there when the gain is lowered.
+- That last check tells stations from signals a tuner manufactures when a very strong station nearby overloads it. Such signals look like stations, pilot included, but go when the gain is lowered; a station does not.
+- Each station found is given a reception level from 1 to 5, the same measure the player shows while a station plays.
+- **FM Scan Sensitivity** (Settings > FM) is how far the pilot must stand above the noise, from +3 dB (faint stations too) to +15 dB (very strong ones only).
+- Stations you named, marked or added stay as they are, whether the scan finds them or not.
+- A station that sends no stereo pilot (mono) is not found by the scan; it can be added by hand in the Station Manager.
+
+The scan takes about half a minute on a Raspberry Pi 4 or 5, longer on the slowest boards. What it measured is written to the player's log, slice by slice.
+
 ### Station Logos
 DAB stations are shown with their logo in the station lists, and on the player screen whenever the station has no artwork of its own to show.
 
@@ -334,7 +348,8 @@ The plugin includes diagnostic tools to test your USB dongle before scanning:
 
 **Understanding Gain Settings**:
 - Gain controls the RTL-SDR RF amplifier, affecting signal-to-noise ratio and overload threshold
-- By default the plugin measures it: for FM once per station (kept for a week, then measured again), for DAB at every tuning. It sets the highest step at which the signal does not overload the receiver
+- By default the plugin measures it: for FM once per station (kept for a week, then measured again), for DAB at every tuning. It sets the highest step at which the signal is not cut off in the receiver's converter
+- For FM the tuner is checked for overload as well. A very strong station can overload it from outside the part of the band being received, without the converter showing it; the stations near it are then held down and signals appear that are not on the air. The gain is lowered until every signal in view changes by the same amount when the gain does
 - "Automatic FM gain" and "Automatic DAB gain" in the settings switch this off; the gain set by hand is then used
 - Setting it by hand: lower it if the audio is distorted or stations appear where there are none, raise it if there is no signal
 - Note: This is RF amplification, not volume control
@@ -454,6 +469,7 @@ Target repository: https://github.com/volumio/volumio-plugins-sources-bookworm
 ### No stations found
 - Check antenna is connected
 - Try adjusting scan sensitivity in settings
+- Look at the player's log after a scan: it names the gain of every slice of the band and the reception of every station found
 - Ensure good signal reception (location dependent)
 - Use diagnostics tools to test reception first
 
@@ -481,7 +497,26 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.17 (Current)
+### v1.3.18 (Current)
+- The FM scan finds stations, not signal strength. Every channel of the band is
+  measured and kept only if it carries the pilot of a stereo broadcast, stands above
+  the channels next to it, and keeps its pilot when the gain is lowered. The channels
+  beside a strong station and signals a tuner makes when it is overloaded are no
+  longer listed as stations
+- Each station found gets a reception level from 1 to 5
+- The scan takes the band in slices, each at its own measured gain, and measures
+  every channel itself. The spectrum tool the earlier scan relied on, run with the
+  tuner's automatic gain, returned no reading for more than half of the band on the
+  test player, stations included
+- FM gain: the tuner is checked for overload, not only the converter. Near a very
+  strong station the gain is taken down until the tuner treats all signals alike;
+  measured on an RTL-SDR Blog V4 next to such a station, its neighbours gained 6 to
+  8 dB of reception and two signals that were not on the air disappeared
+- FM Scan Sensitivity is now how far a station's pilot must stand above the noise
+- The Station Manager shows how far a scan has come
+- Gains measured by v1.3.17 are measured again
+
+### v1.3.17
 - FM gain is measured instead of guessed. The first time a station is played, the gain
   is set to the highest step at which its signal does not overload the receiver, and
   kept with the station; after a week it is measured again. The first play of a station

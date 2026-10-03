@@ -12,7 +12,7 @@ The plugin appears in Volumio as **FM/DAB Radio** (`rtlsdr_radio`). This reposit
 | `components/rtlsdr/` | The RTL-SDR library and tools, packaged as `libfn-rtlsdr0` and `foonerd-rtlsdr` (`fn-rtl_fm`, `fn-rtl_power`, ...). Built from [osmocom/rtl-sdr](https://github.com/osmocom/rtl-sdr). |
 | `components/dab/` | The DAB/DAB+ decoder `fn-dab` and the scanner `fn-dab-scanner`. Source in `src/`, derived from [dab-cmdline](https://github.com/JvanKatwijk/dab-cmdline). |
 | `components/redsea/` | The RDS decoder `fn-redsea`. Built from [redsea](https://github.com/windytan/redsea) with [liquid-dsp](https://github.com/jgaeddert/liquid-dsp) linked in. |
-| `components/gain/` | The tool `fn-rtl-gain`, which measures the gain a dongle should be set to at a frequency. Source in `src/`. |
+| `components/gain/` | The tool `fn-rtl-gain`, which measures the gain a dongle should be set to at a frequency and surveys the FM band for stations. Source in `src/`. |
 | `docker/` | The build environments. |
 | `scripts/` | Fetching sources, building a target, checking the result, assembling the plugin. |
 
@@ -44,7 +44,7 @@ For each target this
 
 1. makes the target's build image if it is not there yet: the build tools, and the upstream sources at the commits named in `components/*/*.lock`,
 2. in that image, with no network, builds the library packages, then the DAB decoder against them, then the RDS decoder and the gain tool,
-3. checks every binary: it must be built for the target's architecture (for `arm`: ARMv6, no Thumb-2) and must start,
+3. checks every binary: it must be built for the target's architecture (for `arm`: ARMv6, no Thumb-2) and must start; `fn-rtl-gain` also runs its measurements on a signal it makes up and must get them right,
 4. checks the build's output for warnings nobody has reviewed (`components/warnings-reviewed.txt`),
 5. writes `out/<target>/` with `bin/`, `packages/`, the build's output in `build.log`, and a `manifest.json` naming the sources and the checksum of every file.
 

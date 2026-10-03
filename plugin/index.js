@@ -10,6 +10,7 @@ var metadata = require('./lib/metadata');
 var storage = require('./lib/storage');
 var Tuner = require('./lib/tuner');
 var FmQuality = require('./lib/fmquality');
+var fmscan = require('./lib/fmscan');
 var Logos = require('./lib/logos');
 var Slides = require('./lib/slides');
 var Updater = require('./lib/update');
@@ -39,6 +40,7 @@ function ControllerRtlsdrRadio(context) {
   // Process references
   self.decoderProcess = null;
   self.scanProcess = null;
+  self.scanProgress = null;   // { type, done, total } while a scan can say how far it has come
   self.soxProcess = null;
   self.aplayProcess = null;
   self.redseaProcess = null;
@@ -131,6 +133,7 @@ function ControllerRtlsdrRadio(context) {
   self.STORE_TIMEOUT = 15000;        // How long the plugin store is given to say which versions it has
   self.GAIN_SAMPLE_RATE = 1200000;   // About the rate fn-rtl_fm reads the dongle at, and so what the gain is measured at
   self.FM_GAIN_KEEP = 7 * 24 * 3600 * 1000;  // How long a station's measured gain is used before it is measured again
+  self.GAIN_RULE = 2;                // How the gain is measured: 1 not cut off, 2 not cut off and the tuner not overloaded
   self.DLS_UPDATE_INTERVAL = 2000;   // Minimum between DLS state pushes
   self.DLS_POLL_INTERVAL = 2000;     // DLS file polling interval
   self.TMC_THROTTLE = 30000;         // Traffic alert throttle (30s)
@@ -141,6 +144,7 @@ function ControllerRtlsdrRadio(context) {
   
   // Scan timeouts (milliseconds)
   self.FM_SCAN_TIMEOUT = 30000;      // FM scan timeout (30s)
+  self.FM_SURVEY_TIMEOUT = 180000;   // The FM band survey: seconds on a fast board, a minute or two on the slowest
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
   self.DAB_DETECTION_TIMEOUT = 30000; // DAB ensemble detection timeout
   
@@ -1517,6 +1521,10 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
           dbVersion: self.stationsDb.version || 0,
           serverPort: self.MANAGEMENT_PORT,
           signal: signalInfo,
+          scan: self.scanProgress ? {
+            type: self.scanProgress.type,
+            percent: Math.round(100 * self.scanProgress.done / self.scanProgress.total)
+          } : null,
           timestamp: new Date().toISOString()
         });
       } catch (e) {
@@ -6451,15 +6459,16 @@ ControllerRtlsdrRadio.prototype.restartBackend = function() {
   }
 };
 
-// What fn-rtl-gain printed: { list: [{ freq, gain, step, of, level, cut }], band }.
-// gain in dB; band is the gain that suits every frequency asked for, or null.
+// What fn-rtl-gain printed: { list: [{ freq, gain, step, of, level, cut, backoff }], band }.
+// gain in dB; backoff is how far it was taken down because the tuner was overloaded;
+// band is the gain that suits every frequency asked for, or null.
 function parseGainOutput(text) {
   var result = { list: [], band: null };
   String(text || '').split('\n').forEach(function(line) {
-    var found = /^GAIN: freq=(\d+) gain=([\d.]+) step=(\d+) of=(\d+) level=([\d.]+) cut=([\d.]+)/.exec(line);
+    var found = /^GAIN: freq=(\d+) gain=([\d.]+) step=(\d+) of=(\d+) level=([\d.]+) cut=([\d.]+)(?: backoff=([\d.]+))?/.exec(line);
     if (found) {
       result.list.push({ freq: Number(found[1]), gain: Number(found[2]), step: Number(found[3]),
-        of: Number(found[4]), level: Number(found[5]), cut: Number(found[6]) });
+        of: Number(found[4]), level: Number(found[5]), cut: Number(found[6]), backoff: Number(found[7] || 0) });
     }
     var band = /^BAND: gain=([\d.]+)/.exec(line);
     if (band) {
@@ -6517,7 +6526,8 @@ ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
   if (!self.config.get('fm_gain_auto', true)) {
     return Promise.resolve(manual);
   }
-  var measured = station && typeof station.gain === 'number' && station.gainMeasured ?
+  // A gain measured by an earlier rule counts as not measured
+  var measured = station && typeof station.gain === 'number' && station.gainMeasured && station.gainRule === self.GAIN_RULE ?
     Date.now() - new Date(station.gainMeasured).getTime() : Infinity;
   if (measured < self.FM_GAIN_KEEP) {
     return Promise.resolve(station.gain);
@@ -6529,9 +6539,11 @@ ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
       return station && typeof station.gain === 'number' ? station.gain : manual;
     }
     self.logger.info('[RTL-SDR Radio] FM gain at ' + freq + ' MHz, set by measurement: ' + found.gain +
-      ' dB (step ' + found.step + ' of ' + found.of + '), level ' + found.level + ' of 127, cut off ' + found.cut + '%');
+      ' dB (step ' + found.step + ' of ' + found.of + '), level ' + found.level + ' of 127, cut off ' + found.cut + '%' +
+      (found.backoff > 0 ? ', taken down ' + found.backoff + ' dB: the tuner was overloaded' : ''));
     if (station) {
       station.gain = found.gain;
+      station.gainRule = self.GAIN_RULE;
       station.gainMeasured = new Date().toISOString();
       self.saveStations();
     }
@@ -7736,6 +7748,8 @@ ControllerRtlsdrRadio.prototype.mergeStationData = function(existingStation, new
     // FM: Update name, signal_strength, last_seen
     merged.name = newStation.name;
     merged.signal_strength = newStation.signal_strength;
+    merged.quality = newStation.quality;
+    merged.level = newStation.level;
     merged.last_seen = newStation.last_seen;
     merged.frequency = newStation.frequency; // Ensure frequency stays correct
   } else if (type === 'dab') {
@@ -7786,21 +7800,21 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
       self.logger.info('[RTL-SDR Radio] Starting FM scan...');
       self.commandRouter.pushToastMessage('info', self.getI18nString('FM_RADIO'), self.getI18nString('TOAST_FM_SCANNING_UI'));
       
-      // Generate unique temp file name
-      var scanFile = '/tmp/fm_scan_' + Date.now() + '.csv';
-      
-      // fn-rtl_power:
-      // -f [lower]M:[upper]M:[spacing]k = Scan configured range with regional spacing
-      // -i 10 = Integrate for 10 seconds
-      // -1 = Single-shot mode (exit after one scan)
+      // fn-rtl-gain -b [lower]M:[upper]M:[spacing]k surveys the band on the region's
+      // raster: slice by slice, each at a gain that neither cuts the signal off nor
+      // overloads the tuner, and every channel measured
       var regionSettings = self.getRegionSettings();
       var effectiveStart = regionSettings.band_start + (regionSettings.scan_offset_khz / 1000);
       var lowerFreq = effectiveStart.toFixed(2);
       var upperFreq = regionSettings.band_end;
       var spacing = regionSettings.spacing_khz + 'k';
-      var scanArgs = ['-f', lowerFreq + 'M:' + upperFreq + 'M:' + spacing, '-i', '10', '-1', scanFile];
+      var scanArgs = ['-b', lowerFreq + 'M:' + upperFreq + 'M:' + spacing];
       
-      self.logger.info('[RTL-SDR Radio] Scan command: fn-rtl_power ' + scanArgs.join(' ') +
+      // The tool takes the band in slices of 2 MHz and names each as it finishes it
+      var slices = Math.max(1, Math.ceil((upperFreq - effectiveStart + regionSettings.spacing_khz / 1000) / 2));
+      self.scanProgress = { type: 'fm', done: 0, total: slices };
+      
+      self.logger.info('[RTL-SDR Radio] Scan command: fn-rtl-gain ' + scanArgs.join(' ') +
         ' (region spacing: ' + spacing + ', offset: ' + regionSettings.scan_offset_khz + ' kHz)');
       
       // Push progress update after delay
@@ -7814,16 +7828,22 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
       // The device goes back to idle only if this scan still is what the device is doing
       function scanOver() {
         self.scanProcess = null;
+        self.scanProgress = null;
         if (self.deviceState === 'scanning_fm' && !self.tuner.busy()) {
           self.setDeviceState('idle');
         }
       }
       
-      self.scanProcess = job.run('fn-rtl_power', scanArgs, { stdio: 'ignore' }, function(entry) {
-        if (entry.error || entry.code !== 0) {
+      var printed = '';
+      self.scanProcess = job.run('fn-rtl-gain', scanArgs, { stdio: ['ignore', 'pipe', 'pipe'] }, function(entry) {
+        var survey = fmscan.parse(printed);
+        
+        // A scan that was stopped, or that measured nothing, has no result
+        if (job.stopping || entry.error || survey.channels.length === 0) {
           var reason = job.timedOut ? 'timed out' :
-            (entry.error ? String(entry.error.code || entry.error) : 'fn-rtl_power ended with ' +
-              (entry.code !== null ? 'code ' + entry.code : entry.signal));
+            (entry.error ? String(entry.error.code || entry.error) : 'fn-rtl-gain ended with ' +
+              (entry.code !== null ? 'code ' + entry.code : entry.signal) +
+              (entry.said ? ': ' + entry.said.trim().split('\n').pop() : ''));
           // A scan stopped on purpose is no failure to report
           if (!job.stopping || job.timedOut) {
             self.logger.error('[RTL-SDR Radio] Scan failed: ' + reason);
@@ -7834,34 +7854,42 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
           defer.reject(new Error(reason));
           return;
         }
+        if (entry.code !== 0) {
+          self.logger.info('[RTL-SDR Radio] FM scan: part of the band could not be read (' +
+            (entry.said || '').trim().split('\n').pop() + '); the rest is used');
+        }
         
-        self.logger.info('[RTL-SDR Radio] Scan complete, parsing results...');
-        
-        // Parse scan results
-        self.parseScanResults(scanFile)
-          .then(function(stations) {
-            self.logger.info('[RTL-SDR Radio] Found ' + stations.length + ' FM stations');
-            
-            // Merge with existing database (preserves user data)
-            self.stationsDb.fm = self.mergeFmScanResults(stations);
-            self.saveStations();
-            
-            var totalStations = self.stationsDb.fm.length;
-            self.commandRouter.pushToastMessage('success', self.getI18nString('FM_RADIO'), 
-              self.formatString(self.getI18nString('TOAST_SCAN_COMPLETE'), stations.length, totalStations));
-            
-            scanOver();
-            defer.resolve(stations);
-          })
-          .fail(function(e) {
-            self.logger.error('[RTL-SDR Radio] Failed to parse scan results: ' + e);
-            self.commandRouter.pushToastMessage('error', self.getI18nString('FM_RADIO'), 
-              self.getI18nString('TOAST_PARSE_FAILED'));
-            scanOver();
-            defer.reject(e);
-          });
+        try {
+          var stations = self.stationsFromSurvey(survey, regionSettings);
+          self.logger.info('[RTL-SDR Radio] Found ' + stations.length + ' FM stations');
+          
+          // Merge with existing database (preserves user data)
+          self.stationsDb.fm = self.mergeFmScanResults(stations);
+          self.saveStations();
+          
+          var totalStations = self.stationsDb.fm.length;
+          self.commandRouter.pushToastMessage('success', self.getI18nString('FM_RADIO'), 
+            self.formatString(self.getI18nString('TOAST_SCAN_COMPLETE'), stations.length, totalStations));
+          
+          scanOver();
+          defer.resolve(stations);
+        } catch (e) {
+          self.logger.error('[RTL-SDR Radio] Failed to use the scan results: ' + e);
+          self.commandRouter.pushToastMessage('error', self.getI18nString('FM_RADIO'), 
+            self.getI18nString('TOAST_PARSE_FAILED'));
+          scanOver();
+          defer.reject(e);
+        }
       });
-      job.limit(self.FM_SCAN_TIMEOUT);
+      if (self.scanProcess.stdout) {
+        self.scanProcess.stdout.on('data', function(data) {
+          printed += data.toString();
+          if (self.scanProgress) {
+            self.scanProgress.done = Math.min(slices, (printed.match(/^SLICE:/gm) || []).length);
+          }
+        });
+      }
+      job.limit(self.FM_SURVEY_TIMEOUT);
     })
     .fail(function(e) {
       self.logger.info('[RTL-SDR Radio] FM scan not run: ' + (e && e.superseded ? 'a later request took its place' : e));
@@ -7871,150 +7899,41 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
   return defer.promise;
 };
 
-ControllerRtlsdrRadio.prototype.parseScanResults = function(scanFile) {
+// The stations of a band survey, as the station list keeps them. What was measured is
+// logged slice by slice: it is what a report of a poor scan is read from.
+ControllerRtlsdrRadio.prototype.stationsFromSurvey = function(survey, regionSettings) {
   var self = this;
-  var defer = libQ.defer();
+  var sensitivity = self.config.get('scan_sensitivity', 8);
+  var now = new Date().toISOString();
   
-  fs.readFile(scanFile, 'utf8', function(err, data) {
-    if (err) {
-      self.logger.error('[RTL-SDR Radio] Failed to read scan file: ' + err);
-      defer.reject(err);
-      return;
-    }
-    
-    try {
-      var lines = data.trim().split('\n');
-      if (lines.length === 0) {
-        self.logger.error('[RTL-SDR Radio] Empty scan file');
-        defer.reject(new Error('Empty scan file'));
-        return;
-      }
-      
-      self.logger.info('[RTL-SDR Radio] Processing ' + lines.length + ' frequency hops');
-      
-      // Build frequency map by combining all hops
-      var freqMap = {}; // frequency -> power
-      
-      // Process each line (frequency hop)
-      for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-        var line = lines[lineIdx];
-        var values = line.split(',').map(function(v) { return v.trim(); });
-        
-        // CSV format: date, time, Hz_low, Hz_high, Hz_step, samples, dBm_values...
-        if (values.length < 7) {
-          continue; // Skip invalid lines
-        }
-        
-        var startFreq = parseFloat(values[2]) / 1000000; // Hz to MHz
-        var step = parseFloat(values[4]) / 1000000;
-        
-        // Extract power values (skip first 6 metadata fields)
-        var powerValues = values.slice(6);
-        
-        // Map each bin to its frequency
-        for (var i = 0; i < powerValues.length; i++) {
-          var power = parseFloat(powerValues[i]);
-          
-          // Skip NaN values
-          if (isNaN(power)) {
-            continue;
-          }
-          
-          var freq = startFreq + (i * step);
-          var freqKey = freq.toFixed(6); // Use high precision key
-          
-          // Store power value for this frequency
-          freqMap[freqKey] = power;
-        }
-      }
-      
-      // Convert frequency map to sorted array
-      var freqArray = [];
-      for (var freqKey in freqMap) {
-        freqArray.push({
-          freq: parseFloat(freqKey),
-          power: freqMap[freqKey]
-        });
-      }
-      
-      // Sort by frequency
-      freqArray.sort(function(a, b) {
-        return a.freq - b.freq;
-      });
-      
-      if (freqArray.length === 0) {
-        self.logger.error('[RTL-SDR Radio] No valid power values found');
-        defer.reject(new Error('No valid data'));
-        return;
-      }
-      
-      self.logger.info('[RTL-SDR Radio] Combined spectrum: ' + freqArray.length + ' valid bins');
-      
-      // Calculate average power for threshold (skip NaN already filtered)
-      var sum = 0;
-      for (var i = 0; i < freqArray.length; i++) {
-        sum += freqArray[i].power;
-      }
-      var avgPower = sum / freqArray.length;
-      
-      // Get threshold from config (default: +8 dB for balanced detection)
-      var thresholdOffset = self.config.get('scan_sensitivity', 8);
-      var threshold = avgPower + thresholdOffset;
-      
-      self.logger.info('[RTL-SDR Radio] Average power: ' + avgPower.toFixed(1) + 
-                      ' dBm, threshold: ' + threshold.toFixed(1) + ' dBm (+' + thresholdOffset + ' dB)');
-      
-      // Find peaks (local maxima above threshold)
-      var stations = [];
-      for (var i = 1; i < freqArray.length - 1; i++) {
-        var current = freqArray[i];
-        var prev = freqArray[i - 1];
-        var next = freqArray[i + 1];
-        
-        // Check if this is a peak above threshold
-        if (current.power > threshold && 
-            current.power > prev.power && 
-            current.power > next.power) {
-          
-          // Round to nearest channel based on regional spacing and scan offset
-          var regionSettings = self.getRegionSettings();
-          var spacingMHz = regionSettings.spacing_khz / 1000;
-          var effectiveStart = regionSettings.band_start + (regionSettings.scan_offset_khz / 1000);
-          var freqRounded = Math.round((current.freq - effectiveStart) / spacingMHz) * spacingMHz + effectiveStart;
-          // Format to appropriate decimal places based on spacing and offset
-          // 50kHz offset produces frequencies like 88.05, 88.25 needing 2 decimal places
-          var decimalPlaces = (spacingMHz < 0.1 || regionSettings.scan_offset_khz % 100 !== 0) ? 2 : 1;
-          var freqFormatted = freqRounded.toFixed(decimalPlaces);
-          
-          stations.push({
-            frequency: freqFormatted,
-            name: 'FM ' + freqFormatted,
-            signal_strength: current.power.toFixed(1),
-            last_seen: new Date().toISOString()
-          });
-          
-          self.logger.info('[RTL-SDR Radio] Found station: ' + freqFormatted + 
-                          ' MHz (' + current.power.toFixed(1) + ' dBm, spacing: ' + regionSettings.spacing_khz + 'kHz)');
-        }
-      }
-      
-      // Sort stations by frequency
-      stations.sort(function(a, b) {
-        return parseFloat(a.frequency) - parseFloat(b.frequency);
-      });
-      
-      // Cleanup temp file
-      fs.unlink(scanFile, function() {});
-      
-      defer.resolve(stations);
-      
-    } catch (e) {
-      self.logger.error('[RTL-SDR Radio] Error parsing scan data: ' + e);
-      defer.reject(e);
-    }
+  survey.slices.forEach(function(slice) {
+    self.logger.info('[RTL-SDR Radio] FM scan: slice at ' + (slice.freq / 1e6).toFixed(2) + ' MHz, gain ' + slice.gain + ' dB' +
+      (slice.backoff > 0 ? ' (taken down ' + slice.backoff + ' dB: the tuner was overloaded)' : '') +
+      ', level ' + slice.level + ' of 127, cut off ' + slice.cut + '%');
+  });
+  fmscan.ghosts(survey, { sensitivity: sensitivity }).forEach(function(channel) {
+    self.logger.info('[RTL-SDR Radio] FM scan: the signal at ' + (channel.freq / 1e6).toFixed(2) +
+      ' MHz is made in the tuner, not a station (pilot ' + channel.pilot + ' dB, ' + channel.again + ' dB with the gain lowered)');
   });
   
-  return defer.promise;
+  // Format to appropriate decimal places based on spacing and offset
+  // 50kHz offset produces frequencies like 88.05, 88.25 needing 2 decimal places
+  var spacingMHz = regionSettings.spacing_khz / 1000;
+  var decimalPlaces = (spacingMHz < 0.1 || regionSettings.scan_offset_khz % 100 !== 0) ? 2 : 1;
+  
+  return fmscan.stations(survey, { sensitivity: sensitivity }).map(function(found) {
+    var freqFormatted = (found.freq / 1e6).toFixed(decimalPlaces);
+    self.logger.info('[RTL-SDR Radio] Found station: ' + freqFormatted + ' MHz (pilot ' + found.pilot +
+      ' dB, level ' + found.level + '/5, carrier ' + Math.round(found.offset) + ' Hz off)');
+    return {
+      frequency: freqFormatted,
+      name: 'FM ' + freqFormatted,
+      signal_strength: found.rf.toFixed(1),
+      quality: found.pilot,
+      level: found.level,
+      last_seen: now
+    };
+  });
 };
 
 // ============================================

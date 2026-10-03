@@ -9,6 +9,6 @@ echo "[+] gain: against libfn-rtlsdr $(pkg-config --modversion libfn-rtlsdr)"
 
 # shellcheck disable=SC2086
 gcc $TARGET_CFLAGS -O2 -Wall -Wextra -o "$OUT/bin/fn-rtl-gain" "$here/src/fn-rtl-gain.c" \
-  $(pkg-config --cflags --libs libfn-rtlsdr)
+  $(pkg-config --cflags --libs libfn-rtlsdr) -lm
 strip "$OUT/bin/fn-rtl-gain"
 echo "[OK] gain: fn-rtl-gain $(stat -c %s "$OUT/bin/fn-rtl-gain") bytes"

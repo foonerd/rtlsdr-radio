@@ -175,6 +175,20 @@ test('FM: the gain is measured at the station\'s frequency before the receiver s
   await plugin.clearAddPlayTrack(fmTrack('94.9'));
   await sleep(300);
   assert.strictEqual(gainRuns(), before + 2);
+
+  // And so is one made before the tuner was checked for overload
+  delete plugin.stationsDb.fm[0].gainRule;
+  logs.length = 0;
+  process.env.FAKE_GAIN_BACKOFF = '7.4';
+  try {
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(300);
+  } finally {
+    delete process.env.FAKE_GAIN_BACKOFF;
+  }
+  assert.strictEqual(gainRuns(), before + 3);
+  assert.strictEqual(plugin.stationsDb.fm[0].gainRule, plugin.GAIN_RULE);
+  assert.ok(logs.some(function(m) { return /taken down 7\.4 dB: the tuner was overloaded/.test(m); }));
 });
 
 test('FM: with automatic gain switched off, the gain the user set reaches the receiver and nothing is measured', async function() {
@@ -322,20 +336,71 @@ test('a DAB service that is not found ends the playback with a message', async f
   assert.ok(toasts.some(function(t) { return /fn-dab ended with code 22/.test(t.message); }), JSON.stringify(toasts));
 });
 
-test('FM scan: runs as its own job and leaves the device idle', async function() {
-  await Promise.resolve(plugin.scanFm()).catch(function() {});
+test('FM scan: the band is surveyed as a job of its own, and the stations it shows are kept', async function() {
+  plugin.stationsDb.fm = [
+    { frequency: '100.0', name: 'FM 100.0', customName: 'Kiss', favorite: true, playCount: 4 },
+    { frequency: '98.3', name: 'FM 98.3', customName: 'Not on the air' }
+  ];
+  var found = await plugin.scanFm();
   assert.deepStrictEqual(running(), []);
   assert.strictEqual(plugin.deviceState, 'idle');
-  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_power', 'utf8'), /-f 87\.50M:108M:100k -i 10 -1 \/tmp\/fm_scan_/);
+  assert.strictEqual(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8').trim(), '-b 87.50M:108M:100k');
+  assert.strictEqual(found.length, 23);
+
+  var fm = plugin.stationsDb.fm;
+  var kiss = fm.find(function(s) { return s.frequency === '100.0'; });
+  // what the user made of a station stays; what the scan measured is added
+  assert.deepStrictEqual([kiss.customName, kiss.favorite, kiss.playCount], ['Kiss', true, 4]);
+  assert.ok(kiss.quality > 30 && kiss.level === 4, JSON.stringify(kiss));
+  // a station the user keeps and the scan did not find is not removed
+  assert.ok(fm.some(function(s) { return s.frequency === '98.3' && s.customName === 'Not on the air'; }));
+  // a station found for the first time
+  var classic = fm.find(function(s) { return s.frequency === '100.9'; });
+  assert.deepStrictEqual([classic.name, classic.level, classic.deleted], ['FM 100.9', 4, false]);
+  // the channels beside a station are not in the list
+  assert.ok(!fm.some(function(s) { return s.frequency === '100.1' || s.frequency === '100.8'; }));
+  assert.strictEqual(fm.length, 24);
+  var status = JSON.parse((await get('/api/status')).text);
+  assert.strictEqual(status.scan, null);
+});
+
+test('FM scan: signals made in an overloaded tuner are left out, and named in the log', async function() {
+  plugin.stationsDb.fm = [];
+  logs.length = 0;
+  process.env.FAKE_SURVEY = 'fm-survey-overloaded.txt';
+  try {
+    var found = await plugin.scanFm();
+    assert.deepStrictEqual(found.map(function(s) { return s.frequency; }), ['88.8', '89.1']);
+  } finally {
+    delete process.env.FAKE_SURVEY;
+  }
+  assert.ok(logs.some(function(m) { return /the signal at 88\.30 MHz is made in the tuner, not a station/.test(m); }));
+  plugin.stationsDb.fm = [];
+});
+
+test('FM scan: a tool that cannot read the dongle is a failed scan, and the station list is left alone', async function() {
+  plugin.stationsDb.fm = [{ frequency: '100.0', name: 'FM 100.0' }];
+  toasts.length = 0;
+  process.env.FAKE_GAIN_FAILS = '1';
+  try {
+    await assert.rejects(Promise.resolve(plugin.scanFm()), /cannot open device 0/);
+  } finally {
+    delete process.env.FAKE_GAIN_FAILS;
+  }
+  assert.strictEqual(plugin.deviceState, 'idle');
+  assert.deepStrictEqual(plugin.stationsDb.fm, [{ frequency: '100.0', name: 'FM 100.0' }]);
+  assert.ok(toasts.some(function(t) { return t.type === 'error'; }));
+  plugin.stationsDb.fm = [];
 });
 
 test('a scan that is stopped is no failure and does not disturb what follows', async function() {
   toasts.length = 0;
-  process.env.FAKE_POWER_SECONDS = '30';
+  process.env.FAKE_GAIN_SECONDS = '30';
   var scan = Promise.resolve(plugin.scanFm()).catch(function(e) { return e; });
   await sleep(400);
   assert.strictEqual(plugin.deviceState, 'scanning_fm');
-  delete process.env.FAKE_POWER_SECONDS;
+  assert.deepStrictEqual(JSON.parse((await get('/api/status')).text).scan, { type: 'fm', percent: 0 });
+  delete process.env.FAKE_GAIN_SECONDS;
   await plugin.stopCurrentOperation();
   await plugin.clearAddPlayTrack(fmTrack('94.9'));
   await scan;

@@ -2380,6 +2380,12 @@
           
           const data = await response.json();
           
+          if (data.deviceState === expectedState && data.scan && typeof data.scan.percent === 'number') {
+            // How far the scan has come
+            const info = type === 'fm' ? t('MODAL_SCANNING_WAIT_FM') : t('MODAL_SCANNING_WAIT_DAB');
+            document.getElementById('scanning-info').textContent = info + ' ' + data.scan.percent + '%';
+          }
+          
           if (data.deviceState !== expectedState) {
             // Scan complete
             hideScanningModal();

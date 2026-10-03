@@ -41,7 +41,9 @@ bash /src/scripts/check-elf.sh "$TARGET" "$check"
 # The binaries must start on the architecture they were built for.
 "$OUT/bin/fn-redsea" --version
 "$OUT/bin/fn-dab" -h >/dev/null 2>&1 || true
-# The gain tool, asked for nothing, says how it is used and leaves with 2
+# The gain tool, asked for nothing, says how it is used and leaves with 2; and its
+# measurements, tried on a signal it makes up itself, come out as they must
 "$OUT/bin/fn-rtl-gain" > /dev/null 2>&1 && { echo "error: fn-rtl-gain took no arguments for an answer" >&2; exit 1; } || [ $? -eq 2 ]
+"$OUT/bin/fn-rtl-gain" -t
 ldd "$OUT/bin/fn-dab" | grep -q 'not found' && { echo "error: fn-dab has unresolved libraries" >&2; exit 1; }
 echo "[OK] $TARGET built"

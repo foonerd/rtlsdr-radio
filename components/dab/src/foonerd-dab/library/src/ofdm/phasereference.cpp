@@ -121,6 +121,61 @@ float	Max		= -10000;
 }
 
 #define SEARCH_RANGE    (2 * 35)
+//
+//	Where the band lies, in whole carriers from where it should: looked at when
+//	the reference symbol is not found. The search for that symbol bears a
+//	frequency error of a few carriers and no more; a dongle whose crystal is 40
+//	or 50 ppm off puts the band ten carriers and more to one side, and the symbol
+//	is then found at some errors and not at others. The band itself is easier to
+//	see than the symbol: its carriers hold the power, whatever symbol they carry
+//	and wherever it starts, with nothing beside them and nothing on the centre
+//	carrier. The shift under which the carriers' places hold the most power is
+//	the answer. It is given only when a band stands out, and only when it lies
+//	far enough off to be the reason the symbol was missed; what is left after it
+//	is within reach of the symbol search, which then sets the frequency exactly.
+#define	BAND_STANDS_OUT	2.0
+#define	FAR_ENOUGH	4
+int16_t	phaseReference::estimateBandShift (std::complex<float> *v) {
+int16_t	carriers	= params. get_carriers ();
+int16_t	half		= carriers / 2;
+int16_t	i, k;
+#ifdef _MSC_VER
+float	*power		= (float *)_alloca (T_u * sizeof (float));
+#else
+float	power [T_u];
+#endif
+float	all		= 0;
+float	best		= -1;
+int16_t	shift		= 0;
+
+	for (i = 0; i < T_u; i ++)
+	   fft_buffer [i] = v [i];
+	my_fftHandler. do_FFT ();
+	for (i = 0; i < T_u; i ++) {
+	   power [i]	= real (fft_buffer [i] * conj (fft_buffer [i]));
+	   all		+= power [i];
+	}
+
+	for (k = - SEARCH_RANGE / 2; k <= SEARCH_RANGE / 2; k ++) {
+	   float held = 0;
+	   for (i = 1; i <= half; i ++)
+	      held += power [(T_u + k + i) % T_u] + power [(T_u + k - i) % T_u];
+	   if (held > best) {
+	      best	= held;
+	      shift	= k;
+	   }
+	}
+
+//	the power on a carrier's place against the power on a place beside the band
+	float	inside	= best / carriers;
+	float	outside	= (all - best) / (T_u - carriers);
+	if (outside <= 0 || inside < BAND_STANDS_OUT * outside)
+	   return 0;
+	if (shift > - FAR_ENOUGH && shift < FAR_ENOUGH)
+	   return 0;
+	return shift;
+}
+
 int16_t phaseReference::estimateOffset (std::complex<float> *v) {
 int16_t i, j, index_1 = 100, index_2 = 100;
 #ifdef _MSC_VER

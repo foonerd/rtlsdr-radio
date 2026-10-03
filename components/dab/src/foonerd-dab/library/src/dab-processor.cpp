@@ -139,6 +139,15 @@ notSynced:
 	   startIndex = phaseSynchronizer.
 	                        findIndex (ofdmBuffer. data (), THRESHOLD);
 	   if (startIndex < 0) { // no sync, try again
+//	the frequency may be too many carriers off for the symbol to be found:
+//	the band is put where it belongs, and the next frame is tried with that
+	      int shift = phaseSynchronizer.
+	                        estimateBandShift (ofdmBuffer. data ());
+	      if (shift != 0) {
+	         coarseOffset += shift * carrierDiff;
+	         if (abs (coarseOffset) > Khz (35))
+	            coarseOffset = 0;
+	      }
 	      isSynced	= false;
 	      if (++index_attempts > 25) {
 	         syncsignalHandler (false, userData);
@@ -238,7 +247,10 @@ SyncOnPhase:
 //	      fprintf (stderr, "resync with %d (%f)\n", startIndex, arg (FreqCorr));
 //	      goto notSynced;
 //	   }
-	   fineOffset += 0.1 * arg (FreqCorr) / M_PI * (carrierDiff);
+//	until the ensemble is synchronised the fine frequency is followed faster:
+//	an error near half a carrier is otherwise closed too slowly for a first lock
+	   fineOffset += (correctionNeeded ? 0.25 : 0.1) *
+	                             arg (FreqCorr) / M_PI * (carrierDiff);
 
 //	at the end of the frame, just skip Tnull samples
 	   myReader. getSamples (ofdmBuffer. data (),

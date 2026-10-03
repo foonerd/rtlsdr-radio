@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.3.28",
+  "version": "1.3.29",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.3.28 - DAB with dongles whose crystal runs fast (cheap ones, 45 ppm and more): no more sound in bursts with parts missing"
+    "changelog": "v1.3.29 - DAB: dongles that are far off frequency (cheap ones, 40-60 ppm) now find their stations every time, without a PPM value"
   },
   "engines": {
     "node": ">=20",

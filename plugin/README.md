@@ -397,9 +397,8 @@ The plugin includes diagnostic tools to test your USB dongle before scanning:
 - An FM station is brought to the same range: a fully modulated station peaks 1 dB below full scale, whatever receiver sample rate is set. Nothing is compressed or levelled over time; quiet and loud passages stay as broadcast
 
 **PPM Correction** (DAB only):
-- Leave it at 0. The DAB decoder and the scan measure the frequency error of the dongle's crystal themselves and follow it as the dongle warms up
-- Errors up to about 7 kHz (30 ppm in Band III) are always found. Larger ones, up to about 25 kHz, are found at most values but not at all of them
-- For a dongle that is further off than 30 ppm (some cheap ones are 40 to 60 off), set its value roughly: within 30 of the right one is enough, where it used to need to be within 2
+- Leave it at 0. The DAB decoder and the scan measure the frequency error of the dongle's crystal themselves and follow it as the dongle warms up, up to 35 kHz either way (about 140 ppm in Band III). Cheap dongles are typically 40 to 60 ppm off; they need no value
+- A value is needed only for a dongle that is further off than that
 - FM reception does not use it
 
 **DAB Metadata (DLS)**:
@@ -537,7 +536,17 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.28 (Current)
+### v1.3.29 (Current)
+- DAB with a dongle that is far off frequency (the usual cheap ones, 40 to 60 ppm):
+  the station is now found every time and without a PPM value. Before, the first
+  search for the signal succeeded at some frequency errors and failed at others, so
+  the same station played on one attempt and "could not be received" on the next.
+  When that search fails, the decoder now looks where the band actually lies, moves
+  to it and tries again a frame later; errors up to 35 kHz are found
+- An error close to half a carrier is closed faster while the station is being found
+- The help text of the PPM settings says so, in all languages
+
+### v1.3.28
 - DAB with a dongle whose crystal runs more than about 45 ppm fast: the sound came
   in bursts with about a quarter of it missing, as if speeded up. Such a crystal
   also makes every frame some samples too long, and the decoder looked for the next

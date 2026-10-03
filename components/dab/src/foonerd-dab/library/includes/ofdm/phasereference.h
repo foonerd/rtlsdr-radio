@@ -37,6 +37,7 @@ public:
 		~phaseReference	();
 	int32_t	findIndex	(std::complex<float> *, int);
 	int16_t	estimateOffset	(std::complex<float> *);
+	int16_t	estimateBandShift	(std::complex<float> *);
 private:
 	std::vector<std::complex<float>>        refTable;
 	std::vector<float>      phaseDifferences;

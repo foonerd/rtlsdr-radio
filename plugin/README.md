@@ -536,7 +536,13 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.30 (Current)
+### v1.3.31 (Current)
+- FM oversampling is applied at the 171k sample rate only. Combined with a higher rate
+  it asks the dongle for more samples than it can deliver, and the receiver then gives
+  noise at full level (the "do not combine" of the settings' help). The setting is now
+  ignored at 200k, 240k and 300k, with a line in the log, instead of producing that
+
+### v1.3.30
 - A dongle that opens and then delivers no signal (seen on a cheap one after a run of
   starts, until it was unplugged) no longer leaves a station "playing" over silence
   or a start that never ends. Every wait for the dongle has a time limit, for FM and

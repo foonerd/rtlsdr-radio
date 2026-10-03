@@ -154,6 +154,7 @@ function ControllerRtlsdrRadio(context) {
   self.FM_SCAN_TIMEOUT = 30000;      // FM scan timeout (30s)
   self.FM_DEVIATION = 75000;         // Hz: the deviation of a fully modulated FM broadcast
   self.FM_PEAK_DB = -1;              // where that deviation is put, in dB of full scale
+  self.DONGLE_STEADY_RATE = 2800000; // samples a second a dongle delivers without losing any
   self.FM_SURVEY_TIMEOUT = 180000;   // The FM band survey: seconds on a fast board, a minute or two on the slowest
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
   self.DAB_DETECTION_TIMEOUT = 30000; // DAB ensemble detection timeout
@@ -5035,9 +5036,14 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // -F 9: FIR filter size
   var rtlArgs = ['-f', freq + 'M', '-M', 'fm', '-s', fmSampleRate, '-l', '0', '-A', 'std', '-g', String(gain), '-F', '9'];
   
-  // Add oversampling if enabled (helps with strong signals, may reduce RDS quality)
-  if (fmOversampling) {
+  // Add oversampling if enabled (helps with strong signals, may reduce RDS quality).
+  // It asks the dongle for sixteen times the receiver rate: 2.7 million samples a
+  // second at 171k, and more than a dongle delivers at any higher rate, where the
+  // receiver then gives noise at full level. There it is left out.
+  if (fmOversampling && self.fmCanOversample(fmSampleRate)) {
     rtlArgs.splice(6, 0, '-o', '4');
+  } else if (fmOversampling) {
+    self.logger.info('[RTL-SDR Radio] FM oversampling is not used at ' + fmSampleRate + ': the dongle cannot sample that fast');
   }
   
   // Apply de-emphasis based on region settings
@@ -6943,6 +6949,15 @@ ControllerRtlsdrRadio.prototype.fmLevelGain = function(rate) {
     return null;
   }
   return this.FM_PEAK_DB + 20 * Math.log10(hz / this.FM_DEVIATION);
+};
+
+// Whether the dongle can deliver what four times oversampling asks of it at this
+// receiver rate: sixteen times the rate, of the 3.2 million samples a second that are
+// its limit and the 2.8 million it delivers without losing any.
+ControllerRtlsdrRadio.prototype.fmCanOversample = function(rate) {
+  var match = /^(\d+(?:\.\d+)?)(k?)$/i.exec(String(rate).trim());
+  var hz = match ? parseFloat(match[1]) * (match[2] ? 1000 : 1) : 0;
+  return hz > 0 && hz * 16 <= this.DONGLE_STEADY_RATE;
 };
 
 ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {

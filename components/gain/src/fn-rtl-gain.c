@@ -975,11 +975,11 @@ static int survey_file(const struct band *band, const char *path, const char *lo
 	long size = 0, again_size = 0;
 
 	/* as much as the survey listens to */
-	iq = recorded(path, (long)SURVEY_RATE * 2 * LISTEN_MS / 1000, &size);
+	iq = recorded(path, (long)((int64_t)SURVEY_RATE * 2 * LISTEN_MS / 1000), &size);
 	if (iq == NULL)
 		return 1;
 	if (lower_path != NULL)
-		again = recorded(lower_path, (long)SURVEY_RATE * 2 * AGAIN_MS / 1000, &again_size);
+		again = recorded(lower_path, (long)((int64_t)SURVEY_RATE * 2 * AGAIN_MS / 1000), &again_size);
 
 	slice_channels(&slice, band, centre);
 	if (slice.first < 0) {

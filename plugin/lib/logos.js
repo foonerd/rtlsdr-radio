@@ -668,19 +668,22 @@ Logos.prototype._fetchFm = function(job) {
 
   var known = self._country('', pi);
   var listed = known ? self.index.fmDirectory[known + '.' + pi] : null;
+  if (listed && listed.name) {
+    self.onName(station, listed.name);
+  }
   var candidates = radiodns.fmCandidates(pi, station.frequency, self.region(), known);
   if (known) {
     candidates = candidates.filter(function(candidate) { return candidate.gcc === known; });
   }
 
   return (listed ? Promise.resolve(null) : self.lookup.find(candidates)).then(function(found) {
-    var urls = listed ? [listed] : [];
+    var urls = listed ? [listed.url] : [];
     if (found) {
       self.index.gcc['pi-' + pi] = found.gcc;
       self.index.member[key] = found.list;
       urls = found.logos.map(function(logo) { return logo.url; });
       if (urls.length === 0 && self.index.fmDirectory[found.gcc + '.' + pi]) {
-        urls = [self.index.fmDirectory[found.gcc + '.' + pi]];
+        urls = [self.index.fmDirectory[found.gcc + '.' + pi].url];
       }
       if (found.called) {
         self.onName(station, found.called);

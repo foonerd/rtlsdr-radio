@@ -762,8 +762,10 @@ test('the PI code, once RDS has told it, finds the station its name did not', as
   await idle(rig);
   assert.ok(fs.readFileSync(rig.dir + '/fm-08910.png').equals(OTHER_PNG), 'the logo of the programme it is');
   assert.notStrictEqual(rig.logos.icon(fm), before, 'under an address a screen has not seen');
-  // the BBC's list, read for the DAB station, already named the programme: no question asked
+  // the BBC's list, read for the DAB station, already named the programme: no question
+  // asked, and the list says what the station is called
   assert.deepStrictEqual(rig.asked(/^dns .*fm\.radiodns/), []);
+  assert.deepStrictEqual(rig.asked(/^named/), ['named 89.1 BBC Radio 2']);
 });
 
 test('an FM station of a broadcaster whose stations carry its name is shown with the broadcaster\'s logo', async function() {

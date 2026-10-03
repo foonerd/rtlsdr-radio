@@ -180,7 +180,7 @@ function dabServicesOf(siXml) {
 }
 
 // Every FM programme of a list that has a logo, by country and PI code:
-// { '<gcc>.<pi>': logo url }
+// { '<gcc>.<pi>': { url, name } }, name being what the list calls the programme
 function fmServicesOf(siXml) {
   var found = {};
   servicesOf(siXml).forEach(function(service) {
@@ -192,7 +192,7 @@ function fmServicesOf(siXml) {
       }
       logo = logo || bestLogo(multimediaOf(service));
       if (logo) {
-        found[parts[1] + '.' + parts[2]] = logo.url;
+        found[parts[1] + '.' + parts[2]] = { url: logo.url, name: nameOf(service) || null };
       }
     });
   });

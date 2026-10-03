@@ -59,6 +59,8 @@
   "SAVE_FM_SETTINGS": "Bewaar FM-instellingen",
   "ENABLE_DAB": "Toon DAB/DAB+ Radio-configuratie",
   "ENABLE_DAB_DOC": "Schakel om DAB en DAB+ radio-instellingen te tonen",
+  "DAB_GAIN_AUTO": "Automatische DAB-versterking",
+  "DAB_GAIN_AUTO_DOC": "De versterking wordt gemeten telkens wanneer op een zender wordt afgestemd en ingesteld op de hoogste stap die de ontvanger niet overstuurt. Aanbevolen. Schakel uit om de versterking zelf in te stellen.",
   "DAB_GAIN": "DAB Versterking",
   "DAB_GAIN_DOC": "RTL-SDR versterking voor DAB-ontvangst (0-100)",
   "DAB_PPM": "PPM-correctie",

@@ -27,6 +27,7 @@
  */
 
 
+#include	<vector>
 #include	"rtl-sdr.h"
 #include	"rtlsdr-handler.h"
 #include	"device-exceptions.h"
@@ -221,22 +222,21 @@ int16_t	i;
 	(void)(this -> rtlsdr_set_center_freq (device, frequency));
 	usleep(50000);  // 50ms for PLL to lock
 
-	// Now switch to manual gain if not autogain mode
-	if (!autogain) {
-	   rtlsdr_set_agc_mode (device, 0);
-	   rtlsdr_set_tuner_gain_mode (device, 1);  // 1 = manual gain
-	   theGain = gain * gainsCount / 100;
-	   if (theGain < 0)
-	      theGain = 0;
-	   if (theGain >= gainsCount)
-	      theGain = gainsCount - 1;
-	   DEBUG_PRINT ("effective gain: gain %d.%d\n",
-	                                 gains [theGain] / 10,
-	                                 gains [theGain] % 10);
-	   rtlsdr_set_tuner_gain (device, gains [theGain]);
-	} else {
-	   DEBUG_PRINT ("effective gain: auto\n");
-	}
+	// From here the gain is set by hand, by this program: either to the step
+	// asked for, or, in automatic mode, to the step found by measuring
+	// (calibrateGain), each time a frequency is tuned.
+	rtlsdr_set_agc_mode (device, 0);
+	rtlsdr_set_tuner_gain_mode (device, 1);  // 1 = manual gain
+	theGain = autogain ? gainsCount * 4 / 5 : gain * gainsCount / 100;
+	if (theGain < 0)
+	   theGain = 0;
+	if (theGain >= gainsCount)
+	   theGain = gainsCount - 1;
+	DEBUG_PRINT ("effective gain: gain %d.%d%s\n",
+	                              gains [theGain] / 10,
+	                              gains [theGain] % 10,
+	                              autogain ? " (to be measured)" : "");
+	rtlsdr_set_tuner_gain (device, gains [theGain]);
 
 	if ( this	-> deviceOptions && rtlsdr_set_opt_string )
 		rtlsdr_set_opt_string(device, deviceOptions, 1);
@@ -281,14 +281,90 @@ int32_t	r;
 
 	this	-> frequency	= frequency;
         (void)(this -> rtlsdr_set_center_freq (device, frequency));
-	workerHandle = std::thread (controlThread, this);
-	rtlsdr_set_tuner_gain (device, gains [theGain]);
 	if (autogain)
-	   rtlsdr_set_agc_mode (device, 1);
+	   theGain = calibrateGain ();
+	rtlsdr_set_tuner_gain (device, gains [theGain]);
+	(void)(this -> rtlsdr_reset_buffer (device));
+	workerHandle = std::thread (controlThread, this);
 	if ( this	-> deviceOptions && rtlsdr_set_opt_string )
 		rtlsdr_set_opt_string(device, deviceOptions, 1);
 	running	= true;
 	return true;
+}
+
+//
+//	The gain set by what the converter sees, in place of a number someone has to
+//	guess. A signal is received best when it fills the converter's range: with too
+//	little gain it is lost in the rounding of an eight bit converter, with too much
+//	its peaks are cut off. So the gain is put to the highest step of the tuner at
+//	which next to none of the samples touch the ends of the range. It is found by
+//	walking from the step it stands at, a few milliseconds of signal at each, before
+//	reception starts, and is then left alone.
+//
+//	The tuner's own automatic gain is not used. Measured on an R828D with a DAB
+//	ensemble, it left a fifth of all samples cut off and the ensemble unreadable.
+int16_t	rtlsdrHandler::calibrateGain (void) {
+const int	blockSize	= 16384;	// 4 ms of signal
+const double	tooMuch		= 0.005;	// the share of samples at the ends of the range
+std::vector<uint8_t> block (blockSize);
+int16_t	index		= theGain;
+int16_t	chosen		= theGain;
+int16_t	direction	= 0;
+double	share		= 0;
+double	level		= 0;
+double	chosenShare	= 0;
+double	chosenLevel	= 0;
+
+	if ((rtlsdr_read_sync == NULL) || (gainsCount <= 0))
+	   return theGain;
+	if ((index < 0) || (index >= gainsCount))
+	   index = chosen = gainsCount * 4 / 5;
+
+	for (int step = 0; step < gainsCount; step ++) {
+	   int	got	= 0;
+	   rtlsdr_set_tuner_gain (device, gains [index]);
+	   usleep (20000);			// the tuner settles
+	   (void)(this -> rtlsdr_reset_buffer (device));
+//	   the first block still holds samples of the step before
+	   (void)(this -> rtlsdr_read_sync (device, block. data (), blockSize, &got));
+	   if ((this -> rtlsdr_read_sync (device, block. data (),
+	                                  blockSize, &got) < 0) ||
+	       (got < blockSize / 2))
+	      break;			// nothing to measure with: the step it stands at
+
+	   int	atTheEnds	= 0;
+	   double	sum	= 0;
+	   for (int i = 0; i < got; i ++) {
+	      if ((block [i] == 0) || (block [i] == 255))
+	         atTheEnds ++;
+	      sum += block [i] > 127 ? block [i] - 127.5 : 127.5 - block [i];
+	   }
+	   share	= (double)atTheEnds / got;
+	   level	= sum / got;
+
+	   if (share > tooMuch) {	// peaks cut off: less gain
+	      if (direction > 0)
+	         break;			// the step before, already chosen, was the one
+	      if (index == 0) {
+	         chosen = 0; chosenShare = share; chosenLevel = level;
+	         break;
+	      }
+	      direction	= -1;
+	      index --;
+	   }
+	   else {			// room left: this step will do, a higher one may too
+	      chosen = index; chosenShare = share; chosenLevel = level;
+	      if ((direction < 0) || (index == gainsCount - 1))
+	         break;
+	      direction	= 1;
+	      index ++;
+	   }
+	}
+
+	fprintf (stderr, "GAIN: %d.%d dB (step %d of %d), level %.1f of 127, cut off %.2f%%\n",
+	                 gains [chosen] / 10, gains [chosen] % 10,
+	                 chosen + 1, gainsCount, chosenLevel, chosenShare * 100);
+	return chosen;
 }
 
 void	rtlsdrHandler::stopReader	(void) {
@@ -442,6 +518,9 @@ bool	rtlsdrHandler::load_rtlFunctions (void) {
 	   DEBUG_PRINT ("Could not find rtlsdr_reset_buffer\n");
 	   return false;
 	}
+
+	rtlsdr_read_sync	= (pfnrtlsdr_read_sync)
+	                     GETPROCADDRESS (Handle, "rtlsdr_read_sync");
 
 	rtlsdr_read_async	= (pfnrtlsdr_read_async)
 	                     GETPROCADDRESS (Handle, "rtlsdr_read_async");

@@ -407,6 +407,7 @@
         "label": "TRANSLATE.SAVE_DAB_SETTINGS",
         "data": [
           "dab_enabled",
+          "dab_gain_auto",
           "dab_gain",
           "dab_ppm"
         ]
@@ -420,14 +421,25 @@
           "doc": "TRANSLATE.ENABLE_DAB_DOC"
         },
         {
+          "id": "dab_gain_auto",
+          "element": "switch",
+          "label": "TRANSLATE.DAB_GAIN_AUTO",
+          "doc": "TRANSLATE.DAB_GAIN_AUTO_DOC",
+          "value": true,
+          "visibleIf": {
+            "field": "dab_enabled",
+            "value": true
+          }
+        },
+        {
           "id": "dab_gain",
           "element": "input",
           "label": "TRANSLATE.DAB_GAIN",
           "value": 80,
           "doc": "TRANSLATE.DAB_GAIN_DOC",
           "visibleIf": {
-            "field": "dab_enabled",
-            "value": true
+            "field": "dab_gain_auto",
+            "value": false
           }
         },
         {

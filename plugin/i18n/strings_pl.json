@@ -59,6 +59,8 @@
   "SAVE_FM_SETTINGS": "Zapisz ustawienia FM",
   "ENABLE_DAB": "Pokaż konfigurację radia DAB/DAB+",
   "ENABLE_DAB_DOC": "Przełącz, aby pokazać ustawienia radia DAB i DAB+",
+  "DAB_GAIN_AUTO": "Automatyczne wzmocnienie DAB",
+  "DAB_GAIN_AUTO_DOC": "Wzmocnienie jest mierzone przy każdym dostrojeniu stacji i ustawiane na najwyższy stopień, który nie przesterowuje odbiornika. Zalecane. Wyłącz, aby ustawić wzmocnienie samodzielnie.",
   "DAB_GAIN": "Wzmocnienie DAB",
   "DAB_GAIN_DOC": "Wzmocnienie RTL-SDR dla odbioru DAB (0-100)",
   "DAB_PPM": "Korekcja PPM",

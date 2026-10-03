@@ -153,8 +153,25 @@ test('DAB straight after FM: the FM chain is gone before the DAB decoder starts'
 
 test('DAB: the service name reaches the decoder exactly, trailing spaces included', async function() {
   var args = fs.readFileSync('/tmp/fake-args-fn-dab', 'utf8').split('\n');
-  assert.deepStrictEqual(args.slice(0, 6), ['-C', '12B', '-P', DAB_NAME, '-G', '80']);
-  assert.deepStrictEqual(args.slice(6, 10), ['-D', '30', '-i', '/tmp/dab/']);
+  // The gain is measured by the decoder itself unless the user has set a step
+  assert.deepStrictEqual(args.slice(0, 5), ['-C', '12B', '-P', DAB_NAME, '-Q']);
+  assert.deepStrictEqual(args.slice(5, 9), ['-D', '30', '-i', '/tmp/dab/']);
+});
+
+test('DAB: with automatic gain switched off, the step the user set reaches the decoder', async function() {
+  plugin.config.set('dab_gain_auto', false);
+  plugin.config.set('dab_gain', 70);
+  try {
+    await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+    await sleep(300);
+    var args = fs.readFileSync('/tmp/fake-args-fn-dab', 'utf8').split('\n');
+    assert.deepStrictEqual(args.slice(0, 6), ['-C', '12B', '-P', DAB_NAME, '-G', '70']);
+    assert.deepStrictEqual(plugin.dabGainArgs(), ['-G', '70']);
+  } finally {
+    plugin.config.set('dab_gain_auto', true);
+    assert.deepStrictEqual(plugin.dabGainArgs(), ['-Q']);
+    await plugin.stop();
+  }
 });
 
 test('DAB: a name full of shell characters is an argument and nothing else', async function() {

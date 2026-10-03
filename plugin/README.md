@@ -481,7 +481,18 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.15 (Current)
+### v1.3.16 (Current)
+- DAB gain is measured instead of guessed. Every time a station is tuned, and at every
+  channel of a scan, the decoder sets the gain to the highest step at which the signal
+  does not overload the receiver. A gain set too low leaves a DAB signal in the noise
+  of the receiver itself: audio may still play while text arrives damaged, pictures do
+  not arrive, and weak ensembles are not found
+- New setting "Automatic DAB gain" (Settings > DAB), on by default. Switched off, the
+  gain step set by hand is used as before
+- The tuner's own automatic gain is not used: measured on an RTL-SDR Blog V4 it
+  overloads the receiver until an ensemble cannot be read
+
+### v1.3.15
 - DAB text is put together only from pieces that arrive intact. On a weak signal a text
   used to appear with letters missing or with two texts run together; it now appears
   whole, a little later, or not at all

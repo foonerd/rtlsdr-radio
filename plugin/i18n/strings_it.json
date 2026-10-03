@@ -59,6 +59,8 @@
   "SAVE_FM_SETTINGS": "Salva impostazioni FM",
   "ENABLE_DAB": "Mostra configurazione radio DAB/DAB+",
   "ENABLE_DAB_DOC": "Attiva/disattiva per mostrare le impostazioni radio DAB e DAB+",
+  "DAB_GAIN_AUTO": "Guadagno DAB automatico",
+  "DAB_GAIN_AUTO_DOC": "Il guadagno viene misurato ogni volta che si sintonizza una stazione e impostato sul livello più alto che non sovraccarica il ricevitore. Consigliato. Disattivare per impostare il guadagno manualmente.",
   "DAB_GAIN": "Guadagno DAB",
   "DAB_GAIN_DOC": "Guadagno RTL-SDR per la ricezione DAB (0-100)",
   "DAB_PPM": "Correzione PPM",

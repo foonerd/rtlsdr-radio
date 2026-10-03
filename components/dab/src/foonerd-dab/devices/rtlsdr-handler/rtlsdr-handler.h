@@ -66,6 +66,7 @@ typedef	int (*  pfnrtlsdr_read_async) (rtlsdr_dev_t *,
 	                               uint32_t,
 	                               uint32_t);
 typedef int (*  pfnrtlsdr_cancel_async) (rtlsdr_dev_t *);
+typedef int (*  pfnrtlsdr_read_sync) (rtlsdr_dev_t *, void *, int, int *);
 typedef int (*  pfnrtlsdr_set_direct_sampling) (rtlsdr_dev_t *, int);
 typedef uint32_t (*  pfnrtlsdr_get_device_count) (void);
 typedef	int (* pfnrtlsdr_set_freq_correction)(rtlsdr_dev_t *, int);
@@ -137,6 +138,8 @@ private:
 	pfnrtlsdr_get_tuner_gain rtlsdr_get_tuner_gain;
 	pfnrtlsdr_reset_buffer rtlsdr_reset_buffer;
 	pfnrtlsdr_cancel_async rtlsdr_cancel_async;
+	pfnrtlsdr_read_sync	rtlsdr_read_sync;
+	int16_t		calibrateGain	(void);
 	pfnrtlsdr_set_direct_sampling	rtlsdr_set_direct_sampling;
 	pfnrtlsdr_get_device_count rtlsdr_get_device_count;
 	pfnrtlsdr_set_freq_correction rtlsdr_set_freq_correction;

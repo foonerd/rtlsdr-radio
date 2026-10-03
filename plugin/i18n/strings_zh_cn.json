@@ -59,6 +59,8 @@
   "SAVE_FM_SETTINGS": "保存 FM 设置",
   "ENABLE_DAB": "显示 DAB/DAB+ 收音机配置",
   "ENABLE_DAB_DOC": "切换显示 DAB 和 DAB+ 收音机设置",
+  "DAB_GAIN_AUTO": "DAB 自动增益",
+  "DAB_GAIN_AUTO_DOC": "每次调谐电台时都会测量增益，并设为不使接收机过载的最高一档。推荐使用。关闭后可自行设置增益。",
   "DAB_GAIN": "DAB 增益",
   "DAB_GAIN_DOC": "DAB 接收的 RTL-SDR 增益 (0-100)",
   "DAB_PPM": "PPM校正",

@@ -1915,14 +1915,13 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
             self.logger.info('[RTL-SDR Radio] Validating DAB channel ' + targetChannel + ' (' + channelIndex + '/' + totalChannels + ')');
             
             // Get DAB settings from config
-            var validationGain = self.numberSetting('dab_gain', 80);
             var validationPpm = self.numberSetting('dab_ppm', 0);
             
             // Use script to create pseudo-TTY, forcing line-buffered stdout
             // This ensures stdout data flushes immediately instead of being block-buffered.
-            // script takes one command line; it is built from a channel of the fixed list
-            // and two numbers, nothing else.
-            var scanCommand = 'fn-dab-scanner -C ' + targetChannel + ' -G ' + validationGain +
+            // script takes one command line; it is built from a channel of the fixed list,
+            // the gain option (-Q, or -G and a number) and a number, nothing else.
+            var scanCommand = 'fn-dab-scanner -C ' + targetChannel + ' ' + self.dabGainArgs().join(' ') +
                               (validationPpm !== 0 ? ' -p ' + validationPpm : '');
             var output = '';
             var targetChannelFound = false;
@@ -2648,6 +2647,11 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
       dabEnabled.value = self.config.get('dab_enabled', false);
     }
     
+    var dabGainAuto = findContentItem(dabSection, 'dab_gain_auto');
+    if (dabGainAuto) {
+      dabGainAuto.value = self.config.get('dab_gain_auto', true);
+    }
+    
     var dabGain = findContentItem(dabSection, 'dab_gain');
     if (dabGain) {
       dabGain.value = self.config.get('dab_gain', 80);
@@ -3077,7 +3081,10 @@ ControllerRtlsdrRadio.prototype.saveDabSettings = function(data) {
       self.config.set('dab_enabled', data.dab_enabled);
     }
     
-    // Save DAB gain
+    // Save DAB gain: measured, or the step set here
+    if (data.dab_gain_auto !== undefined) {
+      self.config.set('dab_gain_auto', data.dab_gain_auto === true || data.dab_gain_auto === 'true');
+    }
     if (data.dab_gain !== undefined) {
       var dabGain = parseInt(data.dab_gain);
       if (!isNaN(dabGain) && dabGain >= 0 && dabGain <= 100) {
@@ -6419,6 +6426,15 @@ ControllerRtlsdrRadio.prototype.restartBackend = function() {
   }
 };
 
+// The gain the DAB decoder and the scanner are started with: measured by the tool itself
+// every time it tunes (the default), or the step the user has set.
+ControllerRtlsdrRadio.prototype.dabGainArgs = function() {
+  if (this.config.get('dab_gain_auto', true)) {
+    return ['-Q'];
+  }
+  return ['-G', String(this.numberSetting('dab_gain', 80))];
+};
+
 // A number from the configuration, whatever type it was stored as.
 ControllerRtlsdrRadio.prototype.numberSetting = function(key, fallback) {
   var value = Number(this.config.get(key, fallback));
@@ -6560,6 +6576,9 @@ ControllerRtlsdrRadio.prototype.saveConfig = function(data) {
     if (!isNaN(fmGain) && fmGain >= 0 && fmGain <= 100) {
       self.config.set('fm_gain', fmGain);
     }
+  }
+  if (data.dab_gain_auto !== undefined) {
+    self.config.set('dab_gain_auto', data.dab_gain_auto === true || data.dab_gain_auto === 'true');
   }
   if (data.dab_gain !== undefined) {
     var dabGain = parseInt(data.dab_gain);
@@ -7906,15 +7925,14 @@ ControllerRtlsdrRadio.prototype.scanDab = function() {
       var scanFile = '/tmp/dab_scan_' + Date.now() + '.json';
       
       // Get DAB settings from config
-      var dabGain = self.numberSetting('dab_gain', 80);
       var dabPpm = self.numberSetting('dab_ppm', 0);
       
       // fn-dab-scanner:
       // -B BAND_III = Scan Band III (European DAB standard, 174-240 MHz)
-      // -G <gain> = Tuner gain (0-49.6, higher = more sensitive)
+      // -Q = gain measured by the scanner at every channel, or -G <gain> = the step set by the user
       // -p <ppm> = Frequency correction for cheap dongles
       // -j = JSON output format, written to the scan file through the scanner's stdout
-      var scanArgs = ['-B', 'BAND_III', '-G', String(dabGain)];
+      var scanArgs = ['-B', 'BAND_III'].concat(self.dabGainArgs());
       if (dabPpm !== 0) {
         scanArgs.push('-p', String(dabPpm));
       }
@@ -8197,7 +8215,6 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
   }
   
   // Get DAB settings from config
-  var dabGain = self.numberSetting('dab_gain', 80);
   var dabPpm = self.numberSetting('dab_ppm', 0);
   
   // Clear intentional stop flag when starting new playback
@@ -8215,7 +8232,7 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
   // -i <dir> = Metadata output directory (DLS text)
   // The arguments are handed over as they are, with no shell in between, so the
   // service name reaches the decoder exactly as it was broadcast.
-  var dabArgs = ['-C', channel, '-P', serviceName, '-G', String(dabGain)];
+  var dabArgs = ['-C', channel, '-P', serviceName].concat(self.dabGainArgs());
   if (dabPpm !== 0) {
     dabArgs.push('-p', String(dabPpm));
   }
@@ -8239,6 +8256,13 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
   // Capture stderr to detect PCM format
   dabProcess.stderr.on('data', function(data) {
     var output = data.toString();
+    
+    // The gain the decoder has measured and set for this ensemble
+    var gainMatch = output.match(/GAIN: ([^\n]*)/);
+    if (gainMatch) {
+      self.lastDabGain = { channel: channel, measured: gainMatch[1].trim(), at: new Date().toISOString() };
+      self.logger.info('[RTL-SDR Radio] DAB gain on ' + channel + ', set by measurement: ' + self.lastDabGain.measured);
+    }
     
     // Look for PCM format line: "PCM: rate=32000 stereo=0 size=3840"
     var pcmMatch = output.match(/PCM: rate=(\d+) stereo=(\d+)/);

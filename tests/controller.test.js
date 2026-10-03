@@ -283,6 +283,36 @@ test('saving stations through the manager: a broken list is refused and nothing 
   assert.ok(fs.existsSync(CONFIG_DIR + '/stations.json'));
 });
 
+test('the playing queue item carries the artwork of the moment, and the station\'s icon again after the stop', async function() {
+  // Volumio shows the artwork of the queue item, not that of the state it is given
+  var track = dabTrack(DAB_NAME);
+  var icon = '/albumart?sourceicon=music_service/rtlsdr_radio/assets/dab.svg';
+  var item = { service: 'rtlsdr_radio', uri: track.uri, albumart: icon };
+  var other = { service: 'mpd', uri: 'mnt/x.mp3', albumart: '/albumart?path=x' };
+  coreCommand.stateMachine.playQueue = { arrayQueue: [other, item] };
+  coreCommand.stateMachine.currentPosition = 1;
+
+  states.length = 0;
+  await plugin.clearAddPlayTrack(track);
+  await sleep(300);
+  assert.ok(states.length > 0);
+  plugin.pushPlayingState(Object.assign({}, states[states.length - 1], { albumart: '/albumart?web=Artist/Album/extralarge' }));
+  assert.strictEqual(item.albumart, '/albumart?web=Artist/Album/extralarge');
+  assert.strictEqual(other.albumart, '/albumart?path=x', 'no other item is touched');
+
+  await plugin.stop();
+  assert.strictEqual(item.albumart, icon);
+
+  // An item that is not this plugin's is left alone, whatever is pushed
+  coreCommand.stateMachine.currentPosition = 0;
+  await plugin.clearAddPlayTrack(track);
+  await sleep(300);
+  assert.strictEqual(other.albumart, '/albumart?path=x');
+  await plugin.stop();
+  delete coreCommand.stateMachine.playQueue;
+  delete coreCommand.stateMachine.currentPosition;
+});
+
 test('station logos through the manager: the state is told, a refresh is taken, and no network is no error', async function() {
   var station = { channel: '12B', exactName: DAB_NAME, name: 'BBC Radio1', ensemble: 'BBC National DAB',
     ensembleId: 'CE15', serviceId: 'C221', deleted: false };

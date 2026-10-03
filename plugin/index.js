@@ -5945,6 +5945,7 @@ ControllerRtlsdrRadio.prototype.stop = function() {
   // Volumio no longer takes its state from this plugin. The station stays the current
   // item of its queue, so "play" starts it again.
   self.playingJob = null;
+  self.restoreQueueItem();
   self.commandRouter.stateMachine.setConsumeUpdateService(undefined);
   
   // Resolved when the processes are gone and the dongle is free
@@ -5964,7 +5965,52 @@ ControllerRtlsdrRadio.prototype.pushPlayingState = function(state) {
   // lives. A station has no duration; it is left out rather than given as zero.
   var pushed = Object.assign({}, state);
   delete pushed.duration;
+  self.showOnQueueItem(pushed);
   self.commandRouter.servicePushState(pushed, 'rtlsdr_radio');
+};
+
+// Volumio shows the artwork of the queue item, not that of the state it is given. The
+// item of the station being played is therefore given the artwork of the moment, as
+// other radio plugins do, and its own icon back when the station stops.
+ControllerRtlsdrRadio.prototype.showOnQueueItem = function(state) {
+  var self = this;
+  var item = null;
+  try {
+    var machine = self.commandRouter.stateMachine;
+    item = machine.playQueue.arrayQueue[machine.currentPosition];
+  } catch (e) {
+    // No queue to be found: the state alone has to do
+  }
+  if (!item || item.service !== 'rtlsdr_radio' || item.uri !== state.uri || !state.albumart) {
+    return;
+  }
+  if (self.shownOn && self.shownOn.item !== item) {
+    self.restoreQueueItem();
+  }
+  if (!self.shownOn) {
+    self.shownOn = { item: item, albumart: item.albumart };
+  }
+  item.albumart = state.albumart;
+};
+
+ControllerRtlsdrRadio.prototype.restoreQueueItem = function() {
+  var self = this;
+  var shown = self.shownOn;
+  self.shownOn = null;
+  if (!shown) {
+    return;
+  }
+  // A DAB station's logo may have arrived while the station played
+  var icon = null;
+  var dab = /^rtlsdr:\/\/dab\/([^\/]+)\/(.+)$/.exec(String(shown.item.uri));
+  if (dab) {
+    try {
+      icon = self.logos.icon(self.findDabStation(dab[1], decodeURIComponent(dab[2])));
+    } catch (e) {
+      // not a name that can be read back: the artwork the item came with
+    }
+  }
+  shown.item.albumart = icon ? '/albumart?sourceicon=' + icon : shown.albumart;
 };
 
 ControllerRtlsdrRadio.prototype.pause = function() {

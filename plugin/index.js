@@ -54,6 +54,7 @@ function ControllerRtlsdrRadio(context) {
   // DAB DLS metadata state tracking
   self.currentDls = null;
   self.lastDlsLabel = '';
+  self.lastRawLabel = null;
   self.lastDlsUpdate = 0;
   self.lastDabState = null;
   self.dlsMonitorInterval = null;
@@ -1884,6 +1885,12 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
                   total: totalChannels
                 };
               } else {
+                // Only what the scanner said while on the target channel counts
+                var left = output.search(new RegExp('checking data in channel (?!' + targetChannel + '\\b)[A-Z0-9]+'));
+                if (left !== -1) {
+                  output = output.slice(0, left);
+                }
+                
                 // Check for ensemble recognition (indicates successful sync)
                 var syncDetected = /ensemble.*is \([A-Z0-9]+\) recognized/.test(output);
                 
@@ -1937,52 +1944,45 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
               endScanner('Validation timeout for channel ' + targetChannel);
             }, self.DAB_DETECTION_TIMEOUT);
             
-            if (scanner.stdout) {
-              scanner.stdout.on('data', function(data) {
-                var chunk = data.toString();
-                output += chunk;
-                
-                // Log stdout for visibility
-                chunk.split('\n').forEach(function(line) {
-                  if (line.trim()) {
-                    self.logger.info('[RTL-SDR Radio] fn-dab-scanner: ' + line);
-                  }
-                });
-                
-                // Check for completion marker (summary line) - this appears on stdout
-                if (chunk.indexOf('; channel ' + targetChannel + ';') !== -1) {
-                  endScanner('Channel ' + targetChannel + ' validation complete, terminating scanner');
+            // The scanner runs under script, so what it writes to its two streams arrives
+            // as one. Both signs are therefore looked for in everything received so far:
+            // the summary line of the target channel, and the scanner moving on to another
+            // channel (which it does at once when the target carries no ensemble).
+            function inspect(data, visible) {
+              var chunk = data.toString();
+              output += chunk;
+              
+              chunk.split('\n').forEach(function(line) {
+                if (line.trim() && !line.includes('No database available')) {
+                  self.logger.info('[RTL-SDR Radio] fn-dab-scanner: ' + line);
                 }
               });
+              
+              if (output.indexOf('; channel ' + targetChannel + ';') !== -1) {
+                endScanner('Channel ' + targetChannel + ' validation complete, terminating scanner');
+                return;
+              }
+              
+              var checked = output.match(/checking data in channel [A-Z0-9]+/g) || [];
+              var onTarget = 'checking data in channel ' + targetChannel;
+              if (checked.indexOf(onTarget) !== -1) {
+                if (!targetChannelFound) {
+                  targetChannelFound = true;
+                  self.logger.info('[RTL-SDR Radio] Started checking channel ' + targetChannel);
+                }
+                var latest = checked[checked.length - 1];
+                if (latest !== onTarget) {
+                  // Whether the target had a signal or not, the scanner has left it
+                  endScanner('Scanner moved to ' + latest.replace('checking data in ', '') + ', terminating');
+                }
+              }
             }
             
+            if (scanner.stdout) {
+              scanner.stdout.on('data', inspect);
+            }
             if (scanner.stderr) {
-              scanner.stderr.on('data', function(data) {
-                var chunk = data.toString();
-                output += chunk;
-                
-                // Log stderr for visibility
-                chunk.split('\n').forEach(function(line) {
-                  if (line.trim() && !line.includes('No database available')) {
-                    self.logger.info('[RTL-SDR Radio] fn-dab-scanner: ' + line);
-                  }
-                });
-                
-                // Monitor for channel switching (appears on stderr)
-                var channelMatch = chunk.match(/checking data in channel ([A-Z0-9]+)/);
-                if (channelMatch) {
-                  var currentChannel = channelMatch[1];
-                  
-                  if (currentChannel === targetChannel) {
-                    targetChannelFound = true;
-                    self.logger.info('[RTL-SDR Radio] Started checking channel ' + targetChannel);
-                  } else if (targetChannelFound) {
-                    // Scanner moved away from target channel - end it now
-                    // This handles both cases: signal found OR no signal (scanner skipped)
-                    endScanner('Scanner moved to channel ' + currentChannel + ', terminating');
-                  }
-                }
-              });
+              scanner.stderr.on('data', inspect);
             }
           }
         })
@@ -4815,6 +4815,7 @@ ControllerRtlsdrRadio.prototype.parseRadioText = function(radiotext) {
 // Handle RDS data update from fn-redsea
 ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationName) {
   var self = this;
+  var signalChanged = false;
   
   // Merge new RDS data with existing
   if (!self.currentRds) {
@@ -4833,6 +4834,9 @@ ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationNam
     else if (bler < 30) signalLevel = 3;
     else if (bler < 50) signalLevel = 2;
     else signalLevel = 1;
+    if (signalLevel !== self.currentRds.signalLevel) {
+      signalChanged = true;
+    }
     self.currentRds.signalLevel = signalLevel;
     self.currentRds.signalPercent = Math.max(0, 100 - bler);
   }
@@ -4897,6 +4901,11 @@ ControllerRtlsdrRadio.prototype.handleRdsUpdate = function(rds, freq, stationNam
   // Handle TMC traffic alerts (separate from state updates)
   if (rds.tmc && rds.tmc.message && rds.tmc.message.description) {
     self.handleTmcAlert(rds.tmc);
+  }
+  
+  // The tune level is shown as it changes, not only with the next text
+  if (signalChanged && !(psChanged || rtChanged || rtPlusChanged)) {
+    self.pushRdsState(freq, stationName);
   }
   
   // Only push state if meaningful data changed
@@ -5444,6 +5453,7 @@ ControllerRtlsdrRadio.prototype.startDabDlsMonitor = function() {
   // Reset DLS state
   self.currentDls = null;
   self.lastDlsLabel = '';
+  self.lastRawLabel = null;
   self.lastDlsUpdate = 0;
   self.lastDabState = null;
   self.currentDabSignal = null;
@@ -5574,7 +5584,12 @@ ControllerRtlsdrRadio.prototype.handleDabDls = function(label, dlPlusData) {
   
   // Check if label changed
   if (rawLabel === self.lastRawLabel) {
-    return;  // No change
+    // Same text. The monitor calls this for a change of the tune level too, which is
+    // shown as it changes, not only with the next text.
+    if (self.currentDls) {
+      self.pushDabState();
+    }
+    return;
   }
   self.lastRawLabel = rawLabel;
   
@@ -5902,7 +5917,12 @@ ControllerRtlsdrRadio.prototype.pushPlayingState = function(state) {
   if (!job || self.tuner.current !== job || job.stopping || job.finished) {
     return;
   }
-  self.commandRouter.servicePushState(state, 'rtlsdr_radio');
+  // Volumio relabels any consumed state whose duration is zero as a generic web radio
+  // and blanks its track type and sample rate, which is where the signal indicator
+  // lives. A station has no duration; it is left out rather than given as zero.
+  var pushed = Object.assign({}, state);
+  delete pushed.duration;
+  self.commandRouter.servicePushState(pushed, 'rtlsdr_radio');
 };
 
 ControllerRtlsdrRadio.prototype.pause = function() {
@@ -5948,6 +5968,7 @@ ControllerRtlsdrRadio.prototype.stopDecoder = function() {
   self.stablePs = null;
   self.currentDls = null;
   self.lastDlsLabel = '';
+  self.lastRawLabel = null;
   self.lastDabState = null;
   self.currentDabStation = null;
   self.lastValidAlbumart = null;

@@ -1,0 +1,4 @@
+usr/include
+usr/lib/*/libfn-rtlsdr.so
+usr/lib/*/libfn-rtlsdr.a
+usr/lib/*/pkgconfig/libfn-rtlsdr.pc

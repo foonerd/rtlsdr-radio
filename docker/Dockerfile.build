@@ -1,0 +1,14 @@
+# Build environment for all components. One image per target, differing only in BASE.
+ARG BASE=debian:bookworm
+FROM ${BASE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates file git pkg-config \
+      cmake debhelper fakeroot libusb-1.0-0-dev \
+      libfaad-dev libfftw3-dev libsamplerate0-dev libsndfile1-dev portaudio19-dev zlib1g-dev \
+      autoconf automake libtool meson ninja-build nlohmann-json3-dev libmp3lame-dev libmpg123-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work

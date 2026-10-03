@@ -1,0 +1,16 @@
+foonerd-rtlsdr (1.0.1-1) bookworm; urgency=medium
+
+  * Built from the rtlsdr-radio repository, upstream pinned by commit
+  * The arm packages are built for ARMv6 (Raspberry Pi Zero and Pi 1 upward)
+
+ -- fooNerd (Just a Nerd) <nerd@foonerd.com>  Sat, 03 Oct 2026 12:00:00 +0000
+
+foonerd-rtlsdr (1.0.0-1) bookworm; urgency=medium
+
+  * Initial fooNerd release
+  * Custom build from osmocom/rtl-sdr source
+  * Binary prefix: fn-*
+  * Library name: libfn-rtlsdr0
+  * For Volumio RTL-SDR Radio plugin
+
+ -- fooNerd (Just a Nerd) <nerd@foonerd.com>  Sat, 23 Nov 2024 10:00:00 +0000

@@ -1,0 +1,37 @@
+#!/usr/bin/make -f
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+export DEB_HOST_MULTIARCH
+
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure: debian/libfn-rtlsdr0.udev
+	dh_auto_configure --buildsystem=cmake -- \
+		-DCMAKE_CROSSCOMPILING=TRUE \
+		-DTHREADS_PTHREAD_ARG=0 \
+		-DCMAKE_THREAD_LIBS_INIT=-lpthread \
+		-DCMAKE_HAVE_THREADS_LIBRARY=1 \
+		-DCMAKE_USE_PTHREADS_INIT=1 \
+		-DDETACH_KERNEL_DRIVER=ON \
+		-DINSTALL_UDEV_RULES=ON \
+		-DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+debian/libfn-rtlsdr0.udev: rtl-sdr.rules
+	cp -p rtl-sdr.rules debian/libfn-rtlsdr0.udev
+
+override_dh_auto_install:
+	dh_auto_install
+	# Rename binaries to fn-* prefix
+	cd debian/tmp/usr/bin && \
+	for f in rtl_*; do \
+		mv "$$f" "fn-$$f"; \
+	done
+	# Rename pkg-config file
+	cd debian/tmp/usr/lib/*/pkgconfig && \
+	mv librtlsdr.pc libfn-rtlsdr.pc
+
+override_dh_fixperms:
+	dh_fixperms || true
+
+override_dh_install:
+	dh_install

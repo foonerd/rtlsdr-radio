@@ -1,0 +1,29 @@
+# Raspbian bookworm root for the "arm" target (ARMv6 hard-float).
+#
+# Volumio's universal Raspberry Pi image takes its userland from Raspbian, whose
+# packages, start files and compiler defaults are ARMv6 with VFP2. Debian's armhf
+# is ARMv7 with Thumb-2, so anything linked there cannot run on a Pi Zero or Pi 1.
+# Building inside this root makes every linked object ARMv6.
+
+FROM --platform=$BUILDPLATFORM debian:bookworm AS bootstrap
+ARG RASPBIAN_MIRROR=http://archive.raspbian.org/raspbian
+ARG RASPBIAN_KEY_FINGERPRINT=A0DA38D0D76E8B5D638872819165938D90FDDD2E
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends debootstrap ca-certificates curl gnupg \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://archive.raspbian.org/raspbian.public.key -o /tmp/raspbian.asc \
+ && gpg --batch --show-keys --with-colons /tmp/raspbian.asc | grep -q "^fpr:::::::::${RASPBIAN_KEY_FINGERPRINT}:" \
+ && gpg --batch --dearmor -o /usr/share/keyrings/raspbian-archive-keyring.gpg /tmp/raspbian.asc
+RUN debootstrap --arch=armhf --foreign --variant=minbase \
+      --keyring=/usr/share/keyrings/raspbian-archive-keyring.gpg \
+      bookworm /rootfs "${RASPBIAN_MIRROR}"
+
+FROM scratch
+ARG RASPBIAN_MIRROR=http://archive.raspbian.org/raspbian
+COPY --from=bootstrap /rootfs /
+# The second stage installs raspbian-archive-keyring, which apt then trusts.
+RUN /debootstrap/debootstrap --second-stage \
+ && test -s /usr/share/keyrings/raspbian-archive-keyring.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/raspbian-archive-keyring.gpg] ${RASPBIAN_MIRROR} bookworm main" > /etc/apt/sources.list \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+CMD ["/bin/bash"]

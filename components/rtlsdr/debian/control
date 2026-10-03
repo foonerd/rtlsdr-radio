@@ -1,0 +1,49 @@
+Source: foonerd-rtlsdr
+Section: comm
+Priority: optional
+Maintainer: fooNerd (Just a Nerd) <nerd@foonerd.com>
+Build-Depends: cmake,
+               debhelper (>= 10~),
+               libusb-1.0-0-dev,
+               pkg-config
+Standards-Version: 4.1.4
+Homepage: https://github.com/foonerd/rtlsdr-radio
+
+Package: libfn-rtlsdr-dev
+Section: libdevel
+Architecture: any
+Depends: libfn-rtlsdr0 (= ${binary:Version}),
+         libusb-1.0-0-dev,
+         ${misc:Depends}
+Description: fooNerd RTL-SDR library (development files)
+ Software defined radio receiver for Realtek RTL2832U.
+ Custom build by fooNerd for Volumio integration.
+ .
+ This package contains development files.
+
+Package: libfn-rtlsdr0
+Section: libs
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: fooNerd RTL-SDR library (shared library)
+ Software defined radio receiver for Realtek RTL2832U.
+ Custom build by fooNerd for Volumio integration.
+ .
+ This package contains the shared library.
+
+Package: foonerd-rtlsdr
+Architecture: any
+Depends: libfn-rtlsdr0 (= ${binary:Version}), ${misc:Depends}, ${shlibs:Depends}
+Description: fooNerd RTL-SDR tools
+ Software defined radio receiver for Realtek RTL2832U.
+ Custom build by fooNerd for Volumio integration.
+ .
+ Command line utilities with fn- prefix:
+  * fn-rtl_adsb: ADS-B decoder
+  * fn-rtl_eeprom: EEPROM programming tool
+  * fn-rtl_fm: FM demodulator
+  * fn-rtl_sdr: I/Q recorder
+  * fn-rtl_tcp: I/Q spectrum server
+  * fn-rtl_test: benchmark tool
+  * fn-rtl_power: spectrum analyzer
+  * fn-rtl_biast: bias tee control

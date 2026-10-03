@@ -1,0 +1,53 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  components:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [arm, armv7, armv8, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Build ${{ matrix.target }}
+        run: ./build.sh ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: components-${{ matrix.target }}
+          path: out/${{ matrix.target }}
+          if-no-files-found: error
+
+  plugin:
+    needs: components
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: components-*
+          path: artifacts
+      - name: Assemble the plugin
+        run: |
+          mkdir -p out
+          for t in arm armv7 armv8 x64; do mv "artifacts/components-$t" "out/$t"; done
+          scripts/assemble-plugin.sh
+          (cd dist && zip -qr "../rtlsdr_radio-${GITHUB_REF_NAME//\//-}.zip" rtlsdr_radio)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rtlsdr_radio
+          path: rtlsdr_radio-*.zip
+          if-no-files-found: error
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" rtlsdr_radio-*.zip dist/rtlsdr_radio/components.json --title "$GITHUB_REF_NAME" --generate-notes

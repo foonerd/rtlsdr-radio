@@ -220,7 +220,7 @@ Add station-specific phrases as you encounter false matches. The blocklist has s
 A scan measures every channel of the FM band and keeps the ones that are stations.
 
 - The band is taken in slices of 2 MHz, each at its own gain: the highest at which the signal is not cut off and the tuner is not overloaded.
-- A channel counts as a station when it holds more than the channels next to it, the 19 kHz pilot every stereo station sends stands clear of the noise for the whole time it is listened to, and the pilot is still there when the gain is lowered.
+- A channel counts as a station when it holds more than the channels next to it, its carrier lies on the channel, the 19 kHz pilot every stereo station sends stands clear of the noise for the whole time it is listened to, and the pilot is still there when the gain is lowered.
 - That last check tells stations from signals a tuner manufactures when a very strong station nearby overloads it. Such signals look like stations, pilot included, but go when the gain is lowered; a station does not.
 - Each station found is given a reception level from 1 to 5, the same measure the player shows while a station plays.
 - **FM Scan Sensitivity** (Settings > FM) is how far the pilot must stand above the noise, from +3 dB (faint stations too) to +15 dB (very strong ones only).
@@ -349,7 +349,7 @@ The plugin includes diagnostic tools to test your USB dongle before scanning:
 **Understanding Gain Settings**:
 - Gain controls the RTL-SDR RF amplifier, affecting signal-to-noise ratio and overload threshold
 - By default the plugin measures it: for FM once per station (kept for a week, then measured again), for DAB at every tuning. It sets the highest step at which the signal is not cut off in the receiver's converter
-- For FM the tuner is checked for overload as well. A very strong station can overload it from outside the part of the band being received, without the converter showing it; the stations near it are then held down and signals appear that are not on the air. The gain is lowered until every signal in view changes by the same amount when the gain does
+- For FM the tuner is checked for overload as well. A very strong station can overload it from outside the part of the band being received, without the converter showing it; the stations near it are then held down and signals appear that are not on the air. The part of the band in view is compared with how it looks at a gain 20 dB lower, where the tuner has room to spare, and the highest gain is taken at which it still looks the same
 - "Automatic FM gain" and "Automatic DAB gain" in the settings switch this off; the gain set by hand is then used
 - Setting it by hand: lower it if the audio is distorted or stations appear where there are none, raise it if there is no signal
 - Note: This is RF amplification, not volume control
@@ -497,7 +497,15 @@ Just a Nerd
 
 ## Version History
 
-### v1.3.18 (Current)
+### v1.3.19 (Current)
+- The check for an overloaded tuner compares the band with how it looks at a gain
+  20 dB lower and takes the highest gain at which it looks the same. v1.3.18 compared
+  with a gain only 6 dB lower, and a tuner deep in overload looked the same at both:
+  on the test player the gain next to a very strong station was not taken down, and
+  two signals made in the tuner were listed as stations
+- A carrier more than 15 kHz off its channel is not taken for a station
+
+### v1.3.18
 - The FM scan finds stations, not signal strength. Every channel of the band is
   measured and kept only if it carries the pilot of a stereo broadcast, stands above
   the channels next to it, and keeps its pilot when the gain is lowered. The channels

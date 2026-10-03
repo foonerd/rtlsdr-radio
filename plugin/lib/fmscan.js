@@ -19,8 +19,9 @@
 
 var FmQuality = require('./fmquality');
 
-// How far a carrier may lie from the centre of its channel (Hz)
-var OFF_CHANNEL = 25000;
+// How far a carrier may lie from the centre of its channel (Hz). A transmitter is
+// within a kilohertz or two; the reading of a faint station wanders by a few more.
+var OFF_CHANNEL = 15000;
 
 // The pilot must stay within this (dB) of the threshold in its weakest reading
 var MAY_DIP = 4;

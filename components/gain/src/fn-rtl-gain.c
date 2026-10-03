@@ -10,10 +10,12 @@
  * That is not yet the gain to use. A strong station outside the slice the converter
  * sees can overload the tuner's first stages without one sample being cut off: the
  * tuner then manufactures signals that are not on the air, and holds down the ones
- * that are. A receiver that is not overloaded treats every signal alike when its gain
- * is changed; an overloaded one does not. So the slice is looked at with the gain found
- * and with a gain about 6 dB lower, and as long as the signals in it do not all change
- * by the same amount, the gain is taken down a step and the comparison made again.
+ * that are. A receiver that is not overloaded shows the same signals, each as strong
+ * against the others, whatever its gain; an overloaded one does not. So the slice is
+ * first looked at with a gain far below the one found, where the tuner has room to
+ * spare, and the gain taken is the highest at which the slice still looks like that.
+ * (Comparing with a gain only a little lower will not do: a tuner deep in overload
+ * shows the same false picture at both.)
  *
  * The tuner's own automatic gain is not used: measured, it leaves a large share of the
  * samples cut off.
@@ -38,13 +40,16 @@
  * measured against the noise above the programme (62 to 73 kHz): pilot is the middle of
  * the readings, low the least of them, offset how far the carrier lies from the
  * channel's centre. again is the pilot once more with the gain about 6 dB lower: a
- * station keeps its pilot, a signal the tuner manufactured loses it.
+ * station keeps its pilot, a signal the tuner manufactured does not.
  *
- *   fn-rtl-gain -b <low>:<high>:<spacing> -r <file> -c <Hz> [-g <dB>] [-a <file>]
+ *   fn-rtl-gain -b <low>:<high>:<spacing> -r <file> -c <Hz> [-g <dB>] [-a <file> [-l <dB>]]
  *
  * does the same on one slice recorded with rtl_sdr at 2400000 samples per second and
  * centred on -c, instead of a dongle; -g is the gain it was recorded with, -a a second
- * recording of the slice with the gain about 6 dB lower.
+ * recording of the slice with a lower gain. With that gain named (-l) the overload
+ * check is made on the two recordings as well:
+ *   COMPARE: gain=<dB> against=<dB> departure=<dB>
+ * (a departure above 6 dB: the slice does not look the same at the two gains).
  *
  *   fn-rtl-gain -t
  *
@@ -74,14 +79,16 @@
 /* the share of samples at the ends of the converter's range that counts as too much */
 #define TOO_MUCH        0.005
 
-/* the overload check: the lower gain is at least this far down (tenths of a dB) */
-#define COMPARE_DOWN    60
-/* signals that change by amounts further apart than this (dB) are not treated alike */
+/* the overload check: the gain the slice is compared with lies this far down (tenths of a dB) */
+#define REFERENCE_DOWN  200
+/* signals that differ from it by amounts further apart than this (dB) are not treated alike */
 #define DEPARTURE       6.0
-/* a channel takes part in the comparison when it stands this far (dB) above the middle one */
-#define STANDS_OUT      3.0
-/* how much signal the comparison looks at, at each of the two gains */
+/* a channel is judged when it stands this far (dB) above the noise of the low gain */
+#define JUDGED          6.0
+/* how much signal the comparison looks at, at each gain */
 #define COMPARE_MS      60
+/* the pilot is measured again with the gain at least this far down (tenths of a dB) */
+#define AGAIN_DOWN      60
 
 /* the survey: slices of this many samples per second, this far apart */
 #define SURVEY_RATE     2400000
@@ -109,7 +116,7 @@ static void usage(void)
 	fprintf(stderr,
 		"usage: fn-rtl-gain -f <Hz> [-f <Hz> ...] [-s <samples per second>] [-p <ppm>] [-d <device>]\n"
 		"       fn-rtl-gain -b <low>:<high>:<spacing> [-p <ppm>] [-d <device>]\n"
-		"       fn-rtl-gain -b <low>:<high>:<spacing> -r <file> -c <Hz> [-g <dB>] [-a <file>]\n"
+		"       fn-rtl-gain -b <low>:<high>:<spacing> -r <file> -c <Hz> [-g <dB>] [-a <file> [-l <dB>]]\n"
 		"       fn-rtl-gain -t\n");
 }
 
@@ -467,24 +474,22 @@ static int is_top(const double *level, int count, int c)
 }
 
 /*
- * How unlike the signals of a slice change between two gains, in dB: 0 when every one
- * changes by the same amount. high and low are the channel levels at the two gains with
- * the gains taken off; always is a channel that takes part whatever it holds, or -1.
+ * How unlike a slice looks at two gains, in dB: 0 when every signal in it differs by the
+ * same amount. high and low are the channel levels at the two gains with the gains taken
+ * off. Only channels that would stand clear of the noise at the low gain are judged:
+ * a weak station that the low gain loses in the receiver's own noise says nothing.
  */
-static double departure(const double *high, const double *low, int count, int always)
+static double departure(const double *high, const double *low, int count)
 {
 	double change[MAX_CHANNELS];
-	double middle_high = ranked(high, count, 0.5);
-	double middle_low = ranked(low, count, 0.5);
+	double floor_low = ranked(low, count, 0.5);
 	double reference, worst = 0.0;
 	int used = 0;
 	int c;
 
 	for (c = 0; c < count; c++) {
-		int stands = (is_top(high, count, c) && high[c] >= middle_high + STANDS_OUT) ||
-			     (is_top(low, count, c) && low[c] >= middle_low + STANDS_OUT);
-
-		if (stands || c == always)
+		if ((is_top(high, count, c) && high[c] >= floor_low + JUDGED) ||
+		    (is_top(low, count, c) && low[c] >= floor_low + JUDGED))
 			change[used++] = high[c] - low[c];
 	}
 	if (used == 0)
@@ -640,41 +645,52 @@ static int levels_at(struct tuner *tuner, const struct slice *slice, int index, 
 	return 1;
 }
 
-/* The step at least COMPARE_DOWN below, or -1 when the steps do not reach that far down */
-static int step_below(const struct tuner *tuner, int index)
+/* The highest step at least so far (tenths of a dB) below, or -1 when there is none */
+static int step_below(const struct tuner *tuner, int index, int tenths)
 {
 	int lower;
 
 	for (lower = index - 1; lower >= 0; lower--)
-		if (tuner->gains[index] - tuner->gains[lower] >= COMPARE_DOWN)
+		if (tuner->gains[index] - tuner->gains[lower] >= tenths)
 			return lower;
 	return -1;
 }
 
 /*
- * Take the gain down from index until the tuner treats the signals of the slice alike.
- * Returns the step to use.
+ * The highest step, from index down, at which the slice looks as it does with a gain
+ * far below. Returns the step to use.
  */
-static int not_overloaded(struct tuner *tuner, const struct slice *slice, int index, int always)
+static int not_overloaded(struct tuner *tuner, const struct slice *slice, int index)
 {
-	double high[MAX_CHANNELS], low[MAX_CHANNELS];
+	double reference[MAX_CHANNELS], level[MAX_CHANNELS];
+	int far = step_below(tuner, index, REFERENCE_DOWN);
+	int low, high;
 
-	while (index > 0) {
-		int lower = step_below(tuner, index);
+	if (far < 0)
+		far = 0;		/* the steps do not reach that far: the lowest */
+	if (far == index || !levels_at(tuner, slice, far, reference) ||
+	    !levels_at(tuner, slice, index, level))
+		return index;
+	if (departure(level, reference, slice->count) <= DEPARTURE)
+		return index;
 
-		if (lower < 0)
-			break;
-		if (!levels_at(tuner, slice, index, high) || !levels_at(tuner, slice, lower, low))
-			break;
-		if (departure(high, low, slice->count, always) <= DEPARTURE)
-			break;
-		index--;
+	/* overloaded at index, taken to be sound at far: the highest sound step between */
+	low = far;
+	high = index - 1;
+	while (low < high) {
+		int middle = (low + high + 1) / 2;
+
+		if (levels_at(tuner, slice, middle, level) &&
+		    departure(level, reference, slice->count) <= DEPARTURE)
+			low = middle;
+		else
+			high = middle - 1;
 	}
-	return index;
+	return low;
 }
 
 /* The gain for one slice: not cut off, not overloaded. Returns the step or -1. */
-static int settle(struct tuner *tuner, const struct slice *slice, int start, int always,
+static int settle(struct tuner *tuner, const struct slice *slice, int start,
 		  double *share, double *level, int *backoff)
 {
 	int uncut = highest_uncut(tuner, start, share, level);
@@ -682,7 +698,7 @@ static int settle(struct tuner *tuner, const struct slice *slice, int start, int
 
 	if (uncut < 0)
 		return -1;
-	chosen = not_overloaded(tuner, slice, uncut, always);
+	chosen = not_overloaded(tuner, slice, uncut);
 	*backoff = tuner->gains[uncut] - tuner->gains[chosen];
 	if (chosen != uncut)
 		measure(tuner, chosen, share, level);
@@ -783,7 +799,7 @@ static int gains_for(const uint32_t *frequencies, int count, uint32_t rate, int 
 
 		tune(&tuner, frequencies[at]);
 		around(&slice, frequencies[at], rate);
-		chosen = settle(&tuner, &slice, index, slice.count / 2, &share, &level, &backoff);
+		chosen = settle(&tuner, &slice, index, &share, &level, &backoff);
 		if (chosen < 0) {
 			fprintf(stderr, "fn-rtl-gain: nothing could be read at %u Hz\n", frequencies[at]);
 			failed = 1;
@@ -908,7 +924,7 @@ static int survey(const struct band *band, int ppm, int device)
 		if (slice.first < 0)
 			continue;
 		tune(&tuner, (uint32_t)centre);
-		chosen = settle(&tuner, &slice, index, -1, &share, &level, &backoff);
+		chosen = settle(&tuner, &slice, index, &share, &level, &backoff);
 		if (chosen < 0) {
 			fprintf(stderr, "fn-rtl-gain: nothing could be read at %.0f Hz\n", centre);
 			failed = 1;
@@ -922,7 +938,7 @@ static int survey(const struct band *band, int ppm, int device)
 			failed = 1;
 			continue;
 		}
-		lower = step_below(&tuner, chosen);
+		lower = step_below(&tuner, chosen, AGAIN_DOWN);
 		if (lower >= 0 && set_step(&tuner, lower) == 0)
 			got_again = capture(&tuner, again, again_bytes);
 
@@ -967,7 +983,7 @@ static uint8_t *recorded(const char *path, long most, long *size)
 
 /* The same on one slice that was recorded, and on a second recording of it with the gain lower */
 static int survey_file(const struct band *band, const char *path, const char *lower_path,
-		       double centre, double gain)
+		       double centre, double gain, double lower_gain)
 {
 	struct slice slice;
 	char heading[200];
@@ -991,6 +1007,24 @@ static int survey_file(const struct band *band, const char *path, const char *lo
 	snprintf(heading, sizeof(heading),
 		 "SLICE: freq=%.0f gain=%.1f step=0 of=0 level=0.0 cut=0.00 backoff=0.0", centre, gain);
 	report(&slice, heading, iq, (int)(size / 2), gain, again, (int)(again_size / 2));
+
+	/* with the gain of the second recording known: how unlike the slice looks in the two */
+	if (again != NULL && lower_gain >= 0.0) {
+		double high[MAX_CHANNELS], low[MAX_CHANNELS];
+		int brief = SURVEY_RATE * COMPARE_MS / 1000;
+		int c;
+
+		if (size / 2 >= brief && again_size / 2 >= brief &&
+		    channel_levels(&slice, iq, brief, 100000.0, high) &&
+		    channel_levels(&slice, again, brief, 100000.0, low)) {
+			for (c = 0; c < slice.count; c++) {
+				high[c] -= gain;
+				low[c] -= lower_gain;
+			}
+			printf("COMPARE: gain=%.1f against=%.1f departure=%.1f\n",
+			       gain, lower_gain, departure(high, low, slice.count));
+		}
+	}
 	free(iq);
 	free(again);
 	return 0;
@@ -1091,13 +1125,13 @@ static int self_test(void)
 	channel_levels(&slice, other, brief, 100000.0, low);
 	for (c = 0; c < slice.count; c++)
 		low[c] += 6.0;
-	alike = departure(high, low, slice.count, -1);
+	alike = departure(high, low, slice.count);
 	/* and with one of them gone, as a signal the tuner made is: not alike */
 	make_slice(other, brief, stations, 2, 0.5);
 	channel_levels(&slice, other, brief, 100000.0, low);
 	for (c = 0; c < slice.count; c++)
 		low[c] += 6.0;
-	unlike = departure(high, low, slice.count, -1);
+	unlike = departure(high, low, slice.count);
 	if (alike > DEPARTURE / 2.0 || unlike <= DEPARTURE) {
 		printf("selftest: overload check: %.1f dB for signals treated alike, %.1f dB for unlike\n",
 		       alike, unlike);
@@ -1120,7 +1154,7 @@ int main(int argc, char **argv)
 	struct band band = { 0.0, 0.0, 0.0 };
 	const char *recording = NULL;
 	const char *recording_lower = NULL;
-	double centre = 0.0, recorded_gain = 0.0;
+	double centre = 0.0, recorded_gain = 0.0, recorded_lower = -1.0;
 	int count = 0;
 	uint32_t rate = 1200000;
 	int ppm = 0;
@@ -1128,7 +1162,7 @@ int main(int argc, char **argv)
 	int test = 0;
 	int option;
 
-	while ((option = getopt(argc, argv, "f:s:p:d:b:r:a:c:g:th")) != -1) {
+	while ((option = getopt(argc, argv, "f:s:p:d:b:r:a:c:g:l:th")) != -1) {
 		switch (option) {
 		case 'f':
 			if (count < MAX_FREQUENCIES)
@@ -1168,6 +1202,9 @@ int main(int argc, char **argv)
 		case 'g':
 			recorded_gain = atof(optarg);
 			break;
+		case 'l':
+			recorded_lower = atof(optarg);
+			break;
 		case 't':
 			test = 1;
 			break;
@@ -1186,7 +1223,7 @@ int main(int argc, char **argv)
 			return 2;
 		}
 		if (recording != NULL)
-			return centre > 0.0 ? survey_file(&band, recording, recording_lower, centre, recorded_gain) : (usage(), 2);
+			return centre > 0.0 ? survey_file(&band, recording, recording_lower, centre, recorded_gain, recorded_lower) : (usage(), 2);
 		return survey(&band, ppm, device);
 	}
 	if (count == 0 || rate < 225001 || rate > 3200000) {

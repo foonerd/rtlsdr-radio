@@ -34,7 +34,7 @@ var fmscan = require('./fmscan');
 var snr = require('./snr');
 
 // The shape of report.json; raised when it changes
-var REPORT_FORM = 1;
+var REPORT_FORM = 2;
 
 var FM_RATE = 2400000;       // samples a second of an FM recording: one slice of the survey
 var DAB_RATE = 2048000;      // of a DAB recording: what the decoder works at
@@ -78,7 +78,8 @@ function parseTest(text) {
   });
   return {
     found: !!tuner,
-    device: device ? device[1].trim() : null,
+    // a dongle without a serial number ends its name with an empty "SN:"
+    device: device ? device[1].trim().replace(/,\s*SN:\s*$/, '') : null,
     tuner: tuner ? tuner[1].trim() : null,
     gains: gains ? gains[1].trim().split(/\s+/).map(Number).filter(isFinite) : [],
     lostBytes: lost,
@@ -254,6 +255,7 @@ function text(report) {
       return fm.counts[s] + ' at +' + s + ' dB';
     }).join(', ') + ' (the setting here: +' + fm.sensitivity + ' dB)');
     row('Made in the tuner', fm.ghosts.length ? fm.ghosts.map(function(c) { return mhz(c.freq); }).join(', ') + ' MHz (refused)' : 'none refused');
+    row('Tuner\'s mirrors', fm.mirrors && fm.mirrors.length ? fm.mirrors.map(function(c) { return mhz(c.freq); }).join(', ') + ' MHz (refused)' : 'none refused');
     lines.push('');
     table('Slices', [['MHz', 9], ['gain', 7], ['level of 127', 14], ['cut off %', 11], ['taken down', 12], ['floor', 0]],
       fm.slices.map(function(slice) {
@@ -328,7 +330,26 @@ function DongleReport(options) {
   this.job = null;
   this.cancelled = false;
   this.state = { phase: 'idle', step: 0, of: 0, at: null, doing: null, error: null, startedAt: null, endedAt: null, summary: null, zip: null };
+  this.restore();
 }
+
+// The report made before the plugin was last started, if its files are still there:
+// it is offered again as it was.
+DongleReport.prototype.restore = function() {
+  try {
+    var report = fs.readJsonSync(path.join(this.files, 'report.json'));
+    var name = fs.readdirSync(this.dir).filter(function(entry) { return /^dongle-report-[\d-]+\.zip$/.test(entry); }).sort().pop();
+    if (!name || !report.summary) {
+      return;
+    }
+    var stat = fs.statSync(path.join(this.dir, name));
+    var steps = report.recordingsAsked === false ? 5 : 6;
+    this.state = { phase: 'done', step: steps, of: steps, at: null, doing: null, error: null, startedAt: report.made,
+      endedAt: stat.mtime.toISOString(), summary: report.summary, zip: { name: name, path: path.join(this.dir, name), bytes: stat.size } };
+  } catch (e) {
+    // no report was left, or it cannot be read: there is none to offer
+  }
+};
 
 // What the page shows: { phase: idle | running | done | failed | cancelled, step, of,
 // at, doing, error: { code, message } | null, startedAt, endedAt, summary, zip: { name, bytes } }
@@ -570,6 +591,7 @@ DongleReport.prototype.make = function(wanted) {
         report.fm.channels = survey.channels.length;
         report.fm.stations = listed;
         report.fm.ghosts = fmscan.ghosts(survey, { sensitivity: sensitivity });
+        report.fm.mirrors = fmscan.mirrors(survey, { sensitivity: sensitivity });
         report.fm.counts = {};
         SENSITIVITIES.forEach(function(s) {
           report.fm.counts[s] = fmscan.stations(survey, { sensitivity: s }).length;
@@ -622,6 +644,7 @@ DongleReport.prototype.make = function(wanted) {
       stations: report.fm.stations ? report.fm.stations.length : null,
       sensitivity: sensitivity,
       overloaded: report.fm.slices ? report.fm.slices.filter(function(slice) { return slice.backoff > 0; }).length : null,
+      mirrors: report.fm.mirrors ? report.fm.mirrors.length : null,
       slices: report.fm.slices ? report.fm.slices.length : null,
       recordings: report.recordings.filter(function(recording) { return recording.bytes !== undefined; }).length,
       problems: report.problems

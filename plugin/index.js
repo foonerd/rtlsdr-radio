@@ -8805,6 +8805,11 @@ ControllerRtlsdrRadio.prototype.stationsFromSurvey = function(survey, regionSett
     self.logger.info('[RTL-SDR Radio] FM scan: the signal at ' + (channel.freq / 1e6).toFixed(2) +
       ' MHz is made in the tuner, not a station (pilot ' + channel.pilot + ' dB, ' + channel.again + ' dB with the gain lowered)');
   });
+  fmscan.mirrors(survey, { sensitivity: sensitivity }).forEach(function(channel) {
+    self.logger.info('[RTL-SDR Radio] FM scan: the signal at ' + (channel.freq / 1e6).toFixed(2) +
+      ' MHz is the tuner\'s mirror of a stronger station, not a station (pilot ' + channel.pilot + ' dB, ' + channel.moved +
+      ' dB with the tuner set elsewhere)');
+  });
   
   // Format to appropriate decimal places based on spacing and offset
   // 50kHz offset produces frequencies like 88.05, 88.25 needing 2 decimal places

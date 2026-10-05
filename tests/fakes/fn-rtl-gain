@@ -14,7 +14,7 @@ trap - TERM INT
 [ "$FAKE_GAIN_SILENT" = "1" ] && { echo "fn-rtl-gain: the dongle delivers no samples" >&2; exit 3; }
 # Its check of itself needs no dongle
 if [ "$1" = "-t" ]; then
-  echo "selftest: ok (pilot 52.9 dB, none -10.2 dB, alike 0.0 dB, unlike 17.1 dB)"
+  echo "selftest: ok (pilot 52.9 dB, none -10.2 dB, alike 0.0 dB, unlike 17.1 dB, mirror 0.91, apart 0.00)"
   exit 0
 fi
 if [ "$1" = "-b" ]; then

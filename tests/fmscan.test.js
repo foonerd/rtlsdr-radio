@@ -119,3 +119,34 @@ test('a carrier off its channel, a pilot that comes and goes, and a channel belo
   // a faint station is faint at either gain: that is no fall
   assert.strictEqual(one('CHANNEL: freq=100000000 rf=-30.0 top=1 pilot=9.0 low=6.5 offset=100 again=5.0'), 1);
 });
+
+test('a tuner\'s mirror of a strong station is no station; a station under such a mirror stays', function() {
+  // Three slices recorded with an E4000 dongle (Nooelec NESDR XTR+), as the survey prints
+  // them: 98.1 and 100.3 MHz hold only the mirrors of 98.8 and 100.6, 91.3 MHz holds a
+  // station of its own under the mirror of 89.6
+  var survey = fmscan.parse(fixture('fm-survey-mirror.txt'));
+  var copy = survey.channels.filter(function(c) { return c.freq === 98100000; })[0];
+  assert.strictEqual(copy.mirror, 0.53);
+  assert.strictEqual(copy.moved, -0.7);
+  assert.strictEqual(survey.channels.filter(function(c) { return c.freq === 98800000; })[0].mirror, null);
+
+  [8, 5, 3].forEach(function(sensitivity) {
+    var listed = mhz(fmscan.stations(survey, { sensitivity: sensitivity }));
+    assert.ok(listed.indexOf('98.1') === -1 && listed.indexOf('100.3') === -1, 'at +' + sensitivity + ': ' + listed.join(' '));
+    assert.ok(listed.indexOf('91.3') !== -1 && listed.indexOf('98.8') !== -1 && listed.indexOf('100.6') !== -1 && listed.indexOf('89.6') !== -1);
+    assert.deepStrictEqual(mhz(fmscan.mirrors(survey, { sensitivity: sensitivity })), ['98.1', '100.3']);
+  });
+  assert.deepStrictEqual(fmscan.ghosts(survey, { sensitivity: 8 }), []);
+
+  // The station under the mirror is given the pilot it shows with the tuner set elsewhere
+  var under = fmscan.stations(survey, { sensitivity: 8 }).filter(function(s) { return s.freq === 91300000; })[0];
+  assert.strictEqual(under.pilot, 25.3);
+  assert.strictEqual(under.low, 14);
+
+  // Doubted and not looked at again (the second look failed): left in, as measured
+  var unlooked = fmscan.parse('CHANNEL: freq=98100000 rf=-31.9 top=1 pilot=10.5 low=7.5 offset=1342 again=- mirror=0.53 moved=-\n');
+  assert.deepStrictEqual(mhz(fmscan.stations(unlooked, { sensitivity: 8 })), ['98.1']);
+  assert.strictEqual(fmscan.stations(unlooked, { sensitivity: 8 })[0].pilot, 10.5);
+  // A survey of a tool that knows no mirrors reads as before
+  assert.strictEqual(fmscan.parse(fixture('fm-survey.txt')).channels.every(function(c) { return c.mirror === null && c.moved === null; }), true);
+});

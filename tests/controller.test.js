@@ -1375,6 +1375,26 @@ test('station logos are looked for a while after the start, not in the middle of
   plugin.stationsDb.dab = [];
 });
 
+test('FM scan with a tuner that mirrors: the copies are not listed, and the log says what they are', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  process.env.FAKE_SURVEY = 'fm-survey-mirror.txt';
+  logs.length = 0;
+  try {
+    await plugin.scanFm();
+  } finally {
+    delete process.env.FAKE_SURVEY;
+  }
+  var found = plugin.stationsDb.fm.filter(function(s) { return !s.deleted; }).map(function(s) { return String(s.frequency); });
+  assert.ok(found.indexOf('98.1') === -1 && found.indexOf('100.3') === -1, found.join(' '));
+  assert.ok(found.indexOf('91.3') !== -1 && found.indexOf('98.8') !== -1 && found.indexOf('100.6') !== -1, found.join(' '));
+  assert.ok(logs.some(function(m) { return /the signal at 98\.10 MHz is the tuner's mirror of a stronger station, not a station \(pilot 10\.5 dB, -0\.7 dB with the tuner set elsewhere\)/.test(m); }), logs.join('\n'));
+  assert.ok(logs.some(function(m) { return /the signal at 100\.30 MHz is the tuner's mirror/.test(m); }));
+  assert.ok(logs.some(function(m) { return /Found station: 91\.3 MHz \(pilot 25\.3 dB/.test(m); }), 'the station under a mirror, with its own pilot');
+  plugin.stationsDb.fm = before;
+  plugin.saveStations();
+  assert.deepStrictEqual(running(), []);
+});
+
 // A dongle report is made with the stand-ins of the tools; the ZIP file is a list of
 // what would be in it, there being no zip in the test image
 var REPORT_DIR = '/data/rtlsdr_radio_report';
@@ -1452,7 +1472,8 @@ test('dongle report: made step by step, and handed out as one file', async funct
   var packed = fs.readFileSync(REPORT_DIR + '/' + view.zip.name, 'utf8').split('\n');
   assert.strictEqual(packed.filter(function(name) { return /\.iq$/.test(name); }).length, view.summary.recordings);
   var report = fs.readJsonSync(REPORT_DIR + '/files/report.json');
-  assert.strictEqual(report.form, 1);
+  assert.strictEqual(report.form, 2);
+  assert.deepStrictEqual(report.fm.mirrors, []);
   assert.strictEqual(report.player.plugin, require('../plugin/package.json').version);
   assert.strictEqual(report.fm.band, 'europe, 87.50 to 108 MHz, raster 100 kHz');
   assert.strictEqual(report.settings['FM gain'], 'automatic');
@@ -1471,6 +1492,16 @@ test('dongle report: made step by step, and handed out as one file', async funct
   assert.deepStrictEqual(running(), []);
   assert.strictEqual(plugin.tuner.busy(), null);
   assert.strictEqual(plugin.deviceState, 'idle');
+
+  // A plugin started anew finds the report on the player and offers it as it was
+  var DongleReport = require('../plugin/lib/donglereport.js');
+  var again = new DongleReport({ dir: REPORT_DIR }).view();
+  assert.strictEqual(again.phase, 'done');
+  assert.deepStrictEqual(again.summary, view.summary);
+  assert.deepStrictEqual(again.zip, view.zip);
+  assert.strictEqual(again.startedAt, report.made);
+  // And nothing where none was left
+  assert.strictEqual(new DongleReport({ dir: '/tmp/no-report-here' }).view().phase, 'idle');
 });
 
 test('dongle report: without recordings, with no dongle, cancelled, and pushed aside by a station', async function() {

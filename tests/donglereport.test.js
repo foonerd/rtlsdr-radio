@@ -35,6 +35,10 @@ test('what fn-rtl_test prints is read: the dongle, its tuner, its gain steps, sa
   assert.strictEqual(lossy.lostBytes, 200);
   assert.strictEqual(lossy.lostPerMillion, 31);
 
+  // A dongle without a serial number: the empty "SN:" is not part of its name
+  assert.strictEqual(DongleReport.parseTest(fixture('rtl_test-e4000.txt').replace('Nooelec, SMArt XTR v5, SN: 00000001', 'Realtek, RTL2838UHIDIR, SN: ')).device,
+    'Realtek, RTL2838UHIDIR');
+
   var none = DongleReport.parseTest('No supported devices found.\n');
   assert.strictEqual(none.found, false);
   assert.strictEqual(none.tuner, null);
@@ -109,7 +113,7 @@ test('the summary names the dongle, the survey and the stations in words', funct
       { usb: { id: '0bda:2838', manufacturer: 'Nooelec', product: 'SMArt XTR v5', serial: '00000001', port: '1-2', speed: '480' } }),
     selftest: { ok: true, line: 'selftest: ok (pilot 52.9 dB)' },
     fm: { band: 'europe, 87.50 to 108 MHz, raster 100 kHz', sensitivity: 8, seconds: 28.12, slices: survey.slices, channels: survey.channels.length,
-      stations: stations, ghosts: [], counts: { 8: stations.length, 5: stations.length + 1, 3: stations.length + 2 },
+      stations: stations, ghosts: [], mirrors: [{ freq: 98100000 }, { freq: 100300000 }], counts: { 8: stations.length, 5: stations.length + 1, 3: stations.length + 2 },
       gains: [{ freq: 89100000, gain: 19, step: 9, of: 14, level: 59.7, cut: 0.05, backoff: 0 }] },
     recordingsAsked: true,
     recordings: [{ file: 'fm-88450000-42.0.iq', bytes: 4980736, why: 'the slice with the strongest station, at the highest gain' },
@@ -117,7 +121,7 @@ test('the summary names the dongle, the survey and the stations in words', funct
     problems: ['recording dab-222064000-42.0.iq: nothing was written']
   };
   var text = DongleReport.text(report);
-  assert.match(text, /^FM\/DAB Radio dongle report \(form 1\)\nMade 2026-10-05T07:00:00\.000Z by plugin 1\.4\.2 on Raspberry Pi 5 Model B Rev 1\.1, Volumio 4\.001, arm \/ arm\n/);
+  assert.match(text, /^FM\/DAB Radio dongle report \(form 2\)\nMade 2026-10-05T07:00:00\.000Z by plugin 1\.4\.2 on Raspberry Pi 5 Model B Rev 1\.1, Volumio 4\.001, arm \/ arm\n/);
   assert.match(text, /Calls itself: +Nooelec, SMArt XTR v5, SN: 00000001\n/);
   assert.match(text, /USB: +0bda:2838 \| Nooelec \| SMArt XTR v5, port 1-2, 480 Mbit\/s\n/);
   assert.match(text, /Tuner: +Elonics E4000\n/);
@@ -125,6 +129,7 @@ test('the summary names the dongle, the survey and the stations in words', funct
   assert.match(text, /Samples lost: +none in 8 s at 2\.4 million samples a second\n/);
   assert.match(text, /Survey: +28\.1 s, \d+ slices, \d+ channels\n/);
   assert.ok(text.indexOf('Stations:             ' + stations.length + ' at +8 dB, ' + (stations.length + 1) + ' at +5 dB, ' + (stations.length + 2) + ' at +3 dB (the setting here: +8 dB)') !== -1, text);
+  assert.match(text, /Tuner's mirrors: +98\.1, 100\.3 MHz \(refused\)\n/);
   assert.match(text, /fm-88450000-42\.0\.iq +4\.8 MB +the slice with the strongest station/);
   assert.match(text, /dab-222064000-42\.0\.iq +failed +DAB channel 11D/);
   assert.match(text, /Problems\n  recording dab-222064000-42\.0\.iq: nothing was written\n$/);

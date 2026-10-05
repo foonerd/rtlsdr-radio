@@ -1,0 +1,63 @@
+SLICE: freq=90450000 gain=6.5 step=0 of=0 level=0.0 cut=0.00 backoff=0.0 floor=-16.7
+CHANNEL: freq=89500000 rf=11.7 top=0
+CHANNEL: freq=89600000 rf=18.1 top=1 pilot=52.8 low=50.1 offset=-127 again=-
+CHANNEL: freq=89700000 rf=12.4 top=0
+CHANNEL: freq=89800000 rf=-16.7 top=0
+CHANNEL: freq=89900000 rf=-17.3 top=0
+CHANNEL: freq=90000000 rf=-16.7 top=0
+CHANNEL: freq=90100000 rf=-16.6 top=0
+CHANNEL: freq=90200000 rf=-15.9 top=0
+CHANNEL: freq=90300000 rf=-13.9 top=0
+CHANNEL: freq=90400000 rf=-7.5 top=0
+CHANNEL: freq=90500000 rf=-7.4 top=1 pilot=-2.9 low=-6.1 offset=-29935 again=-
+CHANNEL: freq=90600000 rf=-14.3 top=0
+CHANNEL: freq=90700000 rf=-15.8 top=0
+CHANNEL: freq=90800000 rf=-16.4 top=0
+CHANNEL: freq=90900000 rf=-17.0 top=0
+CHANNEL: freq=91000000 rf=-7.4 top=1 pilot=30.1 low=27.6 offset=-4041 again=-
+CHANNEL: freq=91100000 rf=-18.0 top=0
+CHANNEL: freq=91200000 rf=-11.5 top=0
+CHANNEL: freq=91300000 rf=-4.8 top=1 pilot=18.0 low=14.0 offset=-499 again=- mirror=0.78 moved=25.3
+CHANNEL: freq=91400000 rf=-12.1 top=0
+SLICE: freq=98450000 gain=34.0 step=0 of=0 level=0.0 cut=0.00 backoff=0.0 floor=-34.0
+CHANNEL: freq=97500000 rf=-34.9 top=0
+CHANNEL: freq=97600000 rf=-33.0 top=1 pilot=4.3 low=-3.7 offset=851 again=-
+CHANNEL: freq=97700000 rf=-33.1 top=0
+CHANNEL: freq=97800000 rf=-33.3 top=0
+CHANNEL: freq=97900000 rf=-34.2 top=0
+CHANNEL: freq=98000000 rf=-33.6 top=0
+CHANNEL: freq=98100000 rf=-31.9 top=1 pilot=10.5 low=7.5 offset=1342 again=- mirror=0.53 moved=-0.7
+CHANNEL: freq=98200000 rf=-32.7 top=0
+CHANNEL: freq=98300000 rf=-32.4 top=0
+CHANNEL: freq=98400000 rf=-13.7 top=0
+CHANNEL: freq=98500000 rf=-7.7 top=1 pilot=39.1 low=38.1 offset=-3882 again=-
+CHANNEL: freq=98600000 rf=-15.8 top=0
+CHANNEL: freq=98700000 rf=-18.4 top=0
+CHANNEL: freq=98800000 rf=-11.5 top=1 pilot=41.1 low=39.0 offset=89 again=-
+CHANNEL: freq=98900000 rf=-18.0 top=0
+CHANNEL: freq=99000000 rf=-34.0 top=0
+CHANNEL: freq=99100000 rf=-33.9 top=0
+CHANNEL: freq=99200000 rf=-33.8 top=1 pilot=2.5 low=-1.4 offset=587 again=-
+CHANNEL: freq=99300000 rf=-34.4 top=0
+CHANNEL: freq=99400000 rf=-35.7 top=0
+SLICE: freq=100450000 gain=42.0 step=0 of=0 level=0.0 cut=0.00 backoff=0.0 floor=-35.0
+CHANNEL: freq=99500000 rf=-37.2 top=0
+CHANNEL: freq=99600000 rf=-35.7 top=0
+CHANNEL: freq=99700000 rf=-35.3 top=1 pilot=1.3 low=-8.5 offset=-728 again=-
+CHANNEL: freq=99800000 rf=-35.8 top=0
+CHANNEL: freq=99900000 rf=-21.2 top=0
+CHANNEL: freq=100000000 rf=-12.3 top=1 pilot=40.8 low=39.7 offset=356 again=-
+CHANNEL: freq=100100000 rf=-19.7 top=0
+CHANNEL: freq=100200000 rf=-35.0 top=0
+CHANNEL: freq=100300000 rf=-32.4 top=1 pilot=8.5 low=7.7 offset=6616 again=- mirror=0.55 moved=-0.1
+CHANNEL: freq=100400000 rf=-32.8 top=0
+CHANNEL: freq=100500000 rf=-22.1 top=0
+CHANNEL: freq=100600000 rf=-12.9 top=1 pilot=40.1 low=38.5 offset=-4133 again=-
+CHANNEL: freq=100700000 rf=-26.1 top=0
+CHANNEL: freq=100800000 rf=-20.0 top=0
+CHANNEL: freq=100900000 rf=-7.4 top=1 pilot=45.3 low=42.7 offset=-95 again=-
+CHANNEL: freq=101000000 rf=-17.8 top=0
+CHANNEL: freq=101100000 rf=-31.5 top=0
+CHANNEL: freq=101200000 rf=-26.0 top=0
+CHANNEL: freq=101300000 rf=-25.7 top=0
+CHANNEL: freq=101400000 rf=-22.7 top=1 pilot=31.5 low=28.7 offset=-132 again=-

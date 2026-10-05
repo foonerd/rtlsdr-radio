@@ -1,0 +1,16 @@
+Found 1 device(s):
+  0:  Nooelec, SMArt XTR v5, SN: 00000001
+
+Using device 0: Generic RTL2832U OEM
+Found Elonics E4000 tuner
+Supported gain values (14): -1.0 1.5 4.0 6.5 9.0 11.5 14.0 16.5 19.0 21.5 24.0 29.0 34.0 42.0 
+Sampling at 2048000 S/s.
+
+Info: This tool will continuously read from the device, and report if
+samples get lost. If you observe no further output, everything is fine.
+
+Reading samples in async mode...
+Signal caught, exiting!
+
+User cancel, exiting...
+Samples per million lost (minimum): 0

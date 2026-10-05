@@ -2081,6 +2081,44 @@
         </button>
       </div>
     </div>
+    
+    <!-- Dongle Report Section -->
+    <div class="tab-header" style="margin-top: 30px;">
+      <div class="flex-1">
+        <h2 class="maintenance-header" id="report-section-title">Dongle Report</h2>
+      </div>
+    </div>
+    
+    <div class="backup-section">
+      <p style="color: #888; font-size: 13px; margin-bottom: 15px;" id="report-desc"></p>
+      <p style="font-size: 14px; margin-bottom: 12px;">
+        <label for="report-recordings" style="cursor: pointer;">
+          <input type="checkbox" id="report-recordings" checked>
+          <span id="report-recordings-label">Include short recordings of what the dongle delivers</span>
+        </label>
+      </p>
+      <p style="font-size: 14px; margin-bottom: 6px;" id="report-status"></p>
+      <p style="color: #888; font-size: 13px; margin-bottom: 12px;" id="report-detail"></p>
+      <pre id="report-summary" style="display: none; white-space: pre; font-size: 12px; color: #bbb; max-height: 320px; overflow: auto; margin: 0 0 15px 0;"></pre>
+      <div class="tab-header tab-header-no-margin">
+        <button class="btn btn-primary" id="btn-report-start" onclick="startReport()">
+          <i class="fa fa-stethoscope"></i>
+          <span id="btn-report-start-text">Make Report</span>
+        </button>
+        <button class="btn btn-secondary" id="btn-report-cancel" onclick="cancelReport()" style="display: none;">
+          <i class="fa fa-times"></i>
+          <span id="btn-report-cancel-text">Cancel</span>
+        </button>
+        <button class="btn btn-primary" id="btn-report-download" onclick="downloadReport()" style="display: none;">
+          <i class="fa fa-download"></i>
+          <span id="btn-report-download-text">Download Report</span>
+        </button>
+        <button class="btn btn-secondary" id="btn-report-summary" onclick="toggleReportSummary()" style="display: none;">
+          <i class="fa fa-file-text-o"></i>
+          <span id="btn-report-summary-text">Show Summary</span>
+        </button>
+      </div>
+    </div>
   </div>
   
     <div id="antenna-tab" class="tab-content">
@@ -2798,6 +2836,12 @@
       document.getElementById('logos-section-title').textContent = t('LOGOS_TITLE');
       document.getElementById('logos-desc').textContent = t('LOGOS_DESC');
       document.getElementById('btn-logos-refresh-text').textContent = t('LOGOS_REFRESH');
+      document.getElementById('report-section-title').textContent = t('REPORT_TITLE');
+      document.getElementById('report-desc').textContent = t('REPORT_DESC');
+      document.getElementById('report-recordings-label').textContent = t('REPORT_RECORDINGS');
+      document.getElementById('btn-report-start-text').textContent = t('REPORT_START');
+      document.getElementById('btn-report-cancel-text').textContent = t('REPORT_CANCEL');
+      document.getElementById('btn-report-summary-text').textContent = t('REPORT_SUMMARY');
       document.getElementById('csv-export-header').textContent = t('CSV_EXPORT_TITLE');
       document.getElementById('csv-export-desc').textContent = t('CSV_EXPORT_DESC');
       document.getElementById('btn-export-fm').textContent = t('CSV_EXPORT_FM');
@@ -4794,6 +4838,114 @@
       }
     }
     
+    // ===== Dongle report =====
+    // A report on the dongle that is plugged in: started here, made by the plugin in
+    // the background, and asked after until it is done.
+    let reportPollTimer = null;
+    
+    function reportFailure(error) {
+      const code = error && error.code ? error.code : 'failed';
+      const text = t('REPORT_ERR_' + code);
+      return text === 'REPORT_ERR_' + code ? t('REPORT_ERR_failed', error && error.message ? error.message : code) : text;
+    }
+    
+    function showReport(view) {
+      const running = view.phase === 'running';
+      const done = view.phase === 'done' && view.summary;
+      let status = '';
+      let detail = '';
+      if (running) {
+        status = t('REPORT_RUNNING', Math.max(view.step, 1), view.of);
+        detail = view.at ? t('REPORT_STEP_' + view.at) : '';
+      } else if (done) {
+        const s = view.summary;
+        status = t('REPORT_DONE', s.device || '-', s.tuner || '-', s.gainSteps, s.stations === null ? '-' : s.stations, s.recordings);
+        detail = s.problems && s.problems.length ? t('REPORT_PROBLEMS', s.problems.join('; ')) : '';
+      } else if (view.phase === 'failed') {
+        status = t('REPORT_FAILED', reportFailure(view.error));
+      } else if (view.phase === 'cancelled') {
+        status = t('REPORT_CANCELLED');
+      }
+      document.getElementById('report-status').textContent = status;
+      document.getElementById('report-detail').textContent = detail;
+      document.getElementById('btn-report-start').style.display = running ? 'none' : '';
+      document.getElementById('report-recordings').disabled = running;
+      document.getElementById('btn-report-cancel').style.display = running ? '' : 'none';
+      document.getElementById('btn-report-download').style.display = done && view.zip ? '' : 'none';
+      document.getElementById('btn-report-summary').style.display = done ? '' : 'none';
+      if (done && view.zip) {
+        document.getElementById('btn-report-download-text').textContent = t('REPORT_DOWNLOAD', (view.zip.bytes / 1048576).toFixed(1) + ' MB');
+      }
+      if (!done) {
+        document.getElementById('report-summary').style.display = 'none';
+      }
+      clearTimeout(reportPollTimer);
+      if (running) {
+        reportPollTimer = setTimeout(loadReport, 1500);
+      }
+    }
+    
+    async function loadReport() {
+      try {
+        const response = await fetch('/api/dongle-report');
+        showReport(await response.json());
+      } catch (e) {
+        // The plugin is not answering: ask again while the tab is in use
+        clearTimeout(reportPollTimer);
+        reportPollTimer = setTimeout(loadReport, 3000);
+      }
+    }
+    
+    async function postReport(path, body) {
+      try {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {})
+        });
+        const view = await response.json();
+        if (view.phase) {
+          showReport(view);
+        }
+        if (!response.ok && view.error) {
+          showToast(t('REPORT_FAILED', reportFailure(view.error)), 'error');
+        }
+      } catch (e) {
+        showToast(t('REPORT_FAILED', reportFailure(null)), 'error');
+      }
+    }
+    
+    async function startReport() {
+      if (await showConfirmModal(t('REPORT_TITLE'), t('REPORT_CONFIRM'), 'warning')) {
+        await postReport('/api/dongle-report/start', { recordings: document.getElementById('report-recordings').checked });
+      }
+    }
+    
+    function cancelReport() {
+      return postReport('/api/dongle-report/cancel');
+    }
+    
+    function downloadReport() {
+      window.location.href = '/api/dongle-report/download';
+    }
+    
+    async function toggleReportSummary() {
+      const box = document.getElementById('report-summary');
+      if (box.style.display !== 'none') {
+        box.style.display = 'none';
+        return;
+      }
+      try {
+        const response = await fetch('/api/dongle-report/summary');
+        if (response.ok) {
+          box.textContent = await response.text();
+          box.style.display = '';
+        }
+      } catch (e) {
+        // nothing to show
+      }
+    }
+    
     async function loadLogosStatus() {
       try {
         const response = await fetch('/api/logos/status');
@@ -4824,6 +4976,7 @@
         }, { once: true });
         maintenanceTab.addEventListener('click', loadLogosStatus);
         maintenanceTab.addEventListener('click', loadUpdate);
+        maintenanceTab.addEventListener('click', loadReport);
       }
       
       // Initialize blocklist tab when clicked

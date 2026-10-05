@@ -48,6 +48,7 @@ fs.ensureDirSync(CONFIG_DIR);
 fs.copySync(__dirname + '/../plugin/config.json', CONFIG_DIR + '/config.json');
 
 var Controller = require('../plugin/index.js');
+var fmscan = require('../plugin/lib/fmscan.js');
 var plugin = new Controller({ coreCommand: coreCommand, logger: logger, configManager: {} });
 plugin.tuner.settle = 100;
 plugin.tuner.grace = 400;
@@ -81,7 +82,7 @@ function sleep(ms) {
 
 // The names of the running stand-ins
 function running() {
-  var names = ['fn-rtl_fm', 'fn-redsea', 'fn-dab', 'fn-dab-scanner', 'fn-rtl_power', 'fn-rtl-gain', 'sox', 'aplay'];
+  var names = ['fn-rtl_fm', 'fn-redsea', 'fn-dab', 'fn-dab-scanner', 'fn-rtl_power', 'fn-rtl-gain', 'fn-rtl_test', 'fn-rtl_sdr', 'sox', 'aplay'];
   var found = [];
   fs.readdirSync('/proc').forEach(function(entry) {
     if (!/^\d+$/.test(entry)) { return; }
@@ -644,6 +645,16 @@ test('the level of FM and of DAB can be taken down, and the log says whether the
     await sleep(200);
     delete process.env.FAKE_SOX_CLIPPED;
     assert.ok(soundLine(/Sound of FM 94\.9 MHz, level -6 dB: cut off at full scale \(22000 samples in vol\)/), logs.join('\n'));
+
+    // A sample or two at full scale is what a resampler makes of a loud broadcast: named, not as a fault
+    logs.length = 0;
+    process.env.FAKE_SOX_CLIPPED = '1';
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(1500);
+    await plugin.stop();
+    await sleep(200);
+    delete process.env.FAKE_SOX_CLIPPED;
+    assert.ok(soundLine(/Sound of FM 94\.9 MHz, level -6 dB: touched full scale now and then, too seldom to hear \(1 sample in vol\)/), logs.join('\n'));
 
     // Back at 0 dB FM is where it was, and a station that fitted is said to have fitted
     await plugin.saveFmSettings({ fm_level: { value: 0, label: '0 dB' } });
@@ -1362,6 +1373,164 @@ test('station logos are looked for a while after the start, not in the middle of
   assert.ok(logoChecks > 0, 'now');
   assert.strictEqual(plugin.logos.status().state, 'waiting');
   plugin.stationsDb.dab = [];
+});
+
+// A dongle report is made with the stand-ins of the tools; the ZIP file is a list of
+// what would be in it, there being no zip in the test image
+var REPORT_DIR = '/data/rtlsdr_radio_report';
+async function reportEnds(limit) {
+  for (var i = 0; i < (limit || 15000) / 100; i++) {
+    var view = JSON.parse((await get('/api/dongle-report')).text);
+    if (view.phase !== 'running') {
+      return view;
+    }
+    await sleep(100);
+  }
+  throw new Error('the report did not end');
+}
+
+test('dongle report: made step by step, and handed out as one file', async function() {
+  plugin.dongleReport.options.pack = function(folder, file) {
+    fs.writeFileSync(file, fs.readdirSync(folder).sort().join('\n'));
+    return Promise.resolve();
+  };
+  plugin.dongleReport.times.test = 300;
+  plugin.dongleReport.times.record = 200;
+  plugin.dongleReport.times.end = 600;
+  plugin.stationsDb.dab = [{ name: 'A', exactName: 'A', channel: '12B' }, { name: 'B', exactName: 'B', channel: '12B' },
+    { name: 'C', exactName: 'C', channel: '11D' }, { name: 'D', exactName: 'D', channel: '11A', deleted: true }];
+  fs.removeSync('/tmp/fake-args-fn-rtl_sdr');
+  assert.strictEqual(JSON.parse((await get('/api/dongle-report')).text).phase, 'idle');
+  assert.strictEqual((await get('/api/dongle-report/download')).status, 404);
+  assert.strictEqual((await get('/api/dongle-report/summary')).status, 404);
+
+  // A station is playing: it is stopped through Volumio, as for an antenna tool
+  await plugin.clearAddPlayTrack(fmTrack('94.9'));
+  await sleep(300);
+  coreStops = 0;
+  logs.length = 0;
+  var started = await post('/api/dongle-report/start', {});
+  assert.strictEqual(started.status, 200);
+  var view = JSON.parse(started.text);
+  assert.strictEqual(view.phase, 'running');
+  assert.strictEqual(view.of, 6);
+  assert.ok(coreStops >= 1, 'the stop went through Volumio');
+
+  // A second one is refused while the first is being made
+  var second = await post('/api/dongle-report/start', {});
+  assert.strictEqual(second.status, 409);
+  assert.strictEqual(JSON.parse(second.text).error.code, 'busy');
+
+  view = await reportEnds();
+  assert.strictEqual(view.phase, 'done', JSON.stringify(view));
+  assert.strictEqual(view.step, 6);
+  assert.strictEqual(view.error, null);
+  assert.strictEqual(view.summary.device, 'Nooelec, SMArt XTR v5, SN: 00000001');
+  assert.strictEqual(view.summary.tuner, 'Elonics E4000');
+  assert.strictEqual(view.summary.gainSteps, 14);
+  assert.strictEqual(view.summary.selftest, true);
+  var expected = fmscan.stations(fmscan.parse(fs.readFileSync(__dirname + '/fixtures/fm-survey.txt', 'utf8')), { sensitivity: plugin.config.get('scan_sensitivity', 8) }).length;
+  assert.strictEqual(view.summary.stations, expected);
+  assert.deepStrictEqual(view.summary.problems, []);
+  assert.match(view.zip.name, /^dongle-report-\d{8}-\d{6}\.zip$/);
+  assert.strictEqual(view.zip.path, undefined, 'where the file lies on the player is not told');
+
+  // The tools ran in order, each with what it needs; the band is the region's
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_test', 'utf8'), /^-s 2400000\s*$/);
+  var recorded = fs.readFileSync('/tmp/fake-args-fn-rtl_sdr', 'utf8').trim().split('\n');
+  assert.strictEqual(recorded.length, view.summary.recordings);
+  assert.match(recorded[0], /^-f \d+ -s 2400000 -g 42\.0 \/data\/rtlsdr_radio_report\/files\/fm-\d+-42\.0\.iq$/);
+  // The DAB channels of the list, the fullest first, and none of a deleted station
+  assert.deepStrictEqual(recorded.filter(function(line) { return /-s 2048000 /.test(line); }).map(function(line) { return line.split(' ')[1]; }),
+    ['225648000', '225648000', '222064000', '222064000']);
+  assert.ok(logs.some(function(l) { return /Dongle report: step 3 of 6: surveying the FM band/.test(l); }));
+  assert.ok(logs.some(function(l) { return /Dongle report: done: dongle-report-/.test(l); }));
+
+  // What is kept: the summary, the data, what the tools said; the recordings are in the file only
+  var kept = fs.readdirSync(REPORT_DIR + '/files').sort();
+  assert.deepStrictEqual(kept, ['fm-gain.txt', 'fm-survey.err', 'fm-survey.txt', 'report.json', 'report.txt', 'rtl_test.txt', 'selftest.txt']);
+  var packed = fs.readFileSync(REPORT_DIR + '/' + view.zip.name, 'utf8').split('\n');
+  assert.strictEqual(packed.filter(function(name) { return /\.iq$/.test(name); }).length, view.summary.recordings);
+  var report = fs.readJsonSync(REPORT_DIR + '/files/report.json');
+  assert.strictEqual(report.form, 1);
+  assert.strictEqual(report.player.plugin, require('../plugin/package.json').version);
+  assert.strictEqual(report.fm.band, 'europe, 87.50 to 108 MHz, raster 100 kHz');
+  assert.strictEqual(report.settings['FM gain'], 'automatic');
+  assert.strictEqual(report.recordings.length, view.summary.recordings);
+  assert.ok(report.recordings.every(function(recording) { return recording.bytes === 4096; }));
+
+  // Over the manager: the summary as text, the file as a download
+  var summary = await get('/api/dongle-report/summary');
+  assert.strictEqual(summary.status, 200);
+  assert.match(summary.text, /Tuner: +Elonics E4000\n/);
+  var download = await fetchRaw('/api/dongle-report/download');
+  assert.strictEqual(download.status, 200);
+  assert.match(String(download.headers['content-disposition']), /attachment; filename="dongle-report-\d{8}-\d{6}\.zip"/);
+
+  // The dongle is free again and nothing is left running
+  assert.deepStrictEqual(running(), []);
+  assert.strictEqual(plugin.tuner.busy(), null);
+  assert.strictEqual(plugin.deviceState, 'idle');
+});
+
+test('dongle report: without recordings, with no dongle, cancelled, and pushed aside by a station', async function() {
+  // Without recordings: one step fewer, and the recorder is not run
+  fs.removeSync('/tmp/fake-args-fn-rtl_sdr');
+  var view = JSON.parse((await post('/api/dongle-report/start', { recordings: false })).text);
+  assert.strictEqual(view.of, 5);
+  view = await reportEnds();
+  assert.strictEqual(view.phase, 'done', JSON.stringify(view));
+  assert.strictEqual(view.summary.recordings, 0);
+  assert.ok(!fs.existsSync('/tmp/fake-args-fn-rtl_sdr'));
+  assert.match(fs.readFileSync(REPORT_DIR + '/files/report.txt', 'utf8'), /Recordings\n  none \(not asked for\)\n/);
+
+  // No dongle: said so, and the report of before is gone with its file
+  process.env.FAKE_TEST_NONE = '1';
+  await post('/api/dongle-report/start', {});
+  view = await reportEnds();
+  delete process.env.FAKE_TEST_NONE;
+  assert.strictEqual(view.phase, 'failed');
+  assert.strictEqual(view.error.code, 'no-dongle');
+  assert.match(view.error.message, /No supported devices found/);
+  assert.strictEqual(view.zip, null);
+  assert.strictEqual((await get('/api/dongle-report/download')).status, 404);
+  assert.deepStrictEqual(running(), []);
+
+  // Cancelled in the middle of the survey: the tool is stopped and the dongle let go
+  process.env.FAKE_GAIN_SECONDS = '5';
+  await post('/api/dongle-report/start', {});
+  await sleep(900);
+  assert.deepStrictEqual(running(), ['fn-rtl-gain']);
+  view = JSON.parse((await post('/api/dongle-report/cancel')).text);
+  assert.strictEqual(view.phase, 'cancelled');
+  assert.strictEqual(view.error.code, 'cancelled');
+  assert.deepStrictEqual(running(), []);
+  assert.strictEqual(plugin.tuner.busy(), null);
+
+  // A station started while a report is being made takes the dongle; the report ends there
+  await post('/api/dongle-report/start', {});
+  await sleep(900);
+  await plugin.clearAddPlayTrack(fmTrack('94.9'));
+  delete process.env.FAKE_GAIN_SECONDS;
+  await sleep(500);
+  view = await reportEnds();
+  assert.strictEqual(view.phase, 'failed');
+  assert.strictEqual(view.error.code, 'interrupted');
+  assert.strictEqual(plugin.deviceState, 'playing_fm');
+  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  await plugin.stop();
+
+  // A scan or an antenna tool that has the dongle is not pushed aside
+  var busy = plugin.tuner.busy;
+  plugin.tuner.busy = function() { return 'scanning_fm'; };
+  try {
+    var refused = await post('/api/dongle-report/start', {});
+    assert.strictEqual(refused.status, 409);
+    assert.strictEqual(JSON.parse(refused.text).error.code, 'in-use');
+  } finally {
+    plugin.tuner.busy = busy;
+  }
+  assert.deepStrictEqual(running(), []);
 });
 
 test('the plugin stops: nothing is left running and the port is free', async function() {

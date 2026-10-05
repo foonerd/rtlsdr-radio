@@ -15,6 +15,7 @@ var Logos = require('./lib/logos');
 var pictures = require('./lib/pictures');
 var Slides = require('./lib/slides');
 var Updater = require('./lib/update');
+var DongleReport = require('./lib/donglereport');
 
 // The plugin's own pictures as Volumio's artwork endpoint serves them. The endpoint
 // tells screens to keep an answer for a month, the player's default picture included,
@@ -117,6 +118,22 @@ function ControllerRtlsdrRadio(context) {
     }
   });
 
+  // A report on the dongle that is plugged in, for the Station Manager to hand out.
+  // It is put together and kept on the player's storage, beside the backups.
+  self.REPORT_DIR = '/data/rtlsdr_radio_report';
+  self.dongleReport = new DongleReport({
+    dir: self.REPORT_DIR,
+    logger: self.logger,
+    acquire: function() { return self.acquireForTool('dongle report', { keepOpen: true }); },
+    band: function() { return self.fmSurveyBand(); },
+    sensitivity: function() { return self.config.get('scan_sensitivity', 8); },
+    settings: function() { return self.receptionSettings(); },
+    player: function() { return self.playerFacts(); },
+    usb: function() { return self.usbDongle(); },
+    dabChannels: function() { return self.dabChannelsByStations(); },
+    pack: function(folder, file) { return self.zipReport(folder, file); }
+  });
+
   // Station logos, fetched from the broadcasters when the player is online
   self.logos = new Logos({
     logger: self.logger,
@@ -155,6 +172,7 @@ function ControllerRtlsdrRadio(context) {
   self.FM_DEVIATION = 75000;         // Hz: the deviation of a fully modulated FM broadcast
   self.FM_PEAK_DB = -1;              // where that deviation is put, in dB of full scale
   self.LEVEL_LOWEST = -12;           // how far the user can take FM or DAB down, in dB
+  self.CLIPPED_FEW = 100;            // samples a minute at full scale below which nothing is heard of it
   self.DONGLE_STEADY_RATE = 2800000; // samples a second a dongle delivers without losing any
   self.FM_SURVEY_TIMEOUT = 180000;   // The FM band survey: seconds on a fast board, a minute or two on the slowest
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
@@ -2301,6 +2319,52 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       self.updater.check(true).then(function(view) {
         res.json(view);
       });
+    });
+    
+    // API: Dongle report - how far it is, or what the last one found
+    self.expressApp.get('/api/dongle-report', function(req, res) {
+      res.json(self.dongleReport.view());
+    });
+    
+    // API: Dongle report - make one. Our own playback is stopped for it; a scan or an
+    // antenna tool that has the dongle is not pushed aside.
+    self.expressApp.post('/api/dongle-report/start', function(req, res) {
+      function refuse(code, message) {
+        res.status(409).json(Object.assign(self.dongleReport.view(), { error: { code: code, message: message } }));
+      }
+      if (self.deviceState.indexOf('playing_') !== 0 && self.tuner.busy()) {
+        return refuse('in-use', 'the dongle is in use: ' + self.tuner.busy());
+      }
+      self.dongleReport.start({ recordings: !(req.body && req.body.recordings === false) }).then(function(view) {
+        res.json(view);
+      }, function(e) {
+        refuse(e && e.code || 'failed', String(e && e.message || e));
+      });
+    });
+    
+    // API: Dongle report - stop the one being made
+    self.expressApp.post('/api/dongle-report/cancel', function(req, res) {
+      self.dongleReport.cancel().then(function(view) {
+        res.json(view);
+      });
+    });
+    
+    // API: Dongle report - the summary of the last one, as text
+    self.expressApp.get('/api/dongle-report/summary', function(req, res) {
+      var summary = self.dongleReport.summaryText();
+      if (summary === null) {
+        return res.status(404).json({ error: { code: 'no-report', message: 'no report has been made' } });
+      }
+      res.type('text/plain').send(summary);
+    });
+    
+    // API: Dongle report - the last one as a ZIP file
+    self.expressApp.get('/api/dongle-report/download', function(req, res) {
+      var zip = self.dongleReport.zipFile();
+      if (!zip || !fs.existsSync(zip.path)) {
+        return res.status(404).json({ error: { code: 'no-report', message: 'no report has been made' } });
+      }
+      res.download(zip.path, zip.name);
     });
     
     // API: Plugin update - install the version offered, or put back the one before
@@ -5105,8 +5169,9 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   if (levelGain !== null || fmLevel !== 0) {
     soxArgs.push('rate', 'vol', ((levelGain || 0) + fmLevel).toFixed(2) + 'dB');
   }
+  var soxStarted = Date.now();
   var soxProcess = job.run('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] }, function(entry) {
-    self.logClipping('FM ' + freqStr + ' MHz', fmLevel, entry);
+    self.logClipping('FM ' + freqStr + ' MHz', fmLevel, entry, soxStarted);
   });
   self.soxProcess = soxProcess;
   
@@ -6936,29 +7001,137 @@ ControllerRtlsdrRadio.prototype.measureGain = function(job, frequencies, rate) {
 // another, or moved to another port, changes the mark; nothing is opened to read it.
 // "none" where the player's USB devices cannot be listed.
 ControllerRtlsdrRadio.prototype.usbMark = function() {
-  var base = '/sys/bus/usb/devices';
   try {
-    var devices = [];
-    fs.readdirSync(base).forEach(function(port) {
-      if (!/^\d+-[\d.]+$/.test(port)) {
-        return;                       // an interface or a root hub, not a device
-      }
-      function read(file) {
-        try {
-          return fs.readFileSync(base + '/' + port + '/' + file, 'utf8').trim();
-        } catch (e) {
-          return '';
-        }
-      }
-      if (read('bDeviceClass') === '09') {
-        return;                       // a hub
-      }
-      devices.push([port, read('idVendor'), read('idProduct'), read('manufacturer'), read('product'), read('serial')].join(':'));
+    var devices = this.usbDevices().map(function(d) {
+      return [d.port, d.vendor, d.product, d.manufacturer, d.name, d.serial].join(':');
     });
     return require('crypto').createHash('sha1').update(devices.sort().join('|')).digest('hex').slice(0, 12);
   } catch (e) {
     return 'none';
   }
+};
+
+// The USB devices plugged into the player, hubs left out, as they describe themselves:
+// [{ port, vendor, product, manufacturer, name, serial, speed }]. Throws when the
+// system does not show them.
+ControllerRtlsdrRadio.prototype.usbDevices = function() {
+  var base = '/sys/bus/usb/devices';
+  var devices = [];
+  fs.readdirSync(base).forEach(function(port) {
+    if (!/^\d+-[\d.]+$/.test(port)) {
+      return;                       // an interface or a root hub, not a device
+    }
+    function read(file) {
+      try {
+        return fs.readFileSync(base + '/' + port + '/' + file, 'utf8').trim();
+      } catch (e) {
+        return '';
+      }
+    }
+    if (read('bDeviceClass') === '09') {
+      return;                       // a hub
+    }
+    devices.push({ port: port, vendor: read('idVendor'), product: read('idProduct'), manufacturer: read('manufacturer'),
+      name: read('product'), serial: read('serial'), speed: read('speed') });
+  });
+  return devices;
+};
+
+// The dongle among them, as a report names it, or null: a device with one of the USB
+// ids the receiver library opens (its list of known devices, osmocom rtl-sdr 2.0.2).
+// Nothing else that is plugged into the player is named.
+var RTL_DONGLES = ('0413:6680 0413:6f0f 0458:707f 0bda:2832 0bda:2838 0ccd:00a9 0ccd:00b3 0ccd:00b4 0ccd:00b5 0ccd:00b7 ' +
+  '0ccd:00b8 0ccd:00b9 0ccd:00c0 0ccd:00c6 0ccd:00d3 0ccd:00d7 0ccd:00e0 1554:5020 15f4:0131 15f4:0133 185b:0620 ' +
+  '185b:0650 185b:0680 1b80:d393 1b80:d394 1b80:d395 1b80:d397 1b80:d398 1b80:d39d 1b80:d3a4 1b80:d3a8 1b80:d3af ' +
+  '1b80:d3b0 1d19:1101 1d19:1102 1d19:1103 1d19:1104 1f4d:a803 1f4d:b803 1f4d:c803 1f4d:d286 1f4d:d803').split(' ');
+ControllerRtlsdrRadio.prototype.usbDongle = function() {
+  try {
+    var dongle = this.usbDevices().filter(function(d) {
+      return RTL_DONGLES.indexOf((d.vendor + ':' + d.product).toLowerCase()) !== -1;
+    })[0];
+    return dongle ? { id: dongle.vendor + ':' + dongle.product, manufacturer: dongle.manufacturer, product: dongle.name,
+      serial: dongle.serial, port: dongle.port, speed: dongle.speed } : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// The FM band as the survey tool takes it, on the region's raster and with the scan
+// offset: { range: "87.50M:108M:100k", label: the same in words }
+ControllerRtlsdrRadio.prototype.fmSurveyBand = function() {
+  var region = this.getRegionSettings();
+  var start = region.band_start + (region.scan_offset_khz / 1000);
+  return {
+    range: start.toFixed(2) + 'M:' + region.band_end + 'M:' + region.spacing_khz + 'k',
+    label: this.config.get('fm_region', 'europe') + ', ' + start.toFixed(2) + ' to ' + region.band_end + ' MHz, raster ' + region.spacing_khz + ' kHz'
+  };
+};
+
+// The settings that bear on what a dongle receives, as a report names them
+ControllerRtlsdrRadio.prototype.receptionSettings = function() {
+  var self = this;
+  return {
+    'FM gain': self.config.get('fm_gain_auto', true) ? 'automatic' : 'set to ' + self.config.get('fm_gain', 50),
+    'FM scan sensitivity': '+' + self.config.get('scan_sensitivity', 8) + ' dB',
+    'FM scan offset': self.getRegionSettings().scan_offset_khz + ' kHz',
+    'FM sample rate': self.config.get('fm_sample_rate', '171k'),
+    'FM oversampling': self.config.get('fm_oversampling', false) ? 'on' : 'off',
+    'FM level': self.levelSetting('fm_level') + ' dB',
+    'DAB gain': self.config.get('dab_gain_auto', true) ? 'automatic' : 'set to ' + self.numberSetting('dab_gain', 80),
+    'DAB PPM correction': self.numberSetting('dab_ppm', 0),
+    'DAB level': self.levelSetting('dab_level') + ' dB'
+  };
+};
+
+// The player as a report names it: the versions and the board, nothing that tells one
+// player of a kind from another
+ControllerRtlsdrRadio.prototype.playerFacts = function() {
+  function read(file) {
+    try {
+      return fs.readFileSync(file, 'utf8');
+    } catch (e) {
+      return '';
+    }
+  }
+  var release = read('/etc/os-release');
+  function field(name) {
+    var found = new RegExp('^' + name + '="?([^"\\n]*)"?$', 'm').exec(release);
+    return found ? found[1] : null;
+  }
+  return {
+    plugin: require('./package.json').version,
+    volumio: field('VOLUMIO_VERSION'),
+    hardware: field('VOLUMIO_HARDWARE'),
+    board: read('/proc/device-tree/model').replace(/\0/g, '').trim() || null,
+    arch: [field('VOLUMIO_ARCH'), process.arch].filter(Boolean).join(' / '),
+    kernel: require('os').release(),
+    node: process.version
+  };
+};
+
+// The DAB channels of the station list, the one with the most stations first
+ControllerRtlsdrRadio.prototype.dabChannelsByStations = function() {
+  var counts = {};
+  ((this.stationsDb && this.stationsDb.dab) || []).forEach(function(station) {
+    if (station.channel && !station.deleted) {
+      counts[station.channel] = (counts[station.channel] || 0) + 1;
+    }
+  });
+  return Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a] || (a < b ? -1 : 1); });
+};
+
+// A report's folder as one ZIP file. Compressed lightly: recordings hardly shrink, and
+// the smallest boards should not labour over them.
+ControllerRtlsdrRadio.prototype.zipReport = function(folder, file) {
+  return new Promise(function(resolve, reject) {
+    require('child_process').execFile('zip', ['-q', '-r', '-1', file, '.'], { cwd: folder, maxBuffer: 1024 * 1024 }, function(error) {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
 };
 
 // The gain an FM station is received with: measured at its frequency and kept with the
@@ -6995,20 +7168,28 @@ ControllerRtlsdrRadio.prototype.levelFromForm = function(sent) {
 
 // What sox reports when it ends, as one line in the log: whether the sound of the
 // station stayed below full scale, or how much of it was cut off there and in which
-// stage. It is what a report of loud or distorted sound is read from.
-ControllerRtlsdrRadio.prototype.logClipping = function(what, level, entry) {
+// stage. It is what a report of loud or distorted sound is read from. A few samples a
+// minute are what a resampler makes of a broadcast that already reaches full scale:
+// they are named, and not as a fault.
+ControllerRtlsdrRadio.prototype.logClipping = function(what, level, entry, startedAt) {
   if (!entry || entry.error) {
     // sox could not be started: there was no sound to report on
     return;
   }
   var stages = [];
+  var most = 0;
   var pattern = /(\w+) clipped (\d+) samples/g;
   var found;
-  while ((found = pattern.exec((entry && entry.said) || '')) !== null) {
-    stages.push(found[2] + ' samples in ' + found[1]);
+  while ((found = pattern.exec(entry.said || '')) !== null) {
+    stages.push(found[2] + (found[2] === '1' ? ' sample in ' : ' samples in ') + found[1]);
+    most = Math.max(most, Number(found[2]));
   }
-  this.logger.info('[RTL-SDR Radio] Sound of ' + what + ', level ' + level + ' dB: ' +
-    (stages.length > 0 ? 'cut off at full scale (' + stages.join(', ') + ')' : 'stayed below full scale'));
+  var minutes = Math.max((Date.now() - (startedAt || Date.now())) / 60000, 1 / 60);
+  var verdict = 'stayed below full scale';
+  if (stages.length > 0) {
+    verdict = (most / minutes < this.CLIPPED_FEW ? 'touched full scale now and then, too seldom to hear (' : 'cut off at full scale (') + stages.join(', ') + ')';
+  }
+  this.logger.info('[RTL-SDR Radio] Sound of ' + what + ', level ' + level + ' dB: ' + verdict);
 };
 
 // Whether the dongle can deliver what four times oversampling asks of it at this
@@ -8347,7 +8528,7 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
       var lowerFreq = effectiveStart.toFixed(2);
       var upperFreq = regionSettings.band_end;
       var spacing = regionSettings.spacing_khz + 'k';
-      var scanArgs = ['-b', lowerFreq + 'M:' + upperFreq + 'M:' + spacing];
+      var scanArgs = ['-b', self.fmSurveyBand().range];
       
       // The tool takes the band in slices of 2 MHz and names each as it finishes it
       var slices = Math.max(1, Math.ceil((upperFreq - effectiveStart + regionSettings.spacing_khz / 1000) / 2));
@@ -9049,8 +9230,9 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
       if (dabLevel !== 0) {
         soxArgs.push('vol', dabLevel.toFixed(2) + 'dB');
       }
+      var soxStarted = Date.now();
       var soxProcess = job.run('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] }, function(entry) {
-        self.logClipping('DAB ' + channel + ' ' + serviceName.trim(), dabLevel, entry);
+        self.logClipping('DAB ' + channel + ' ' + serviceName.trim(), dabLevel, entry, soxStarted);
       });
       var aplayProcess = job.spawn('aplay',
         ['-D', 'volumio', '-f', 'S16_LE', '-r', String(self.OUTPUT_SAMPLE_RATE), '-c', '2'],

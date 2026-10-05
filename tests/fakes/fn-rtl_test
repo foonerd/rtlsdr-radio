@@ -1,0 +1,32 @@
+#!/bin/bash
+# Stand-in for fn-rtl_test: names the dongle, its tuner and its gain steps as the real
+# one does, then reads until it is told to end and says how many samples were lost.
+# FAKE_TEST_NONE=1: no dongle. FAKE_TEST_LOST=<bytes>: samples were lost.
+echo "$@" > /tmp/fake-args-fn-rtl_test
+if [ "$FAKE_TEST_NONE" = "1" ]; then
+  echo "No supported devices found." >&2
+  exit 1
+fi
+cat >&2 <<'OUT'
+Found 1 device(s):
+  0:  Nooelec, SMArt XTR v5, SN: 00000001
+
+Using device 0: Generic RTL2832U OEM
+Found Elonics E4000 tuner
+Supported gain values (14): -1.0 1.5 4.0 6.5 9.0 11.5 14.0 16.5 19.0 21.5 24.0 29.0 34.0 42.0 
+Sampling at 2400000 S/s.
+
+Info: This tool will continuously read from the device, and report if
+samples get lost. If you observe no further output, everything is fine.
+
+Reading samples in async mode...
+OUT
+[ -n "$FAKE_TEST_LOST" ] && echo "lost at least $FAKE_TEST_LOST bytes"
+ended() {
+  kill $! 2>/dev/null
+  printf 'Signal caught, exiting!\n\nUser cancel, exiting...\nSamples per million lost (minimum): %s\n' "$([ -n "$FAKE_TEST_LOST" ] && echo 12 || echo 0)" >&2
+  exit 0
+}
+sleep 30 &
+trap ended TERM INT
+wait $!

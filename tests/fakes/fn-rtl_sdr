@@ -1,0 +1,14 @@
+#!/bin/bash
+# Stand-in for fn-rtl_sdr: writes a recording to the file it is given (the last
+# argument) and goes on until it is told to end, as the real one does. What it was
+# started with is added to a list for the tests. FAKE_SDR_FAILS=1: no dongle.
+echo "$@" >> /tmp/fake-args-fn-rtl_sdr
+if [ "$FAKE_SDR_FAILS" = "1" ]; then
+  echo "No supported devices found." >&2
+  exit 1
+fi
+file="${@: -1}"
+head -c "${FAKE_SDR_BYTES:-4096}" /dev/zero | tr '\0' '\177' > "$file"
+sleep 30 &
+trap 'kill $! 2>/dev/null; echo "Signal caught, exiting!" >&2; exit 0' TERM INT
+wait $!

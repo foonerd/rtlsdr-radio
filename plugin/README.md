@@ -23,7 +23,7 @@ Everything is described in the wiki: https://github.com/foonerd/rtlsdr-radio/wik
 | | |
 | --- | --- |
 | First steps | [Installation](https://github.com/foonerd/rtlsdr-radio/wiki/Installation), [Getting Started](https://github.com/foonerd/rtlsdr-radio/wiki/Getting-Started) |
-| Hardware | [Dongles](https://github.com/foonerd/rtlsdr-radio/wiki/Dongles), [Antennas](https://github.com/foonerd/rtlsdr-radio/wiki/Antennas), [Antenna Design Guide](https://github.com/foonerd/rtlsdr-radio/wiki/Antenna-Design-Guide) |
+| Hardware | [Dongles](https://github.com/foonerd/rtlsdr-radio/wiki/Dongles), [Dongle Report](https://github.com/foonerd/rtlsdr-radio/wiki/Dongle-Report), [Antennas](https://github.com/foonerd/rtlsdr-radio/wiki/Antennas), [Antenna Design Guide](https://github.com/foonerd/rtlsdr-radio/wiki/Antenna-Design-Guide) |
 | Using it | [Scanning](https://github.com/foonerd/rtlsdr-radio/wiki/Scanning), [Station Manager](https://github.com/foonerd/rtlsdr-radio/wiki/Station-Manager), [Settings Reference](https://github.com/foonerd/rtlsdr-radio/wiki/Settings-Reference) |
 | When something does not work | [Troubleshooting](https://github.com/foonerd/rtlsdr-radio/wiki/Troubleshooting), [FAQ](https://github.com/foonerd/rtlsdr-radio/wiki/FAQ) |
 | Reference | [Station Manager API](https://github.com/foonerd/rtlsdr-radio/wiki/Station-Manager-API), [Test Setup](https://github.com/foonerd/rtlsdr-radio/wiki/Test-Setup), [Changelog](https://github.com/foonerd/rtlsdr-radio/wiki/Changelog) |

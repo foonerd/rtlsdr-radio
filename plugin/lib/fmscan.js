@@ -66,7 +66,7 @@ function parse(text) {
         survey.channels.push({
           freq: number(c.freq), rf: number(c.rf), top: c.top === '1',
           pilot: number(c.pilot), low: number(c.low), offset: number(c.offset), again: number(c.again),
-          mirror: number(c.mirror), moved: number(c.moved)
+          mirror: number(c.mirror), moved: number(c.moved), least: number(c.least)
         });
       }
     }
@@ -99,9 +99,12 @@ function refused(channel, needed) {
   if (channel.again !== null && channel.again < channel.pilot - MAY_FALL) {
     return 'made in the tuner';
   }
-  // Doubted as a mirror and looked at with the tuner set elsewhere: no pilot there, no station.
+  // Doubted as a mirror and looked at with the tuner set elsewhere: what is there must be
+  // a station by the same measure as at first, the pilot and its weakest reading. One
+  // reading of noise can look like a pilot; every reading of a look does not.
   // (Doubted and not looked at, the second look having failed: it is left in.)
-  if (channel.mirror !== null && channel.moved !== null && channel.moved < needed) {
+  if (channel.mirror !== null && channel.moved !== null &&
+      (channel.moved < needed || (channel.least !== null && channel.least < needed - MAY_DIP))) {
     return 'mirror';
   }
   return null;
@@ -109,16 +112,17 @@ function refused(channel, needed) {
 
 // The stations of a survey: [{ freq (Hz), rf, pilot, low, offset, level (1 to 5) }],
 // rising in frequency. options.sensitivity: the scan sensitivity setting.
-// A station that had a stronger one's mirror lying on it is given the pilot measured
-// with the tuner set elsewhere: that is the station's own.
+// A station that had a stronger one's mirror lying on it is given the pilot and the
+// weakest reading measured with the tuner set elsewhere: those are the station's own.
 function stations(survey, options) {
   var needed = threshold(options && options.sensitivity);
   return survey.channels.filter(function(channel) {
     return refused(channel, needed) === null;
   }).map(function(channel) {
-    var pilot = channel.mirror !== null && channel.moved !== null ? channel.moved : channel.pilot;
+    var own = channel.mirror !== null && channel.moved !== null;
+    var pilot = own ? channel.moved : channel.pilot;
     return {
-      freq: channel.freq, rf: channel.rf, pilot: pilot, low: Math.min(channel.low, pilot),
+      freq: channel.freq, rf: channel.rf, pilot: pilot, low: own && channel.least !== null ? channel.least : Math.min(channel.low, pilot),
       offset: channel.offset, level: FmQuality.level(pilot)
     };
   }).sort(function(a, b) { return a.freq - b.freq; });

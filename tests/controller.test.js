@@ -1390,6 +1390,8 @@ test('FM scan with a tuner that mirrors: the copies are not listed, and the log 
   assert.ok(logs.some(function(m) { return /the signal at 98\.10 MHz is the tuner's mirror of a stronger station, not a station \(pilot 10\.5 dB, -0\.7 dB with the tuner set elsewhere\)/.test(m); }), logs.join('\n'));
   assert.ok(logs.some(function(m) { return /the signal at 100\.30 MHz is the tuner's mirror/.test(m); }));
   assert.ok(logs.some(function(m) { return /Found station: 91\.3 MHz \(pilot 25\.3 dB/.test(m); }), 'the station under a mirror, with its own pilot');
+  var kept = plugin.stationsDb.fm.filter(function(s) { return String(s.frequency) === '91.3'; })[0];
+  assert.ok(kept && !kept.deleted);
   plugin.stationsDb.fm = before;
   plugin.saveStations();
   assert.deepStrictEqual(running(), []);

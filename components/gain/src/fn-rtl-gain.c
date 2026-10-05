@@ -33,7 +33,7 @@
  * surveys a band of FM broadcast channels, low to high in steps of spacing. The band is
  * taken in slices of 2 MHz, each at its own gain, and every channel is measured:
  *   SLICE: freq=<Hz> gain=<dB> step=<n> of=<n> level=<mean of 127> cut=<percent> backoff=<dB> floor=<dB>
- *   CHANNEL: freq=<Hz> rf=<dB> top=<0|1> [pilot=<dB> low=<dB> offset=<Hz> again=<dB>|-> [mirror=<share> moved=<dB>|->]]
+ *   CHANNEL: freq=<Hz> rf=<dB> top=<0|1> [pilot=<dB> low=<dB> offset=<Hz> again=<dB>|-> [mirror=<share> moved=<dB>|-> [least=<dB>]]]
  * rf is the power in the channel, referred to the aerial socket (the gain taken off), on
  * a scale of its own; top says that the channel holds more than both its neighbours. A
  * channel that does is demodulated, and the 19 kHz pilot every stereo station sends is
@@ -48,8 +48,9 @@
  * any gain. A channel is therefore held against the one at its mirror place: where that
  * one holds more, and the channel is to a share that noise never reaches the turned-over
  * copy of it (mirror, 0 to 1), the channel is listened to once more with the tuner set
- * half a megahertz beside it. A station is still there then (moved: its pilot), a copy
- * is not. moved is - when the second look could not tell either.
+ * half a megahertz beside it. A station is still there then (moved: its pilot, least:
+ * the least of the readings, as pilot and low of the first look), a copy is not. moved
+ * is - when the second look could not tell either.
  *
  *   fn-rtl-gain -b <low>:<high>:<spacing> -r <file> -c <Hz> [-g <dB>] [-a <file> [-l <dB>]]
  *               [-m <file> -k <Hz>]
@@ -1038,8 +1039,8 @@ struct found {
 	double again;
 	int doubted;		/* may be the tuner's mirror of another channel */
 	double mirror;		/* the share of it that is that channel turned over */
-	int looked;		/* listened to with the tuner set elsewhere: moved */
-	double moved;
+	int looked;		/* listened to with the tuner set elsewhere: moved, and the least reading */
+	double moved, least;
 };
 
 /*
@@ -1099,10 +1100,11 @@ static int examine(const struct slice *slice, const char *heading, const uint8_t
 
 /*
  * The second look at a channel that may be a mirror: a piece of signal with the tuner
- * set to centre, the channel frequency in it. Returns 1 with the channel's pilot there,
- * or 0 when the look cannot tell: the channel lies at another's mirror place here too.
+ * set to centre, the channel frequency in it. Returns 1 with the channel's pilot there
+ * and the least of its readings, or 0 when the look cannot tell: the channel lies at
+ * another's mirror place here too.
  */
-static int look(const uint8_t *iq, int pairs, double centre, double frequency, double *pilot)
+static int look(const uint8_t *iq, int pairs, double centre, double frequency, double *pilot, double *least)
 {
 	static double psd[NFFT];
 	struct reading heard;
@@ -1116,6 +1118,7 @@ static int look(const uint8_t *iq, int pairs, double centre, double frequency, d
 	if (!listen(iq, pairs, offset, &heard))
 		return 0;
 	*pilot = heard.pilot;
+	*least = heard.low;
 	return 1;
 }
 
@@ -1137,7 +1140,7 @@ static void print_channels(const struct slice *slice, const struct found *found)
 			if (f->doubted) {
 				printf(" mirror=%.2f", f->mirror);
 				if (f->looked)
-					printf(" moved=%.1f", f->moved);
+					printf(" moved=%.1f least=%.1f", f->moved, f->least);
 				else
 					printf(" moved=-");
 			}
@@ -1219,7 +1222,8 @@ static int survey(const struct band *band, int ppm, int device)
 				if (set_step(&tuner, chosen) < 0 ||
 				    (got = capture(&tuner, tuner.piece, tuner.piece_bytes)) < tuner.piece_bytes / 2)
 					break;
-				found[c].looked = look(tuner.piece, got / 2, beside, slice.channel[c], &found[c].moved);
+				found[c].looked = look(tuner.piece, got / 2, beside, slice.channel[c],
+						       &found[c].moved, &found[c].least);
 			}
 		}
 		print_channels(&slice, found);
@@ -1291,7 +1295,8 @@ static int survey_file(const struct band *band, const char *path, const char *lo
 		/* the second look, at the channels the other recording reaches */
 		for (c = slice.first; c <= slice.last; c++) {
 			if (found[c].doubted && moved != NULL && fabs(slice.channel[c] - moved_centre) < SLICE_REACH)
-				found[c].looked = look(moved, (int)(moved_size / 2), moved_centre, slice.channel[c], &found[c].moved);
+				found[c].looked = look(moved, (int)(moved_size / 2), moved_centre, slice.channel[c],
+						       &found[c].moved, &found[c].least);
 		}
 		print_channels(&slice, found);
 	}
@@ -1382,7 +1387,7 @@ static int self_test(void)
 	int brief = SURVEY_RATE * COMPARE_MS / 1000;
 	uint8_t *iq = malloc((size_t)pairs * 2);
 	uint8_t *other = malloc((size_t)brief * 2);
-	double alike, unlike, copy, apart, seen = 0.0;
+	double alike, unlike, copy, apart, seen = 0.0, seen_least = 0.0;
 	int failed = 0;
 	int c, top_stereo = -1, top_plain = -1;
 
@@ -1446,7 +1451,7 @@ static int self_test(void)
 	copy = mirrored(iq, pairs, -350000.0);
 	make_slice(iq, pairs, stations, 3, 1.0);
 	if (apart >= MIRROR_SEEN / 2.0 || copy < 2.0 * MIRROR_SEEN ||
-	    !look(iq, pairs, 100450000.0, 100600000.0, &seen) || seen > 6.0) {
+	    !look(iq, pairs, 100450000.0, 100600000.0, &seen, &seen_least) || seen > 6.0 || seen_least > seen) {
 		printf("selftest: mirror: %.2f for a station of its own, %.2f for a copy, pilot %.1f dB where there is none\n",
 		       apart, copy, seen);
 		failed = 1;

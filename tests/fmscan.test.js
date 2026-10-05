@@ -128,6 +128,7 @@ test('a tuner\'s mirror of a strong station is no station; a station under such 
   var copy = survey.channels.filter(function(c) { return c.freq === 98100000; })[0];
   assert.strictEqual(copy.mirror, 0.53);
   assert.strictEqual(copy.moved, -0.7);
+  assert.strictEqual(copy.least, -10.3);
   assert.strictEqual(survey.channels.filter(function(c) { return c.freq === 98800000; })[0].mirror, null);
 
   [8, 5, 3].forEach(function(sensitivity) {
@@ -138,10 +139,20 @@ test('a tuner\'s mirror of a strong station is no station; a station under such 
   });
   assert.deepStrictEqual(fmscan.ghosts(survey, { sensitivity: 8 }), []);
 
-  // The station under the mirror is given the pilot it shows with the tuner set elsewhere
+  // The station under the mirror is given the pilot and the weakest reading it shows
+  // with the tuner set elsewhere
   var under = fmscan.stations(survey, { sensitivity: 8 }).filter(function(s) { return s.freq === 91300000; })[0];
   assert.strictEqual(under.pilot, 25.3);
-  assert.strictEqual(under.low, 14);
+  assert.strictEqual(under.low, 23.8);
+
+  // A second look whose middle reading passes at the most sensitive setting, as noise now
+  // and then does, while its weakest does not: no station (seen on the test player: 4.1 dB)
+  var lucky = fmscan.parse('CHANNEL: freq=98100000 rf=-31.8 top=1 pilot=9.7 low=6.5 offset=2425 again=8.1 mirror=0.56 moved=4.1 least=-6.0\n');
+  assert.deepStrictEqual(fmscan.stations(lucky, { sensitivity: 3 }), []);
+  assert.deepStrictEqual(mhz(fmscan.mirrors(lucky, { sensitivity: 3 })), ['98.1']);
+  // Printed by the tool of 1.4.3, without the weakest reading: judged by the middle one alone
+  var older = fmscan.parse('CHANNEL: freq=98100000 rf=-31.8 top=1 pilot=9.7 low=6.5 offset=2425 again=8.1 mirror=0.56 moved=-0.7\n');
+  assert.deepStrictEqual(fmscan.stations(older, { sensitivity: 3 }), []);
 
   // Doubted and not looked at again (the second look failed): left in, as measured
   var unlooked = fmscan.parse('CHANNEL: freq=98100000 rf=-31.9 top=1 pilot=10.5 low=7.5 offset=1342 again=- mirror=0.53 moved=-\n');

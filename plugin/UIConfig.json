@@ -288,6 +288,7 @@
           "fm_gain",
           "fm_oversampling",
           "fm_sample_rate",
+          "fm_level",
           "scan_sensitivity"
         ]
       },
@@ -389,6 +390,35 @@
           }
         },
         {
+          "id": "fm_level",
+          "element": "select",
+          "label": "TRANSLATE.FM_LEVEL",
+          "doc": "TRANSLATE.FM_LEVEL_DOC",
+          "value": {
+            "value": 0,
+            "label": "0 dB"
+          },
+          "options": [
+            {"value": 0, "label": "0 dB"},
+            {"value": -1, "label": "-1 dB"},
+            {"value": -2, "label": "-2 dB"},
+            {"value": -3, "label": "-3 dB"},
+            {"value": -4, "label": "-4 dB"},
+            {"value": -5, "label": "-5 dB"},
+            {"value": -6, "label": "-6 dB"},
+            {"value": -7, "label": "-7 dB"},
+            {"value": -8, "label": "-8 dB"},
+            {"value": -9, "label": "-9 dB"},
+            {"value": -10, "label": "-10 dB"},
+            {"value": -11, "label": "-11 dB"},
+            {"value": -12, "label": "-12 dB"}
+          ],
+          "visibleIf": {
+            "field": "fm_enabled",
+            "value": true
+          }
+        },
+        {
           "id": "scan_fm",
           "element": "button",
           "label": "TRANSLATE.SCAN_FM",
@@ -421,7 +451,8 @@
           "dab_enabled",
           "dab_gain_auto",
           "dab_gain",
-          "dab_ppm"
+          "dab_ppm",
+          "dab_level"
         ]
       },
       "content": [
@@ -460,6 +491,35 @@
           "label": "TRANSLATE.DAB_PPM",
           "value": 0,
           "doc": "TRANSLATE.DAB_PPM_DOC",
+          "visibleIf": {
+            "field": "dab_enabled",
+            "value": true
+          }
+        },
+        {
+          "id": "dab_level",
+          "element": "select",
+          "label": "TRANSLATE.DAB_LEVEL",
+          "doc": "TRANSLATE.DAB_LEVEL_DOC",
+          "value": {
+            "value": 0,
+            "label": "0 dB"
+          },
+          "options": [
+            {"value": 0, "label": "0 dB"},
+            {"value": -1, "label": "-1 dB"},
+            {"value": -2, "label": "-2 dB"},
+            {"value": -3, "label": "-3 dB"},
+            {"value": -4, "label": "-4 dB"},
+            {"value": -5, "label": "-5 dB"},
+            {"value": -6, "label": "-6 dB"},
+            {"value": -7, "label": "-7 dB"},
+            {"value": -8, "label": "-8 dB"},
+            {"value": -9, "label": "-9 dB"},
+            {"value": -10, "label": "-10 dB"},
+            {"value": -11, "label": "-11 dB"},
+            {"value": -12, "label": "-12 dB"}
+          ],
           "visibleIf": {
             "field": "dab_enabled",
             "value": true

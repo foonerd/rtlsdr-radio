@@ -154,6 +154,7 @@ function ControllerRtlsdrRadio(context) {
   self.FM_SCAN_TIMEOUT = 30000;      // FM scan timeout (30s)
   self.FM_DEVIATION = 75000;         // Hz: the deviation of a fully modulated FM broadcast
   self.FM_PEAK_DB = -1;              // where that deviation is put, in dB of full scale
+  self.LEVEL_LOWEST = -12;           // how far the user can take FM or DAB down, in dB
   self.DONGLE_STEADY_RATE = 2800000; // samples a second a dongle delivers without losing any
   self.FM_SURVEY_TIMEOUT = 180000;   // The FM band survey: seconds on a fast board, a minute or two on the slowest
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
@@ -2830,6 +2831,11 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
       fmGain.value = self.config.get('fm_gain', 50);
     }
     
+    var fmLevelItem = findContentItem(fmSection, 'fm_level');
+    if (fmLevelItem) {
+      fmLevelItem.value = { value: self.levelSetting('fm_level'), label: self.levelSetting('fm_level') + ' dB' };
+    }
+    
     var scanSensitivity = findContentItem(fmSection, 'scan_sensitivity');
     if (scanSensitivity) {
       var sensitivityValue = self.config.get('scan_sensitivity', 8);
@@ -2876,6 +2882,11 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
     var dabPpm = findContentItem(dabSection, 'dab_ppm');
     if (dabPpm) {
       dabPpm.value = self.config.get('dab_ppm', 0);
+    }
+    
+    var dabLevelItem = findContentItem(dabSection, 'dab_level');
+    if (dabLevelItem) {
+      dabLevelItem.value = { value: self.levelSetting('dab_level'), label: self.levelSetting('dab_level') + ' dB' };
     }
   }
   
@@ -3280,6 +3291,11 @@ ControllerRtlsdrRadio.prototype.saveFmSettings = function(data) {
       }
     }
     
+    // Save the FM level
+    if (data.fm_level !== undefined && self.levelFromForm(data.fm_level) !== null) {
+      self.config.set('fm_level', self.levelFromForm(data.fm_level));
+    }
+    
     // Save FM oversampling
     if (data.fm_oversampling !== undefined) {
       self.config.set('fm_oversampling', data.fm_oversampling);
@@ -3334,6 +3350,11 @@ ControllerRtlsdrRadio.prototype.saveDabSettings = function(data) {
       if (!isNaN(dabPpm) && dabPpm >= -200 && dabPpm <= 200) {
         self.config.set('dab_ppm', dabPpm);
       }
+    }
+    
+    // Save the DAB level
+    if (data.dab_level !== undefined && self.levelFromForm(data.dab_level) !== null) {
+      self.config.set('dab_level', self.levelFromForm(data.dab_level));
     }
     
     self.commandRouter.pushToastMessage('success', 'FM/DAB Radio', 
@@ -5077,10 +5098,13 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   var soxArgs = ['-t', 'raw', '-r', fmSampleRate, '-e', 'signed', '-b', '16', '-c', '1', '-',
                  '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-e', 'signed', '-b', '16', '-c', '2', '-'];
   var levelGain = self.fmLevelGain(fmSampleRate);
-  if (levelGain !== null) {
-    soxArgs.push('vol', levelGain.toFixed(2) + 'dB');
+  var fmLevel = self.levelSetting('fm_level');
+  if (levelGain !== null || fmLevel !== 0) {
+    soxArgs.push('vol', ((levelGain || 0) + fmLevel).toFixed(2) + 'dB');
   }
-  var soxProcess = job.spawn('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+  var soxProcess = job.run('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] }, function(entry) {
+    self.logClipping('FM ' + freqStr + ' MHz', fmLevel, entry);
+  });
   self.soxProcess = soxProcess;
   
   // aplay for audio output
@@ -6949,6 +6973,39 @@ ControllerRtlsdrRadio.prototype.fmLevelGain = function(rate) {
     return null;
   }
   return this.FM_PEAK_DB + 20 * Math.log10(hz / this.FM_DEVIATION);
+};
+
+// The level the user has set for FM or DAB, in dB: 0, which leaves the sound where it
+// is, or down to LEVEL_LOWEST. Never above 0: both arrive just below full scale.
+ControllerRtlsdrRadio.prototype.levelSetting = function(key) {
+  var level = Math.round(this.numberSetting(key, 0));
+  return level < 0 ? Math.max(level, this.LEVEL_LOWEST) : 0;
+};
+
+// A level as it comes from the settings page (a choice sends { value, label }), or
+// null when it is none.
+ControllerRtlsdrRadio.prototype.levelFromForm = function(sent) {
+  var raw = sent !== null && typeof sent === 'object' ? sent.value : sent;
+  var level = raw === '' || raw === null || raw === undefined ? NaN : Number(raw);
+  return isFinite(level) && level <= 0 && level >= this.LEVEL_LOWEST ? Math.round(level) : null;
+};
+
+// What sox reports when it ends, as one line in the log: whether the sound of the
+// station stayed below full scale, or how much of it was cut off there and in which
+// stage. It is what a report of loud or distorted sound is read from.
+ControllerRtlsdrRadio.prototype.logClipping = function(what, level, entry) {
+  if (!entry || entry.error) {
+    // sox could not be started: there was no sound to report on
+    return;
+  }
+  var stages = [];
+  var pattern = /(\w+) clipped (\d+) samples/g;
+  var found;
+  while ((found = pattern.exec((entry && entry.said) || '')) !== null) {
+    stages.push(found[2] + ' samples in ' + found[1]);
+  }
+  this.logger.info('[RTL-SDR Radio] Sound of ' + what + ', level ' + level + ' dB: ' +
+    (stages.length > 0 ? 'cut off at full scale (' + stages.join(', ') + ')' : 'stayed below full scale'));
 };
 
 // Whether the dongle can deliver what four times oversampling asks of it at this
@@ -8981,11 +9038,17 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
       
       self.logger.info('[RTL-SDR Radio] Detected PCM format: ' + sampleRate + ' Hz, ' + channels + ' channels');
       
-      // sox resamples to the output rate, aplay plays into Volumio's device
-      var soxProcess = job.spawn('sox',
-        ['-t', 'raw', '-r', String(sampleRate), '-c', String(channels), '-e', 'signed-integer', '-b', '16', '-',
-         '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-c', '2', '-'],
-        { stdio: ['pipe', 'pipe', 'pipe'] });
+      // sox resamples to the output rate, aplay plays into Volumio's device. The sound
+      // is left at the broadcaster's level unless the user has taken DAB down.
+      var soxArgs = ['-t', 'raw', '-r', String(sampleRate), '-c', String(channels), '-e', 'signed-integer', '-b', '16', '-',
+                     '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-c', '2', '-'];
+      var dabLevel = self.levelSetting('dab_level');
+      if (dabLevel !== 0) {
+        soxArgs.push('vol', dabLevel.toFixed(2) + 'dB');
+      }
+      var soxProcess = job.run('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] }, function(entry) {
+        self.logClipping('DAB ' + channel + ' ' + serviceName.trim(), dabLevel, entry);
+      });
       var aplayProcess = job.spawn('aplay',
         ['-D', 'volumio', '-f', 'S16_LE', '-r', String(self.OUTPUT_SAMPLE_RATE), '-c', '2'],
         { stdio: ['pipe', 'ignore', 'pipe'] });

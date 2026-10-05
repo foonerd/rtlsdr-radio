@@ -609,6 +609,76 @@ test('FM is brought to the level of everything else, whatever the receiver rate'
   await plugin.stop();
 });
 
+test('the level of FM and of DAB can be taken down, and the log says whether the sound fitted', async function() {
+  // What the settings page sends is kept only when it is a level: 0 down to -12 dB
+  assert.strictEqual(plugin.levelFromForm({ value: 0, label: '0 dB' }), 0);
+  assert.strictEqual(plugin.levelFromForm({ value: -6, label: '-6 dB' }), -6);
+  assert.strictEqual(plugin.levelFromForm('-3'), -3);
+  assert.strictEqual(plugin.levelFromForm(3), null);
+  assert.strictEqual(plugin.levelFromForm(-13), null);
+  assert.strictEqual(plugin.levelFromForm('loud'), null);
+  assert.strictEqual(plugin.levelFromForm(''), null);
+
+  function soundLine(pattern) {
+    return logs.some(function(l) { return pattern.test(l); });
+  }
+  var rate = plugin.config.get('fm_sample_rate');
+  try {
+    plugin.config.set('fm_sample_rate', '240k');
+    await plugin.saveFmSettings({ fm_level: { value: -6, label: '-6 dB' } });
+    assert.strictEqual(plugin.config.get('fm_level'), -6);
+    // Not a level: what was set stays
+    await plugin.saveFmSettings({ fm_level: { value: 4, label: '4 dB' } });
+    assert.strictEqual(plugin.config.get('fm_level'), -6);
+
+    // FM at -6 dB: the level goes into the one figure sox is given. What sox reports
+    // as it ends reaches the log, with the station and the level in force.
+    logs.length = 0;
+    process.env.FAKE_SOX_CLIPPED = '22000';
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - vol 3\.10dB$/);
+    await plugin.stop();
+    await sleep(200);
+    delete process.env.FAKE_SOX_CLIPPED;
+    assert.ok(soundLine(/Sound of FM 94\.9 MHz, level -6 dB: cut off at full scale \(22000 samples in vol\)/), logs.join('\n'));
+
+    // Back at 0 dB FM is where it was, and a station that fitted is said to have fitted
+    await plugin.saveFmSettings({ fm_level: { value: 0, label: '0 dB' } });
+    assert.strictEqual(plugin.config.get('fm_level'), 0);
+    logs.length = 0;
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - vol 9\.10dB$/);
+    await plugin.stop();
+    await sleep(200);
+    assert.ok(soundLine(/Sound of FM 94\.9 MHz, level 0 dB: stayed below full scale/), logs.join('\n'));
+
+    // DAB: untouched at 0 dB (the test before this one), taken down when asked
+    await plugin.saveDabSettings({ dab_level: { value: -4, label: '-4 dB' } });
+    assert.strictEqual(plugin.config.get('dab_level'), -4);
+    logs.length = 0;
+    await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
+    await sleep(500);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - vol -4\.00dB$/);
+    await plugin.stop();
+    await sleep(200);
+    assert.ok(soundLine(/Sound of DAB \S+ .+, level -4 dB: stayed below full scale/), logs.join('\n'));
+  } finally {
+    delete process.env.FAKE_SOX_CLIPPED;
+    plugin.config.set('fm_level', 0);
+    plugin.config.set('dab_level', 0);
+    plugin.config.set('fm_sample_rate', rate);
+  }
+
+  // A level that got into the configuration some other way never raises the sound
+  plugin.config.set('fm_level', 5);
+  assert.strictEqual(plugin.levelSetting('fm_level'), 0);
+  plugin.config.set('fm_level', -40);
+  assert.strictEqual(plugin.levelSetting('fm_level'), -12);
+  plugin.config.set('fm_level', 0);
+});
+
 test('FM scan: the band is surveyed as a job of its own, and the stations it shows are kept', async function() {
   plugin.stationsDb.fm = [
     { frequency: '100.0', name: 'FM 100.0', customName: 'Kiss', favorite: true, playCount: 4 },

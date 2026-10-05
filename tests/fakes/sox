@@ -1,8 +1,15 @@
 #!/bin/bash
 # Stand-in for sox: passes its input through, and ends when asked. What it was
-# started with is kept for the tests.
+# started with is kept for the tests. With FAKE_SOX_CLIPPED set it reports, as it
+# ends, that many samples cut off in its level stage, in sox's own words.
 echo "$@" > /tmp/fake-args-sox
+report() {
+  if [ -n "$FAKE_SOX_CLIPPED" ]; then
+    echo "sox WARN vol: vol clipped $FAKE_SOX_CLIPPED samples; decrease volume?" >&2
+  fi
+}
 cat <&0 &
 child=$!
-trap 'kill $child 2>/dev/null; exit 0' TERM
+trap 'kill $child 2>/dev/null; report; exit 0' TERM
 wait $child
+report

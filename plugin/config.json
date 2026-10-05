@@ -31,6 +31,10 @@
     "type": "number",
     "value": 0
   },
+  "dab_level": {
+    "type": "number",
+    "value": 0
+  },
   "manual_dab_ppm": {
     "type": "number",
     "value": 0
@@ -70,6 +74,10 @@
   "fm_sample_rate": {
     "type": "string",
     "value": "171k"
+  },
+  "fm_level": {
+    "type": "number",
+    "value": 0
   },
   "fm_deemphasis": {
     "type": "boolean",

@@ -175,6 +175,7 @@ function ControllerRtlsdrRadio(context) {
   self.FM_PPM_LEAST = 5;             // parts per million: a dongle off by less (0.5 kHz) is not corrected
   self.FM_PPM_STEP = 3;              // a kept correction is changed when a scan finds it off by this or more
   self.FM_PPM_MOST = 200;            // beyond any crystal: such a finding is not used
+  self.FM_DEEMPHASIS_CHOICES = ['region', '50', '75', 'off']; // the region's own, a curve in microseconds, or none
   self.LEVEL_LOWEST = -12;           // how far the user can take FM or DAB down, in dB
   self.CLIPPED_FEW = 100;            // samples a minute at full scale below which nothing is heard of it
   self.DONGLE_STEADY_RATE = 2800000; // samples a second a dongle delivers without losing any
@@ -216,6 +217,7 @@ ControllerRtlsdrRadio.prototype.onVolumioStart = function() {
   );
   self.config = new (require('v-conf'))();
   self.config.loadFile(configFile);
+  self.carryDeemphasisOver();
   
   // Load FM region data
   try {
@@ -2862,9 +2864,14 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
       };
     }
     
-    var fmDeemphasis = findContentItem(fmRegionSection, 'fm_deemphasis');
-    if (fmDeemphasis) {
-      fmDeemphasis.value = self.config.get('fm_deemphasis', false);
+    var fmDeemphasisChoice = findContentItem(fmRegionSection, 'fm_deemphasis_choice');
+    if (fmDeemphasisChoice) {
+      // the words of the first choice say what the region's own is
+      var deemphasisChoice = self.fmDeemphasisChoice();
+      fmDeemphasisChoice.value = { value: deemphasisChoice, label: self.fmDeemphasisLabel(deemphasisChoice) };
+      fmDeemphasisChoice.options = self.FM_DEEMPHASIS_CHOICES.map(function(choice) {
+        return { value: choice, label: self.fmDeemphasisLabel(choice) };
+      });
     }
     
     // Hide override fields when region is not 'custom'
@@ -2872,7 +2879,7 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
     var currentRegion = self.config.get('fm_region', 'europe');
     if (currentRegion !== 'custom') {
       // Remove override fields from content array - they're not applicable
-      var overrideFields = ['fm_lower_freq', 'fm_upper_freq', 'fm_channel_spacing', 'fm_deemphasis'];
+      var overrideFields = ['fm_lower_freq', 'fm_upper_freq', 'fm_channel_spacing'];
       fmRegionSection.content = fmRegionSection.content.filter(function(item) {
         return overrideFields.indexOf(item.id) === -1;
       });
@@ -3132,7 +3139,7 @@ ControllerRtlsdrRadio.prototype.getRegionSettings = function() {
       band_start: parseFloat(self.config.get('fm_lower_freq', '87.5')),
       band_end: parseFloat(self.config.get('fm_upper_freq', '108.0')),
       spacing_khz: spacingKhz,
-      deemphasis_us: self.config.get('fm_deemphasis', false) ? 50 : 0,
+      deemphasis_us: 50,
       scan_offset_khz: scanOffsetKhz
     };
   }
@@ -3307,9 +3314,13 @@ ControllerRtlsdrRadio.prototype.saveFmRegion = function(data) {
         }
       }
       
-      // Save FM de-emphasis
-      if (data.fm_deemphasis !== undefined) {
-        self.config.set('fm_deemphasis', data.fm_deemphasis);
+    }
+    
+    // Save FM de-emphasis (applies to all regions)
+    if (data.fm_deemphasis_choice !== undefined) {
+      var deemphasisValue = String(data.fm_deemphasis_choice.value || data.fm_deemphasis_choice);
+      if (self.FM_DEEMPHASIS_CHOICES.indexOf(deemphasisValue) !== -1) {
+        self.config.set('fm_deemphasis_choice', deemphasisValue);
       }
     }
     
@@ -4327,6 +4338,9 @@ ControllerRtlsdrRadio.prototype.showFmView = function() {
     });
   }
   
+  // The stations of the list: the lines added below are not stations
+  var stationCount = items.length;
+  
   if (items.length === 0) {
     items.push({
       service: 'rtlsdr_radio',
@@ -4365,7 +4379,7 @@ ControllerRtlsdrRadio.prototype.showFmView = function() {
     navigation: {
       prev: { uri: 'rtlsdr://' },
       lists: [{
-        title: self.formatString(self.getI18nString('BROWSE_FM_COUNT'), items.length - 1),
+        title: self.formatString(self.getI18nString('BROWSE_FM_COUNT'), stationCount),
         icon: 'fa fa-signal',
         availableListViews: ['list'],
         items: items
@@ -4762,6 +4776,9 @@ ControllerRtlsdrRadio.prototype.showHiddenView = function() {
     });
   }
   
+  // The hidden stations: the line that says there are none is not one
+  var hiddenCount = items.length;
+  
   if (items.length === 0) {
     items.push({
       service: 'rtlsdr_radio',
@@ -4778,7 +4795,7 @@ ControllerRtlsdrRadio.prototype.showHiddenView = function() {
     navigation: {
       prev: { uri: 'rtlsdr://' },
       lists: [{
-        title: self.formatString(self.getI18nString('BROWSE_HIDDEN_COUNT'), items.length),
+        title: self.formatString(self.getI18nString('BROWSE_HIDDEN_COUNT'), hiddenCount),
         icon: 'fa fa-eye-slash',
         availableListViews: ['list'],
         items: items
@@ -5103,7 +5120,7 @@ ControllerRtlsdrRadio.prototype.fmStartState = function(freqStr, stationName) {
     album: self.getI18nString('FM_RADIO'),
     albumart: '/albumart?sourceicon=' + self.fmIcon(playing ? playing.station : null, true),
     uri: 'rtlsdr://fm/' + freqStr,
-    trackType: 'FM ' + self.getSignalBars(0),
+    trackType: self.fmTrackType(0, !!(playing && playing.station && playing.station.mono)),
     samplerate: '48 KHz',
     bitdepth: '16 bit',
     channels: 2,
@@ -5120,10 +5137,8 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // Get settings from config
   var fmOversampling = self.config.get('fm_oversampling', false);
   var fmSampleRate = self.config.get('fm_sample_rate', '171k');
-  var fmDeemphasis = self.config.get('fm_deemphasis', false);
   
-  // Get region settings for de-emphasis
-  var regionSettings = self.getRegionSettings();
+  // The region, for the log
   var regionKey = self.config.get('fm_region', 'europe');
   
   // Reset RDS state
@@ -5160,14 +5175,13 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   
   // De-emphasis: a broadcast is sent with its treble raised, by a curve named after a
   // time constant (50 us in most of the world, 75 us in the Americas), and a receiver
-  // takes it down again by the same curve. The region says which; in custom mode the
-  // manual switch says whether, at 50 us. It is applied to the sound (sox, below), not
-  // by the receiver: fn-rtl_fm's own (-E deemp) knows the 75 us curve only, and would
-  // take it out of what the RDS decoder and the reception meter are given as well.
-  var deemphasisUs = (regionKey === 'custom') ? (fmDeemphasis ? 50 : 0) : (Number(regionSettings.deemphasis_us) || 0);
-  if (deemphasisUs > 0) {
-    self.logger.info('[RTL-SDR Radio] De-emphasis: ' + deemphasisUs + ' us (region: ' + regionKey + ')');
-  }
+  // takes it down again by the same curve. The region says which, unless one is chosen
+  // (fmDeemphasisUs). It is applied to the sound (sox, below), not by the receiver:
+  // fn-rtl_fm's own (-E deemp) knows the 75 us curve only, and would take it out of
+  // what the RDS decoder and the reception meter are given as well.
+  var deemphasisUs = self.fmDeemphasisUs();
+  self.logger.info('[RTL-SDR Radio] De-emphasis: ' + (deemphasisUs > 0 ? deemphasisUs + ' us' : 'none') +
+    (self.fmDeemphasisChoice() === 'region' ? ' (region: ' + regionKey + ')' : ' (chosen; region: ' + regionKey + ')'));
   
   self.logger.info('[RTL-SDR Radio] Starting FM with RDS: fn-rtl_fm ' + rtlArgs.join(' '));
   
@@ -5229,9 +5243,9 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
     meter = new FmQuality(meterRate, {
       // a station the scan listed as sending no pilot is read by its carrier from the start
       mono: !!(listed && listed.station && listed.station.mono),
-      onReading: function(db) {
+      onReading: function(db, reading, mono) {
         if (self.tuner.current === job && !job.stopping) {
-          self.considerFmLevel(db, freqStr, stationName);
+          self.considerFmLevel(db, freqStr, stationName, mono);
         }
       }
     });
@@ -5586,6 +5600,13 @@ ControllerRtlsdrRadio.prototype.sanitizeRdsText = function(text) {
   return sanitized;
 };
 
+// What the player shows beside the title for FM: "FM", the word MONO for a station that
+// sends no stereo pilot, and the reception dots. (All FM is played in mono; the word
+// says what the station sends, and that its dots are read from the carrier.)
+ControllerRtlsdrRadio.prototype.fmTrackType = function(level, mono) {
+  return 'FM ' + (mono ? 'MONO ' : '') + this.getSignalBars(level);
+};
+
 // Generate signal strength bars using Unicode block characters
 // Level 0-5 returns centered circle visualization with empty placeholders
 ControllerRtlsdrRadio.prototype.getSignalBars = function(level) {
@@ -5921,10 +5942,12 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
   if (!title) title = parsed.title;
   
   // Throttle updates - minimum interval between pushes
-  // Exception: Signal level changes bypass throttle for responsive UI
+  // Exception: Signal level changes bypass throttle for responsive UI, and so does the
+  // MONO mark beside the level
   var now = Date.now();
   var sigLevel = rds.signalLevel || 0;
-  var signalChanged = (self.lastSignalLevel !== undefined && self.lastSignalLevel !== sigLevel);
+  var signalChanged = (self.lastSignalLevel !== undefined &&
+    (self.lastSignalLevel !== sigLevel || self.lastMonoMark !== rds.mono));
   
   if (!signalChanged && (now - self.lastRdsUpdate) < self.RDS_UPDATE_INTERVAL) {
     return;
@@ -5954,7 +5977,9 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
   // Build state key fields for comparison (include signal level for UI updates)
   // Must match actual state values to detect changes correctly
   // Note: sigLevel already defined above for throttle bypass
-  var stateKey = displayName + '|' + (artist || rds.radiotext || '') + '|' + (title || rds.prog_type || '') + '|' + sigLevel;
+  var mono = rds.mono !== undefined ? rds.mono : !!(station && station.mono);
+  var stateKey = displayName + '|' + (artist || rds.radiotext || '') + '|' + (title || rds.prog_type || '') + '|' + sigLevel +
+    (mono ? '|mono' : '');
   
   // Skip if state hasn't changed
   if (self.lastRdsState === stateKey) {
@@ -5965,6 +5990,7 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
   self.lastRdsState = stateKey;
   self.lastRdsUpdate = now;
   self.lastSignalLevel = sigLevel;
+  self.lastMonoMark = rds.mono;
   
   // Get artwork settings
   var bestEffortArtwork = self.config.get('best_effort_artwork', true);
@@ -5991,7 +6017,7 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
       album: title || rds.prog_type || self.getI18nString('FM_RADIO'),
       albumart: artUrl,
       uri: 'rtlsdr://fm/' + freq,
-      trackType: 'FM ' + self.getSignalBars(rds.signalLevel),
+      trackType: self.fmTrackType(rds.signalLevel, mono),
       samplerate: '48 KHz',
       bitdepth: '16 bit',
       channels: channels,
@@ -6671,7 +6697,8 @@ ControllerRtlsdrRadio.prototype.dongleSilent = function(job, what) {
 // The FM tune level, from a reading of the reception (lib/fmquality.js, once a second).
 // A station without a pilot gives no reading; then what RDS tells is all there is.
 // A new level is shown when it has held for a few seconds, the first one at once.
-ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName) {
+// mono: the reading is taken from the carrier, there being no pilot.
+ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName, mono) {
   var self = this;
   if (!self.currentRds) {
     self.currentRds = {};
@@ -6679,6 +6706,13 @@ ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName
   var rds = self.currentRds;
   
   var level = FmQuality.level(db);
+  // What the station sends, by this reading: no pilot where its carrier was read, a
+  // pilot where one stands out. Where neither can be said (a weak station) the word of
+  // the station list holds (pushRdsState).
+  var sends = mono ? true : level !== null ? false : undefined;
+  var marked = sends !== rds.mono;
+  rds.mono = sends;
+  
   if (level !== null) {
     rds.signalPercent = Math.max(0, Math.min(100, Math.round(db * 2)));
   } else {
@@ -6688,23 +6722,27 @@ ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName
   rds.receptionDb = Math.round(db * 10) / 10;
   
   var now = Date.now();
+  var settled = false;
   if (rds.signalLevel === undefined) {
     rds.signalLevel = level;
+    settled = true;
   } else if (level === rds.signalLevel) {
     rds.pendingLevel = undefined;
-    return;
   } else if (rds.pendingLevel !== level) {
     rds.pendingLevel = level;
     rds.pendingSince = now;
-    return;
-  } else if (now - rds.pendingSince < self.SIGNAL_HOLD) {
-    return;
-  } else {
+  } else if (now - rds.pendingSince >= self.SIGNAL_HOLD) {
     rds.signalLevel = level;
     rds.pendingLevel = undefined;
+    settled = true;
+  }
+  // the mark does not wait for a level to settle
+  if (!settled && !marked) {
+    return;
   }
   
-  self.logger.info('[RTL-SDR Radio] FM reception: ' + rds.receptionDb + ' dB, level ' + rds.signalLevel + '/5');
+  self.logger.info('[RTL-SDR Radio] FM reception: ' + rds.receptionDb + ' dB, level ' + rds.signalLevel + '/5' +
+    (rds.mono ? ' (no pilot: read from the carrier)' : ''));
   self.pushRdsState(freq, stationName);
 };
 
@@ -7120,6 +7158,8 @@ ControllerRtlsdrRadio.prototype.receptionSettings = function() {
     'FM sample rate': self.config.get('fm_sample_rate', '171k'),
     'FM oversampling': self.config.get('fm_oversampling', false) ? 'on' : 'off',
     'FM level': self.levelSetting('fm_level') + ' dB',
+    'FM de-emphasis': (self.fmDeemphasisUs() > 0 ? self.fmDeemphasisUs() + ' us' : 'none') +
+      (self.fmDeemphasisChoice() === 'region' ? ' (the region\'s)' : ' (chosen)'),
     'FM tuning correction': self.fmCorrection() + ' ppm (found by the last scan; the report measures without it)',
     'DAB gain': self.config.get('dab_gain_auto', true) ? 'automatic' : 'set to ' + self.numberSetting('dab_gain', 80),
     'DAB PPM correction': self.numberSetting('dab_ppm', 0),
@@ -7318,6 +7358,48 @@ ControllerRtlsdrRadio.prototype.noteTuningError = function(survey, surveyedWith)
   self.logger.info('[RTL-SDR Radio] FM tuning correction ' + (wanted === 0 ? 'not needed for this dongle' :
     'set to ' + wanted + ' parts per million for this dongle') +
     (same ? ' (was ' + surveyedWith + ')' : another ? ' (what was kept was another dongle\'s)' : ''));
+};
+
+// The de-emphasis FM is received with: the region's own, or one chosen. The regions
+// bundle a band, a raster and a de-emphasis, and countries do not always (South Korea has
+// East Asia's band and raster with 75 us). The Custom region's own is 50 us.
+ControllerRtlsdrRadio.prototype.fmDeemphasisChoice = function() {
+  var choice = String(this.config.get('fm_deemphasis_choice', 'region'));
+  return this.FM_DEEMPHASIS_CHOICES.indexOf(choice) === -1 ? 'region' : choice;
+};
+
+// The same in microseconds; 0 for none
+ControllerRtlsdrRadio.prototype.fmDeemphasisUs = function() {
+  var choice = this.fmDeemphasisChoice();
+  if (choice === 'off') {
+    return 0;
+  }
+  return choice === 'region' ? (Number(this.getRegionSettings().deemphasis_us) || 0) : Number(choice);
+};
+
+// Versions before 1.4.7 had a switch for the Custom region only (50 us, or none) and no
+// choice elsewhere. What a Custom region was set to is kept as a choice, once.
+ControllerRtlsdrRadio.prototype.carryDeemphasisOver = function() {
+  if (this.config.has('fm_deemphasis_choice')) {
+    return;
+  }
+  var custom = this.config.get('fm_region', 'europe') === 'custom';
+  this.config.set('fm_deemphasis_choice', !custom ? 'region' : this.config.get('fm_deemphasis', false) ? '50' : 'off');
+};
+
+// A choice in words, for the settings page
+ControllerRtlsdrRadio.prototype.fmDeemphasisLabel = function(choice) {
+  if (choice === '50') {
+    return this.getI18nString('FM_DEEMPHASIS_50');
+  }
+  if (choice === '75') {
+    return this.getI18nString('FM_DEEMPHASIS_75');
+  }
+  if (choice === 'off') {
+    return this.getI18nString('FM_DEEMPHASIS_OFF');
+  }
+  var own = Number(this.getRegionSettings().deemphasis_us) || 0;
+  return this.getI18nString('FM_DEEMPHASIS_REGION') + ' (' + (own > 0 ? own + ' \u00b5s' : this.getI18nString('FM_DEEMPHASIS_OFF')) + ')';
 };
 
 // How thoroughly an FM scan searches the band: 'fast' listens to the channels that stand

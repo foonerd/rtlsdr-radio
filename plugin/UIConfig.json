@@ -141,10 +141,10 @@
           "show_fm_region",
           "fm_region",
           "fm_scan_offset",
+          "fm_deemphasis_choice",
           "fm_lower_freq",
           "fm_upper_freq",
-          "fm_channel_spacing",
-          "fm_deemphasis"
+          "fm_channel_spacing"
         ]
       },
       "content": [
@@ -192,6 +192,26 @@
             {"value": "0", "label": "TRANSLATE.FM_SCAN_OFFSET_0"},
             {"value": "50", "label": "TRANSLATE.FM_SCAN_OFFSET_50"},
             {"value": "100", "label": "TRANSLATE.FM_SCAN_OFFSET_100"}
+          ],
+          "visibleIf": {
+            "field": "show_fm_region",
+            "value": true
+          }
+        },
+        {
+          "id": "fm_deemphasis_choice",
+          "element": "select",
+          "label": "TRANSLATE.FM_DEEMPHASIS",
+          "doc": "TRANSLATE.FM_DEEMPHASIS_DOC",
+          "value": {
+            "value": "region",
+            "label": "TRANSLATE.FM_DEEMPHASIS_REGION"
+          },
+          "options": [
+            {"value": "region", "label": "TRANSLATE.FM_DEEMPHASIS_REGION"},
+            {"value": "50", "label": "TRANSLATE.FM_DEEMPHASIS_50"},
+            {"value": "75", "label": "TRANSLATE.FM_DEEMPHASIS_75"},
+            {"value": "off", "label": "TRANSLATE.FM_DEEMPHASIS_OFF"}
           ],
           "visibleIf": {
             "field": "show_fm_region",
@@ -252,17 +272,6 @@
             {"value": "100k", "label": "TRANSLATE.FM_CHANNEL_SPACING_100K"},
             {"value": "200k", "label": "TRANSLATE.FM_CHANNEL_SPACING_200K"}
           ],
-          "visibleIf": {
-            "field": "show_fm_region",
-            "value": true
-          }
-        },
-        {
-          "id": "fm_deemphasis",
-          "element": "switch",
-          "label": "TRANSLATE.FM_DEEMPHASIS",
-          "value": false,
-          "doc": "TRANSLATE.FM_DEEMPHASIS_DOC",
           "visibleIf": {
             "field": "show_fm_region",
             "value": true

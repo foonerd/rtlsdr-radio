@@ -83,9 +83,9 @@
     "type": "number",
     "value": 0
   },
-  "fm_deemphasis": {
-    "type": "boolean",
-    "value": false
+  "fm_deemphasis_choice": {
+    "type": "string",
+    "value": "region"
   },
   "sample_rate": {
     "type": "number",

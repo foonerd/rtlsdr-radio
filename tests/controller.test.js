@@ -653,9 +653,9 @@ test('FM is brought to the level of everything else, whatever the receiver rate'
   await plugin.stop();
 });
 
-test('de-emphasis is the region\'s, applied to the sound and not by the receiver', async function() {
+test('de-emphasis is the region\'s unless one is chosen, applied to the sound and not by the receiver', async function() {
   var region = plugin.config.get('fm_region', 'europe');
-  var manual = plugin.config.get('fm_deemphasis', false);
+  var choice = plugin.config.get('fm_deemphasis_choice', 'region');
   async function played() {
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
@@ -663,28 +663,186 @@ test('de-emphasis is the region\'s, applied to the sound and not by the receiver
     await plugin.stop();
     return args;
   }
+  var EU = / -c 2 - lowpass -1 3183\.1 rate vol [\d.]+dB$/;
+  var US = / -c 2 - lowpass -1 2122\.1 rate vol [\d.]+dB$/;
+  var NONE = / -c 2 - rate vol [\d.]+dB$/;
   try {
+    // a new installation takes the region's
+    assert.strictEqual(choice, 'region');
     // Europe: 50 microseconds, one pole at 3183 Hz, before the resampler and the level
     plugin.config.set('fm_region', 'europe');
     var europe = await played();
-    assert.match(europe.sox, / -c 2 - lowpass -1 3183\.1 rate vol [\d.]+dB$/);
+    assert.match(europe.sox, EU);
     // the receiver is not asked for its own: it has the 75 microsecond curve only, and
     // the RDS decoder and the reception meter want the signal as it is
     assert.doesNotMatch(europe.receiver, /-E/);
     // the Americas: 75 microseconds, 2122 Hz
     plugin.config.set('fm_region', 'americas');
     var americas = await played();
-    assert.match(americas.sox, / -c 2 - lowpass -1 2122\.1 rate vol [\d.]+dB$/);
+    assert.match(americas.sox, US);
     assert.doesNotMatch(americas.receiver, /-E/);
-    // a region of one's own: by the switch, at 50 microseconds, or none
+    // a region of one's own: 50 microseconds
     plugin.config.set('fm_region', 'custom');
+    assert.match((await played()).sox, EU);
+
+    // a country that differs from its region: East Asia's band with 75 microseconds
+    plugin.config.set('fm_region', 'east_asia');
+    assert.match((await played()).sox, EU);
+    logs.length = 0;
+    await plugin.saveFmRegion({ fm_region: { value: 'east_asia' }, fm_deemphasis_choice: { value: '75', label: 'x' } });
+    assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), '75');
+    assert.match((await played()).sox, US);
+    assert.ok(logs.some(function(m) { return /De-emphasis: 75 us \(chosen; region: east_asia\)/.test(m); }), logs.join('\n'));
+    assert.match(plugin.receptionSettings()['FM de-emphasis'], /^75 us \(chosen\)$/);
+    // none at all
+    await plugin.saveFmRegion({ fm_region: 'east_asia', fm_deemphasis_choice: 'off' });
+    assert.match((await played()).sox, NONE);
+    // what is no choice is not kept
+    await plugin.saveFmRegion({ fm_region: 'east_asia', fm_deemphasis_choice: { value: '60' } });
+    assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), 'off');
+    // and back to the region's
+    await plugin.saveFmRegion({ fm_region: 'east_asia', fm_deemphasis_choice: { value: 'region' } });
+    assert.match((await played()).sox, EU);
+    assert.match(plugin.receptionSettings()['FM de-emphasis'], /^50 us \(the region's\)$/);
+
+    // the settings page: the choice in force, and the first choice says what the region's is
+    plugin.config.set('fm_region', 'americas');
+    plugin.config.set('fm_deemphasis_choice', '50');
+    var page = JSON.parse(fs.readFileSync(__dirname + '/../plugin/UIConfig.json', 'utf8'));
+    plugin.populateUIConfig(page);
+    var field = page.sections[2].content.find(function(item) { return item.id === 'fm_deemphasis_choice'; });
+    assert.deepStrictEqual(field.value, { value: '50', label: '50 µs (most of the world)' });
+    assert.deepStrictEqual(field.options.map(function(o) { return o.value; }), ['region', '50', '75', 'off']);
+    assert.strictEqual(field.options[0].label, 'The region\'s own (75 µs)');
+    assert.ok(page.sections[2].saveButton.data.indexOf('fm_deemphasis_choice') !== -1);
+    // the switch of earlier versions is gone, in every region
+    plugin.config.set('fm_region', 'custom');
+    page = JSON.parse(fs.readFileSync(__dirname + '/../plugin/UIConfig.json', 'utf8'));
+    plugin.populateUIConfig(page);
+    assert.ok(!page.sections[2].content.some(function(item) { return item.id === 'fm_deemphasis'; }));
+    assert.ok(page.sections[2].content.some(function(item) { return item.id === 'fm_deemphasis_choice'; }));
+
+    // coming from a version with the switch: a Custom region keeps what it was set to
+    plugin.config.delete('fm_deemphasis_choice');
     plugin.config.set('fm_deemphasis', false);
-    assert.match((await played()).sox, / -c 2 - rate vol [\d.]+dB$/);
+    plugin.carryDeemphasisOver();
+    assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), 'off');
+    plugin.config.delete('fm_deemphasis_choice');
     plugin.config.set('fm_deemphasis', true);
-    assert.match((await played()).sox, / -c 2 - lowpass -1 3183\.1 rate vol [\d.]+dB$/);
+    plugin.carryDeemphasisOver();
+    assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), '50');
+    // any other region had its own, and has it still
+    plugin.config.delete('fm_deemphasis_choice');
+    plugin.config.set('fm_region', 'americas');
+    plugin.carryDeemphasisOver();
+    assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), 'region');
+    // and a choice once made is left alone
+    plugin.config.set('fm_deemphasis_choice', '75');
+    plugin.config.set('fm_region', 'custom');
+    plugin.carryDeemphasisOver();
+    assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), '75');
   } finally {
     plugin.config.set('fm_region', region);
-    plugin.config.set('fm_deemphasis', manual);
+    plugin.config.set('fm_deemphasis_choice', choice);
+    plugin.config.delete('fm_deemphasis');
+    modals.length = 0;
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
+test('the browse lists count their stations, not the lines beside them', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  function counted(view) {
+    var list = view.navigation.lists[0];
+    return { title: list.title, stations: list.items.filter(function(item) { return /^rtlsdr:\/\/(fm|dab)\//.test(item.uri || ''); }).length, lines: list.items.length };
+  }
+  try {
+    // none: the list says so in a line of its own, and that line is no station
+    plugin.stationsDb.fm = [];
+    var none = counted(await plugin.showFmView());
+    assert.strictEqual(none.title, 'FM Radio (0 stations)');
+    assert.strictEqual(none.stations, 0);
+    assert.ok(none.lines > 0);
+    var hiddenNone = counted(await plugin.showHiddenView());
+    assert.strictEqual(hiddenNone.title, 'Hidden Stations (0)');
+    assert.ok(hiddenNone.lines > 0);
+
+    // three, of which one is hidden and one deleted
+    plugin.stationsDb.fm = [
+      { frequency: '88.1', name: 'FM 88.1', playCount: 0 },
+      { frequency: '94.9', name: 'FM 94.9', playCount: 0 },
+      { frequency: '96.7', name: 'FM 96.7', playCount: 0, hidden: true },
+      { frequency: '99.1', name: 'FM 99.1', playCount: 0, deleted: true }
+    ];
+    var some = counted(await plugin.showFmView());
+    assert.strictEqual(some.stations, 2);
+    assert.strictEqual(some.title, 'FM Radio (2 stations)');
+    assert.ok(some.lines > some.stations);
+    var hiddenSome = counted(await plugin.showHiddenView());
+    assert.strictEqual(hiddenSome.title, 'Hidden Stations (' + hiddenSome.stations + ')');
+    assert.ok(hiddenSome.stations >= 1);
+  } finally {
+    plugin.stationsDb.fm = before;
+  }
+});
+
+test('FM: a station that sends no pilot is marked MONO beside its dots', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  var DOTS = '[◦●]{5}';
+  assert.match(plugin.fmTrackType(3, true), new RegExp('^FM MONO ' + DOTS + '$'));
+  assert.match(plugin.fmTrackType(3, false), new RegExp('^FM ' + DOTS + '$'));
+  function shown() {
+    return states.length ? states[states.length - 1].trackType : null;
+  }
+  try {
+    // the station list knows 101.2 MHz as one without a pilot: marked from the start
+    plugin.stationsDb.fm = [
+      { frequency: '101.2', name: 'FM 101.2', playCount: 0, mono: true },
+      { frequency: '94.9', name: 'FM 94.9', playCount: 0, mono: false }
+    ];
+    assert.match(plugin.fmStartState('101.2', 'FM 101.2').trackType, /^FM MONO /);
+    assert.match(plugin.fmStartState('94.9', 'FM 94.9').trackType, /^FM (?!MONO)/);
+    assert.match(plugin.fmStartState('88.1', 'FM 88.1').trackType, /^FM (?!MONO)/);
+
+    // while it plays, the reading says what the station sends
+    async function read(db, frequency, byCarrier) {
+      plugin.considerFmLevel(db, frequency, 'FM ' + frequency, byCarrier);
+      await sleep(30);
+      return shown();
+    }
+    function tuned() {
+      plugin.currentRds = {};
+      plugin.lastRdsState = null;
+      plugin.lastRdsUpdate = 0;
+      plugin.lastSignalLevel = undefined;
+      states.length = 0;
+    }
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(300);
+    tuned();
+    // a pilot of 34 dB: no mark
+    assert.match(await read(34, '94.9', false), /^FM (?!MONO)/);
+    // the pilot goes and the carrier stays clear: marked at once, at the same level
+    assert.match(await read(34, '94.9', true), /^FM MONO /);
+    assert.ok(logs.some(function(m) { return /FM reception: 34 dB, level 4\/5 \(no pilot: read from the carrier\)/.test(m); }));
+    // and comes back
+    assert.match(await read(34, '94.9', false), /^FM (?!MONO)/);
+    // too weak to say either: the list's word holds, and for 94.9 MHz that is a pilot
+    assert.match(await read(2, '94.9', false), /^FM (?!MONO)/);
+    assert.strictEqual(states.filter(function(s) { return /MONO/.test(s.trackType); }).length, 1);
+
+    // 101.2 MHz, too weak to read: the list knows it as one without a pilot
+    states.length = 0;
+    await plugin.clearAddPlayTrack(fmTrack('101.2'));
+    await sleep(300);
+    assert.ok(states.length > 0 && states.every(function(s) { return /^FM MONO /.test(s.trackType); }), JSON.stringify(states));
+    tuned();
+    assert.match(await read(2, '101.2', false), /^FM MONO /);
+    // a pilot stands on it after all: the list is out of date, and the mark goes at once
+    assert.match(await read(34, '101.2', false), /^FM (?!MONO)/);
+  } finally {
+    await plugin.stop();
+    plugin.stationsDb.fm = before;
   }
   assert.deepStrictEqual(running(), []);
 });

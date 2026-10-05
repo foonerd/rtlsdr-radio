@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.4.6 - FM: mono stations are found, fast or detailed scan, off-frequency dongles corrected, de-emphasis by region"
+    "changelog": "v1.4.7 - FM de-emphasis as a choice of its own, MONO mark for stations without a stereo pilot, browse list counts corrected"
   },
   "engines": {
     "node": ">=20",

@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.4.4 - FM scan with an E4000 dongle at the most sensitive setting: a tuner's mirror no longer passes on a chance reading of noise"
+    "changelog": "v1.4.5 - FM: a station's gain is measured on what the receiver takes in, so a station near a very strong one is no longer played overdriven; E4000 dongles get their full gain; the scan no longer drops a real station beside a strong one"
   },
   "engines": {
     "node": ">=20",

@@ -268,7 +268,7 @@ function text(report) {
       }));
     if (fm.gains && fm.gains.length) {
       lines.push('');
-      table('Gain station by station', [['MHz', 9], ['gain', 7], ['step', 8], ['level', 7], ['cut off %', 11], ['taken down', 0]],
+      table('Gain station by station, on the slice the receiver reads', [['MHz', 9], ['gain', 7], ['step', 8], ['level', 7], ['cut off %', 11], ['taken down', 0]],
         fm.gains.map(function(gain) {
           return [mhz(gain.freq), gainName(gain.gain), gain.step + '/' + gain.of, gain.level, gain.cut, gain.backoff];
         }));
@@ -315,6 +315,8 @@ function text(report) {
 //   usb       function() -> { id, manufacturer, product, serial, port, speed } or null
 //   dabChannels function() -> the DAB channels of the user's list, the fullest first
 //   sensitivity function() -> the scan sensitivity setting
+//   slice     function() -> the samples a second the receiver reads the dongle at with
+//             the settings as they are: the gain for a station is measured on that slice
 //   pack      function(dir, file) -> promise: makes the ZIP file of the folder
 //   times     the waits above, for tests
 function DongleReport(options) {
@@ -608,6 +610,9 @@ DongleReport.prototype.make = function(wanted) {
     }
     var args = [];
     strongest.forEach(function(station) { args.push('-f', String(station.freq)); });
+    if (o.slice) {
+      args.push('-s', String(o.slice()));
+    }
     return self.tool('fn-rtl-gain', args, self.times.gain).then(function(ran) {
       report.fm.gains = parseGains(ran.out);
       if (ran.code !== 0) {

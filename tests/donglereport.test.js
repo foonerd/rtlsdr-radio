@@ -135,6 +135,7 @@ test('the summary names the dongle, the survey and the stations in words', funct
   assert.match(text, /Problems\n  recording dab-222064000-42\.0\.iq: nothing was written\n$/);
   // One line for every station listed
   var lines = text.split('\n');
+  assert.ok(lines.indexOf('  Gain station by station, on the slice the receiver reads') !== -1);
   var at = lines.indexOf('  Stations at +8 dB');
   assert.strictEqual(lines[at + 1], '    MHz      pilot dB  weakest  carrier Hz  power dB');
   var first = stations[0];

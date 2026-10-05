@@ -161,3 +161,18 @@ test('a tuner\'s mirror of a strong station is no station; a station under such 
   // A survey of a tool that knows no mirrors reads as before
   assert.strictEqual(fmscan.parse(fixture('fm-survey.txt')).channels.every(function(c) { return c.mirror === null && c.moved === null; }), true);
 });
+
+test('a faint signal the tuner made is refused although it cannot fall by 10 dB', function() {
+  // As surveyed on two R820T dongles beside a very strong station: 88.2 and 87.8 MHz are
+  // not on the air, and with the gain lowered there is no pilot left on them
+  var faint = fmscan.parse(
+    'CHANNEL: freq=88200000 rf=-20.0 top=1 pilot=9.4 low=6.0 offset=1200 again=0.9\n' +
+    'CHANNEL: freq=87800000 rf=-20.0 top=1 pilot=8.3 low=5.1 offset=900 again=-1.0\n' +
+    // the faintest real station of fourteen surveys kept 2.9 dB
+    'CHANNEL: freq=93800000 rf=-28.9 top=1 pilot=8.1 low=5.0 offset=4236 again=2.9\n');
+  [8, 5, 3].forEach(function(sensitivity) {
+    assert.deepStrictEqual(mhz(fmscan.stations(faint, { sensitivity: sensitivity })), ['93.8']);
+    assert.deepStrictEqual(mhz(fmscan.ghosts(faint, { sensitivity: sensitivity })).sort(), ['87.8', '88.2']);
+  });
+});
+

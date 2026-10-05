@@ -127,6 +127,7 @@ function ControllerRtlsdrRadio(context) {
     acquire: function() { return self.acquireForTool('dongle report', { keepOpen: true }); },
     band: function() { return self.fmSurveyBand(); },
     sensitivity: function() { return self.config.get('scan_sensitivity', 8); },
+    slice: function() { return self.receiverSlice(); },
     settings: function() { return self.receptionSettings(); },
     player: function() { return self.playerFacts(); },
     usb: function() { return self.usbDongle(); },
@@ -151,14 +152,14 @@ function ControllerRtlsdrRadio(context) {
   self.SIGNAL_HOLD = 4000;           // A new tune level must hold this long before it is shown
   self.LOGOS_START_DELAY = 30000;    // Station logos are looked for this long after the plugin starts
   self.STORE_TIMEOUT = 15000;        // How long the plugin store is given to say which versions it has
-  self.GAIN_SAMPLE_RATE = 1200000;   // About the rate fn-rtl_fm reads the dongle at, and so what the gain is measured at
+  self.RDS_LISTEN_RATE = '171k';     // The receiver rate a station is listened to at for its RDS code during a scan
   self.FM_GAIN_KEEP = 7 * 24 * 3600 * 1000;  // How long a station's measured gain is used before it is measured again
   self.RDS_WORTH_DB = 36;            // The pilot (dB) from which RDS can be read within seconds: such stations are listened to in a scan
   self.RDS_LISTEN = 4000;            // How long a scan listens to one of them for its PI code
   self.RDS_LISTEN_MOST = 20;         // How many stations a scan listens to at most
   self.RDS_PI_READINGS = 5;          // A PI code read alike this many times running is the station's
   self.RDS_PS_HOLD = 30000;          // An RDS name that has stood this long is the station's name, not running text
-  self.GAIN_RULE = 2;                // How the gain is measured: 1 not cut off, 2 not cut off and the tuner not overloaded
+  self.GAIN_RULE = 3;                // How the gain is measured: 1 not cut off, 2 and the tuner not overloaded, 3 on the slice the receiver reads
   self.DLS_UPDATE_INTERVAL = 2000;   // Minimum between DLS state pushes
   self.DLS_POLL_INTERVAL = 2000;     // DLS file polling interval
   self.TMC_THROTTLE = 30000;         // Traffic alert throttle (30s)
@@ -6942,14 +6943,16 @@ function parseGainOutput(text) {
 }
 
 // Measure the gain the dongle should be set to at the given frequencies (Hz), as a
-// step of the tuner job that holds the dongle. Resolves with what parseGainOutput
+// step of the tuner job that holds the dongle. rate: the samples a second the receiver
+// will read the dongle at (fmCaptureRate): the tool measures the slice the receiver
+// takes in, not one of its own. Resolves with what parseGainOutput
 // gives; an empty list when the tool could not be run. Never rejects.
 ControllerRtlsdrRadio.prototype.measureGain = function(job, frequencies, rate) {
   var self = this;
   return new Promise(function(resolve) {
     var args = [];
     frequencies.forEach(function(hz) { args.push('-f', String(hz)); });
-    args.push('-s', String(rate || self.GAIN_SAMPLE_RATE));
+    args.push('-s', String(rate));
     
     // The tool ends before the receiver starts: the job outlives it
     var keepOpen = job.keepOpen;
@@ -7201,22 +7204,46 @@ ControllerRtlsdrRadio.prototype.fmCanOversample = function(rate) {
   return hz > 0 && hz * 16 <= this.DONGLE_STEADY_RATE;
 };
 
+// The samples a second fn-rtl_fm reads the dongle at for a receiver rate ("171k"), as
+// it works that out itself: at least a million, in a power of two times the receiver
+// rate (four times that rate with oversampling). It sets the tuner a quarter of this
+// above the station, so the slice it takes in reaches from a quarter of it below the
+// station to three quarters above: 1.9 MHz at 240k, 2.4 MHz at 300k.
+ControllerRtlsdrRadio.prototype.fmCaptureRate = function(rate, oversampling) {
+  var match = /^(\d+(?:\.\d+)?)(k?)$/i.exec(String(rate).trim());
+  var hz = match ? parseFloat(match[1]) * (match[2] ? 1000 : 1) : 171000;
+  if (oversampling) {
+    hz *= 4;
+  }
+  var passes = Math.floor(Math.log2(Math.floor(1000000 / hz) + 1)) + 1;
+  return Math.round(hz * Math.pow(2, passes));
+};
+
+// The samples a second the receiver reads the dongle at with the settings as they are
+ControllerRtlsdrRadio.prototype.receiverSlice = function() {
+  var rate = this.config.get('fm_sample_rate', '171k');
+  return this.fmCaptureRate(rate, this.config.get('fm_oversampling', false) && this.fmCanOversample(rate));
+};
+
 ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
   var self = this;
   var manual = self.config.get('fm_gain', 50);
   if (!self.config.get('fm_gain_auto', true)) {
     return Promise.resolve(manual);
   }
+  // The slice the receiver will take in: the gain is measured on that, and a gain
+  // measured for another receiver rate was measured on another slice
+  var slice = self.receiverSlice();
   // A gain measured by an earlier rule, or with another dongle, counts as not measured:
   // what suits one tuner overloads another
   var dongle = self.usbMark();
   var measured = station && typeof station.gain === 'number' && station.gainMeasured &&
-    station.gainRule === self.GAIN_RULE && station.gainOn === dongle ?
+    station.gainRule === self.GAIN_RULE && station.gainOn === dongle && station.gainSlice === slice ?
     Date.now() - new Date(station.gainMeasured).getTime() : Infinity;
   if (measured < self.FM_GAIN_KEEP) {
     return Promise.resolve(station.gain);
   }
-  return self.measureGain(job, [Math.round(freq * 1e6)]).then(function(result) {
+  return self.measureGain(job, [Math.round(freq * 1e6)], slice).then(function(result) {
     var found = result.list[0];
     job.dongleSilent = !!result.silent;
     if (!found) {
@@ -7230,6 +7257,7 @@ ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {
       station.gain = found.gain;
       station.gainRule = self.GAIN_RULE;
       station.gainOn = dongle;
+      station.gainSlice = slice;
       station.gainMeasured = new Date().toISOString();
       self.saveStations();
     }

@@ -4,6 +4,11 @@
 # band (-b) it prints a survey the real one made of recordings of the FM band.
 echo "$@" > /tmp/fake-args-fn-rtl-gain
 echo x >> /tmp/fake-runs-fn-rtl-gain
+# Its check of itself needs no dongle
+if [ "$1" = "-t" ]; then
+  echo "selftest: ok (pilot 52.9 dB, none -10.2 dB, alike 0.0 dB, unlike 17.1 dB, mirror 0.91, apart 0.00)"
+  exit 0
+fi
 # Waiting in a way that ends with this script: a sleep left behind would hold its output open
 sleep "${FAKE_GAIN_SECONDS:-0.05}" &
 trap 'kill $! 2>/dev/null; exit 143' TERM INT
@@ -12,11 +17,6 @@ trap - TERM INT
 [ "$FAKE_GAIN_FAILS" = "1" ] && { echo "fn-rtl-gain: cannot open device 0" >&2; exit 1; }
 # A dongle that opens and delivers nothing: the real tool ends so after five seconds
 [ "$FAKE_GAIN_SILENT" = "1" ] && { echo "fn-rtl-gain: the dongle delivers no samples" >&2; exit 3; }
-# Its check of itself needs no dongle
-if [ "$1" = "-t" ]; then
-  echo "selftest: ok (pilot 52.9 dB, none -10.2 dB, alike 0.0 dB, unlike 17.1 dB, mirror 0.91, apart 0.00)"
-  exit 0
-fi
 if [ "$1" = "-b" ]; then
   cat "$(dirname "$0")/../fixtures/${FAKE_SURVEY:-fm-survey.txt}"
   exit 0

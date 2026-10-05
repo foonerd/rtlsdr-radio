@@ -211,7 +211,7 @@ test('FM: the gain is measured at the station\'s frequency before the receiver s
   await plugin.clearAddPlayTrack(fmTrack('94.9'));
   await sleep(300);
   assert.strictEqual(gainRuns(), before + 1);
-  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), /^-f 94900000 -s 1200000$/m);
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), /^-f 94900000 -s 1368000$/m);
   assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), / -g 37\.2 /);
   assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
   assert.strictEqual(plugin.stationsDb.fm[0].gain, 37.2);
@@ -551,6 +551,47 @@ test('a DAB service that is not found ends the playback with a message', async f
   assert.ok(toasts.some(function(t) { return t.type === 'error' && /could not be received: no usable DAB signal on channel/.test(t.message); }), JSON.stringify(toasts));
   assert.ok(!toasts.some(function(t) { return /code 22/.test(t.message); }), JSON.stringify(toasts));
   assert.ok(logs.some(function(l) { return /Playback stopped: fn-dab ended with code 22/.test(l); }));
+});
+
+test('the gain for a station is measured on the slice the receiver reads', async function() {
+  // The rate fn-rtl_fm reads the dongle at, as it works it out: a power of two times the
+  // receiver rate, at least a million (its own words at 240k: "Sampling at 1920000 S/s")
+  assert.strictEqual(plugin.fmCaptureRate('171k', false), 1368000);
+  assert.strictEqual(plugin.fmCaptureRate('200k', false), 1600000);
+  assert.strictEqual(plugin.fmCaptureRate('240k', false), 1920000);
+  assert.strictEqual(plugin.fmCaptureRate('300k', false), 2400000);
+  assert.strictEqual(plugin.fmCaptureRate('171k', true), 2736000);
+
+  var list = plugin.stationsDb.fm;
+  var rate = plugin.config.get('fm_sample_rate');
+  plugin.stationsDb.fm = [plugin.transformStationToV2({ frequency: '94.9', name: 'FM 94.9' }, 'fm')];
+  try {
+    plugin.config.set('fm_sample_rate', '240k');
+    var runs = gainRuns();
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    assert.strictEqual(gainRuns(), runs + 1);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), /^-f 94900000 -s 1920000$/m);
+    assert.strictEqual(plugin.stationsDb.fm[0].gainSlice, 1920000);
+    await plugin.stop();
+
+    // Played again at the same rate: the gain is kept
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    assert.strictEqual(gainRuns(), runs + 1, 'the gain was kept');
+    await plugin.stop();
+
+    // At another receiver rate the receiver reads another slice: measured again, on that one
+    plugin.config.set('fm_sample_rate', '300k');
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    assert.strictEqual(gainRuns(), runs + 2);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), /^-f 94900000 -s 2400000$/m);
+    await plugin.stop();
+  } finally {
+    plugin.config.set('fm_sample_rate', rate);
+    plugin.stationsDb.fm = list;
+  }
 });
 
 test('FM is brought to the level of everything else, whatever the receiver rate', async function() {
@@ -1475,6 +1516,8 @@ test('dongle report: made step by step, and handed out as one file', async funct
   assert.strictEqual(packed.filter(function(name) { return /\.iq$/.test(name); }).length, view.summary.recordings);
   var report = fs.readJsonSync(REPORT_DIR + '/files/report.json');
   assert.strictEqual(report.form, 2);
+  // The gain for the strongest stations was measured as for playing: on the receiver's slice
+  assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), / -s \d+$/m);
   assert.deepStrictEqual(report.fm.mirrors, []);
   assert.strictEqual(report.player.plugin, require('../plugin/package.json').version);
   assert.strictEqual(report.fm.band, 'europe, 87.50 to 108 MHz, raster 100 kHz');

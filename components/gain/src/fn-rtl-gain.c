@@ -20,8 +20,24 @@
  * The tuner's own automatic gain is not used: measured, it leaves a large share of the
  * samples cut off.
  *
+ * A tuner that mixes the band straight down to zero (an E4000) leaves noise of its own
+ * around the frequency it is set to, tens of kilohertz wide, and that noise does not
+ * follow the gain: at a low gain it stands above everything near it, at a high gain it
+ * is hardly there. To a check that asks whether signals keep their strength against one
+ * another when the gain changes it looks like a signal the tuner made, and the gain was
+ * taken down by 15 dB for it. The 25 kHz either side of the tuning point are therefore
+ * left out of every level. (The library can set such a tuner beside the band it
+ * delivers. That was tried and is not used: it moves the noise out, but the mirror
+ * described below then comes from stations 3 to 5 MHz away, where a survey cannot see
+ * what it is the mirror of.)
+ *
  *   fn-rtl-gain -f <Hz> [-f <Hz> ...] [-s <samples per second>] [-p <ppm>] [-d <device>]
  *
+ * measures the slice the receiver will take in for that station: -s is the rate the
+ * receiver reads the dongle at, and the tuner is set a quarter of it above the station,
+ * as rtl_fm sets it. (Measured on 1.2 MHz around the station while the receiver took in
+ * 1.9 MHz to one side, a strong station inside the receiver's slice and outside the
+ * measured one went unseen: 80% of the samples were cut off at the gain found.) It
  * prints one line for each frequency
  *   GAIN: freq=<Hz> gain=<dB> step=<n> of=<n> level=<mean of 127> cut=<percent> backoff=<dB>
  * (backoff: how far the gain was taken down because the tuner was overloaded) and, when
@@ -99,6 +115,8 @@
 #define DEPARTURE       6.0
 /* a channel is judged when it stands this far (dB) above the noise of the low gain */
 #define JUDGED          6.0
+/* stations rising this much less (dB) than the gain is named to have risen are held down by a tuner driven too hard */
+#define HELD_DOWN       12.0
 /* how much signal the comparison looks at, at each gain */
 #define COMPARE_MS      60
 /* the pilot is measured again with the gain at least this far down (tenths of a dB) */
@@ -109,7 +127,7 @@
 #define SLICE_STEP      2000000.0
 #define SLICE_REACH     1000000.0
 #define LISTEN_MS       800	/* at the gain found */
-#define AGAIN_MS        400	/* at the lower gain */
+#define AGAIN_MS        800	/* at the lower gain: as long as at the gain found, to be judged alike */
 /* a pilot below this (dB) is not asked for again at the lower gain */
 #define PILOT_SEEN      6.0
 /* a channel that may be the tuner's mirror of another: this share of it is that one turned over, */
@@ -118,6 +136,8 @@
 #define MIRROR_STRONGER 6.0
 /* the tuner is set this far beside such a channel for the second look */
 #define MOVED_BY        450000.0
+/* a tuner's own noise around the frequency it is set to: this far either side is left out of a level */
+#define ZERO_GUARD      25000.0
 
 #define NFFT            2048
 #define FRAMES          128
@@ -291,14 +311,19 @@ static double band_power(const double *psd, double rate, double offset, double h
 	double sum = 0.0;
 	int from = (int)floor((offset - half) / rate * NFFT + NFFT / 2 + 0.5);
 	int to = (int)floor((offset + half) / rate * NFFT + NFFT / 2 + 0.5);
+	int guard = (int)ceil(ZERO_GUARD / rate * NFFT);
 	int k;
 
 	if (from < 0)
 		from = 0;
 	if (to > NFFT)
 		to = NFFT;
-	for (k = from; k < to; k++)
+	for (k = from; k < to; k++) {
+		/* not the tuner's own noise around the point it is set to */
+		if (k > NFFT / 2 - guard && k < NFFT / 2 + guard)
+			continue;
 		sum += psd[k];
+	}
 	return 10.0 * log10(sum + 1e-12);
 }
 
@@ -603,33 +628,51 @@ static int is_top(const double *level, int count, int c)
 
 /*
  * How unlike a slice looks at two gains, in dB: 0 when every signal in it differs by the
- * same amount. high and low are the channel levels at the two gains with the gains taken
- * off. Only channels that would stand clear of the noise at the low gain are judged:
- * a weak station that the low gain loses in the receiver's own noise says nothing.
+ * same amount. high and low are the channel levels at the two gains.
+ *
+ * What the gain did between the two is read from the signals themselves, never from
+ * the names of the gain steps: the channels that stand clear of the noise at the low
+ * gain are there at both, and the middle of their changes is the change of the gain.
+ * (A tuner's steps are not what they are called. Measured on an E4000: the step named
+ * 29 to 34 dB adds 0.1 dB, the one named 34 to 42 dB adds 6.3. Taken at their word,
+ * every station seems to fall by 6 dB between two gains, and the slice to be
+ * overloaded.) Against that change every channel is held that stands out at either
+ * gain: a signal the tuner made is there at the high gain and not at the low one, and
+ * departs. With no channel clear of the noise at the low gain there is nothing to hold
+ * anything against, and nothing is said.
+ *
+ * One thing the names of the steps are still asked: a tuner driven far too hard holds
+ * every station down alike, and nothing departs from anything. Where the stations rise
+ * by HELD_DOWN less than the gain is named to have risen, that is what has happened: no
+ * step measured so far is out by as much (the worst, on the E4000, by 8 dB over 20).
  */
 static double departure(const double *high, const double *low, int count)
 {
-	double change[MAX_CHANNELS];
+	double change[MAX_CHANNELS], sound[MAX_CHANNELS];
 	double floor_low = ranked(low, count, 0.5);
 	double reference, worst = 0.0;
-	int used = 0;
+	int used = 0, clear = 0;
 	int c;
 
 	for (c = 0; c < count; c++) {
-		if ((is_top(high, count, c) && high[c] >= floor_low + JUDGED) ||
-		    (is_top(low, count, c) && low[c] >= floor_low + JUDGED))
+		int at_low = is_top(low, count, c) && low[c] >= floor_low + JUDGED;
+
+		if (at_low)
+			sound[clear++] = high[c] - low[c];
+		if (at_low || (is_top(high, count, c) && high[c] >= floor_low + JUDGED))
 			change[used++] = high[c] - low[c];
 	}
-	if (used == 0)
+	if (clear == 0)
 		return 0.0;
-	/* with few signals the gain steps are taken at their word */
-	reference = used >= 3 ? ranked(change, used, 0.5) : 0.0;
+	reference = ranked(sound, clear, 0.5);
 	for (c = 0; c < used; c++) {
 		double away = fabs(change[c] - reference);
 
 		if (away > worst)
 			worst = away;
 	}
+	if (-reference >= HELD_DOWN && -reference > worst)
+		worst = -reference;
 	return worst;
 }
 
@@ -933,20 +976,19 @@ static int first_step(const struct tuner *tuner)
 /* ---- the gain for stations ---- */
 
 /* The channels 100 kHz apart around a tuned frequency that the slice shows whole */
-static void around(struct slice *slice, double frequency, double rate)
+static void around(struct slice *slice, double frequency, double centre, double rate)
 {
-	int reach = (int)((rate / 2.0 - 150000.0) / 100000.0);
 	int k;
 
-	if (reach < 0)
-		reach = 0;
-	if (2 * reach + 1 > MAX_CHANNELS)
-		reach = (MAX_CHANNELS - 1) / 2;
-	slice->centre = frequency;
+	slice->centre = centre;
 	slice->rate = rate;
 	slice->count = 0;
-	for (k = -reach; k <= reach; k++)
-		slice->channel[slice->count++] = frequency + k * 100000.0;
+	for (k = -(MAX_CHANNELS / 2); k <= MAX_CHANNELS / 2 && slice->count < MAX_CHANNELS; k++) {
+		double channel = frequency + k * 100000.0;
+
+		if (fabs(channel - centre) <= rate / 2.0 - 150000.0)
+			slice->channel[slice->count++] = channel;
+	}
 	slice->first = 0;
 	slice->last = slice->count - 1;
 }
@@ -967,9 +1009,16 @@ static int gains_for(const uint32_t *frequencies, int count, uint32_t rate, int 
 		double share = 0.0, level = 0.0;
 		int backoff = 0;
 		int chosen;
+		/*
+		 * Where the receiver will set the tuner for this station: a quarter of the
+		 * sample rate above it, as rtl_fm does to keep the station off the tuning
+		 * point. What reaches the converter there is what will reach it when the
+		 * station plays.
+		 */
+		double centre = frequencies[at] + rate / 4.0;
 
-		tune(&tuner, frequencies[at]);
-		around(&slice, frequencies[at], rate);
+		tune(&tuner, (uint32_t)centre);
+		around(&slice, frequencies[at], centre, rate);
 		chosen = settle(&tuner, &slice, index, &share, &level, &backoff);
 		if (chosen < 0) {
 			fprintf(stderr, "fn-rtl-gain: nothing could be read at %u Hz\n", frequencies[at]);
@@ -1387,7 +1436,7 @@ static int self_test(void)
 	int brief = SURVEY_RATE * COMPARE_MS / 1000;
 	uint8_t *iq = malloc((size_t)pairs * 2);
 	uint8_t *other = malloc((size_t)brief * 2);
-	double alike, unlike, copy, apart, seen = 0.0, seen_least = 0.0;
+	double alike, misnamed, unlike, copy, apart, seen = 0.0, seen_least = 0.0;
 	int failed = 0;
 	int c, top_stereo = -1, top_plain = -1;
 
@@ -1428,15 +1477,19 @@ static int self_test(void)
 	for (c = 0; c < slice.count; c++)
 		low[c] += 6.0;
 	alike = departure(high, low, slice.count);
+	/* a gain step that is not what it is called (taken for 12.6 dB here) changes nothing */
+	for (c = 0; c < slice.count; c++)
+		low[c] += 6.6;
+	misnamed = departure(high, low, slice.count);
 	/* and with one of them gone, as a signal the tuner made is: not alike */
 	make_slice(other, brief, stations, 2, 0.5);
 	channel_levels(&slice, other, brief, 100000.0, low);
 	for (c = 0; c < slice.count; c++)
 		low[c] += 6.0;
 	unlike = departure(high, low, slice.count);
-	if (alike > DEPARTURE / 2.0 || unlike <= DEPARTURE) {
-		printf("selftest: overload check: %.1f dB for signals treated alike, %.1f dB for unlike\n",
-		       alike, unlike);
+	if (alike > DEPARTURE / 2.0 || misnamed > DEPARTURE / 2.0 || unlike <= DEPARTURE) {
+		printf("selftest: overload check: %.1f dB for signals treated alike, %.1f dB with a gain step misnamed, %.1f dB for unlike\n",
+		       alike, misnamed, unlike);
 		failed = 1;
 	}
 

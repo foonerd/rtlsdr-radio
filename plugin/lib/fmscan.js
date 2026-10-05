@@ -33,6 +33,11 @@ var MAY_DIP = 4;
 // A pilot that falls by more than this (dB) when the gain is lowered was made in the tuner
 var MAY_FALL = 10;
 
+// And so was one that is not there at all with the gain lowered: a reading of noise is
+// around 0 dB, the faintest station seen kept 3 dB. (A faint signal the tuner made
+// cannot fall by MAY_FALL: it has not that far to fall.)
+var STILL_THERE = 2;
+
 function fields(line) {
   var out = {};
   line.split(/\s+/).slice(1).forEach(function(pair) {
@@ -96,7 +101,7 @@ function refused(channel, needed) {
   if (channel.offset !== null && Math.abs(channel.offset) > OFF_CHANNEL) {
     return 'off channel';
   }
-  if (channel.again !== null && channel.again < channel.pilot - MAY_FALL) {
+  if (channel.again !== null && (channel.again < channel.pilot - MAY_FALL || channel.again < STILL_THERE)) {
     return 'made in the tuner';
   }
   // Doubted as a mirror and looked at with the tuner set elsewhere: what is there must be

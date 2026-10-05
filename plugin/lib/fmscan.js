@@ -341,6 +341,34 @@ function judged(survey, options) {
   return { stations: taken.sort(rising).map(plain), beside: beside.sort(rising).map(plain), spill: spill.sort(rising).map(plain) };
 }
 
+// What a scan would say of every channel of a survey, for showing to the user. says:
+// 'stereo' or 'mono' for a channel it would list; else why not: 'beside' (the channel
+// next to it shows the same station better), 'spill' (what a far stronger station
+// spills), or the reason the channel was refused for ('neighbour', 'no pilot', 'off
+// channel', 'made in the tuner', 'not there again', 'mirror'). reading: what the channel
+// is judged by, in dB: the pilot over the noise, or for a station without a pilot how
+// clear its carrier is of it; null where the channel was not listened to.
+function said(survey, options) {
+  var needed = threshold(options && options.sensitivity);
+  var known = knownIn(options);
+  var result = judged(survey, options);
+  var listed = {};
+  result.stations.forEach(function(station) { listed[station.freq] = { says: station.mono ? 'mono' : 'stereo', station: station }; });
+  result.beside.forEach(function(station) { listed[station.freq] = { says: 'beside', station: station }; });
+  result.spill.forEach(function(station) { listed[station.freq] = { says: 'spill', station: station }; });
+  return survey.channels.map(function(channel) {
+    var found = listed[channel.freq];
+    if (found) {
+      return { freq: channel.freq, says: found.says, reading: found.station.pilot, level: found.station.level,
+        mono: found.station.mono, offset: channel.offset };
+    }
+    var why = verdict(channel, needed, known(channel));
+    var reading = why.mono ? channel.quiet : channel.pilot;
+    return { freq: channel.freq, says: why.refused, reading: reading === undefined ? null : reading, level: null,
+      mono: !!why.mono, offset: channel.offset === undefined ? null : channel.offset };
+  });
+}
+
 // How far the dongle tunes off, told from the carriers of a survey's stations: a
 // dongle's crystal is off by a fixed share of the frequency, so every station lies off
 // its channel by the same share. { ppm, stations }: the correction, in parts per
@@ -402,6 +430,7 @@ module.exports = {
   ghosts: ghosts,
   mirrors: mirrors,
   judged: judged,
+  said: said,
   tuningError: tuningError,
   threshold: threshold
 };

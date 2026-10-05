@@ -180,6 +180,9 @@ function ControllerRtlsdrRadio(context) {
   self.CLIPPED_FEW = 100;            // samples a minute at full scale below which nothing is heard of it
   self.DONGLE_STEADY_RATE = 2800000; // samples a second a dongle delivers without losing any
   self.FM_SURVEY_TIMEOUT = 600000;   // The FM band survey: under a minute on a fast board, minutes on the slowest
+  self.TUNE_STEPS = 5;               // The tune dialog looks this many channels either side of a station
+  self.TUNE_SURVEY_TIMEOUT = 120000; // and gives the survey of them this long: seconds on a fast board
+  self.TUNE_PLAYER_WAIT = 10000;     // and waits this long for the player to answer a request
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
   self.DAB_DETECTION_TIMEOUT = 30000; // DAB ensemble detection timeout
   self.DAB_NOT_RECEIVED = 22;        // fn-dab's exit code when it finds no ensemble it can read
@@ -1520,6 +1523,63 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       }
     });
     
+    // The tune dialog (an FM station's frequency): what a scan would say of the channels
+    // around a frequency
+    self.expressApp.post('/api/tune/survey', function(req, res) {
+      var frequency = self.tuneFrequency(req.body && req.body.frequency);
+      if (!frequency) {
+        return res.status(400).json({ error: 'Not a frequency of the band' });
+      }
+      self.tuneSurvey(frequency, self.tuneFrequency(req.body.station)).then(function(found) {
+        res.json(found);
+      }).catch(function(e) {
+        res.status(e && e.superseded ? 409 : 500).json({ error: String((e && e.message) || e) });
+      });
+    });
+    
+    // Tune dialog: play a frequency, to be listened to
+    self.expressApp.post('/api/tune/listen', function(req, res) {
+      var frequency = self.tuneFrequency(req.body && req.body.frequency);
+      if (!frequency) {
+        return res.status(400).json({ error: 'Not a frequency of the band' });
+      }
+      self.tuneListen(frequency).then(function() {
+        res.json({ success: true, frequency: frequency });
+      }).catch(function(e) {
+        self.logger.error('[RTL-SDR Radio] Tune: ' + frequency + ' MHz could not be played: ' + e);
+        res.status(500).json({ error: String((e && e.message) || e) });
+      });
+    });
+    
+    // Tune dialog: done listening; the player goes back to what it was on
+    self.expressApp.post('/api/tune/end', function(req, res) {
+      self.tuneEnd().then(function(ended) {
+        res.json({ success: true, ended: ended });
+      }).catch(function(e) {
+        self.logger.error('[RTL-SDR Radio] Tune: ' + e);
+        res.status(500).json({ error: String((e && e.message) || e) });
+      });
+    });
+    
+    // Tune dialog: the station is given the frequency. keep says which of two stations
+    // stays where another holds that frequency already: 'this' or 'other'.
+    self.expressApp.post('/api/tune/keep', function(req, res) {
+      try {
+        var from = self.tuneFrequency(req.body && req.body.from);
+        var to = self.tuneFrequency(req.body && req.body.to);
+        if (!from || !to) {
+          return res.status(400).json({ error: 'Not a frequency of the band' });
+        }
+        var kept = self.tuneKeep(from, to, req.body.keep);
+        var code = kept.status || 200;
+        delete kept.status;
+        res.status(code).json(kept);
+      } catch (e) {
+        self.logger.error('[RTL-SDR Radio] Tune: ' + e);
+        res.status(500).json({ error: String((e && e.message) || e) });
+      }
+    });
+    
     // API: Scan for DAB stations
     self.expressApp.post('/api/stations/scan-dab', function(req, res) {
       try {
@@ -1594,6 +1654,9 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
             type: 'fm',
             level: self.currentRds.signalLevel || 0,
             percent: self.currentRds.signalPercent || 0,
+            // the reading behind the level, once there is one, and whether it is of the carrier
+            db: typeof self.currentRds.receptionDb === 'number' ? self.currentRds.receptionDb : null,
+            mono: !!self.currentRds.mono,
             frequency: self.currentFmFrequency || null
           };
         } else if (self.deviceState === 'playing_dab' && self.currentDabSignal) {
@@ -1613,6 +1676,9 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
           dbVersion: self.stationsDb.version || 0,
           serverPort: self.MANAGEMENT_PORT,
           fmScanDepth: self.fmScanDepth(),
+          // the frequency the tune dialog is trying out, if any, and the band it steps through
+          tune: self.tuneTrial ? self.tuneTrial.frequency : null,
+          fmBand: self.tuneBand(),
           signal: signalInfo,
           scan: self.scanProgress ? {
             type: self.scanProgress.type,
@@ -5079,7 +5145,8 @@ ControllerRtlsdrRadio.prototype.startFmPlayback = function(job, freq, stationNam
   var freqStr = hasSubDecimal ? freq.toFixed(2) : freq.toFixed(1);
   var uri = 'rtlsdr://fm/' + freqStr;
   var stationInfo = self.getStationByUri(uri);
-  if (stationInfo) {
+  // (a frequency tried out in the tune dialog is not a play of the station)
+  if (stationInfo && !self.tuneUncounted(uri)) {
     stationInfo.station.playCount = (stationInfo.station.playCount || 0) + 1;
     stationInfo.station.lastPlayed = new Date().toISOString();
     self.saveStations();
@@ -8734,6 +8801,432 @@ ControllerRtlsdrRadio.prototype.mergeStationData = function(existingStation, new
 // FM SCANNING METHODS - Phase 3 Implementation
 // ============================================
 
+// ---- The tune dialog of the Station Manager: an FM station's frequency, tried out ----
+
+// A frequency as the station list writes it, or null for what is none the receiver takes
+ControllerRtlsdrRadio.prototype.tuneFrequency = function(value) {
+  var freq = parseFloat(value);
+  if (!isFinite(freq) || freq < this.getRegionSettings().band_start || freq > 108) {
+    return null;
+  }
+  var units = Math.round(freq * 100);
+  return (units / 100).toFixed(units % 10 !== 0 ? 2 : 1);
+};
+
+ControllerRtlsdrRadio.prototype.tuneBand = function() {
+  var region = this.getRegionSettings();
+  return { start: region.band_start, end: region.band_end, step_khz: region.spacing_khz };
+};
+
+// The channels the dialog looks at, in kHz: the station's own and TUNE_STEPS either side
+// on the region's raster, as far as the band goes
+ControllerRtlsdrRadio.prototype.tuneChannels = function(frequency) {
+  var region = this.getRegionSettings();
+  var centre = Math.round(parseFloat(frequency) * 1000);
+  var list = [];
+  for (var k = -this.TUNE_STEPS; k <= this.TUNE_STEPS; k++) {
+    var khz = centre + k * region.spacing_khz;
+    if (khz >= Math.round(region.band_start * 1000) && khz <= Math.round(region.band_end * 1000)) {
+      list.push(khz);
+    }
+  }
+  return list;
+};
+
+// One survey of the channels around a frequency, every one of them listened to, and what
+// a scan would say of each. A station of ours that is playing is stopped for it, as for
+// a scan. listed: the frequency of the station being tuned, where it is not the one
+// looked around. Resolves with { frequency, step_khz, gain, channels, best }; best is
+// the nearest channel a scan would list that no other station of the list holds, the
+// better received of two equally near, or null.
+ControllerRtlsdrRadio.prototype.tuneSurvey = function(frequency, listed) {
+  var self = this;
+  var wanted = self.tuneChannels(frequency);
+  if (wanted.length === 0) {
+    return Promise.reject(new Error('outside the band of the region'));
+  }
+  var range = (wanted[0] / 1000).toFixed(2) + 'M:' + (wanted[wanted.length - 1] / 1000).toFixed(2) + 'M:' +
+    self.getRegionSettings().spacing_khz + 'k';
+  var args = ['-b', range, '-e'].concat(self.fmSurveyArgs().filter(function(arg) {
+    return arg !== '-e';
+  }), self.fmCorrectionArgs());
+  
+  return new Promise(function(resolve, reject) {
+    self.acquireForTool('tune_survey').then(function(job) {
+      var printed = '';
+      self.logger.info('[RTL-SDR Radio] Tune: looking around ' + frequency + ' MHz: fn-rtl-gain ' + args.join(' '));
+      var tool = job.run('fn-rtl-gain', args, { stdio: ['ignore', 'pipe', 'pipe'] }, function(entry) {
+        var survey = fmscan.parse(printed);
+        if (job.stopping || entry.error || survey.channels.length === 0) {
+          var stopped = job.stopping && !job.timedOut;
+          var failure = new Error(stopped ? 'stopped: the dongle was wanted for something else' :
+            job.timedOut ? 'timed out' :
+            entry.error ? String(entry.error.code || entry.error) :
+            ((entry.said || '').trim().split('\n').pop() || 'nothing was read'));
+          failure.superseded = stopped;
+          self.logger.info('[RTL-SDR Radio] Tune: no survey around ' + frequency + ' MHz: ' + failure.message);
+          reject(failure);
+          return;
+        }
+        var found = self.tuneSaid(frequency, wanted, survey, listed || frequency);
+        self.logger.info('[RTL-SDR Radio] Tune: around ' + frequency + ' MHz: ' + found.channels.map(function(channel) {
+          return channel.frequency + ' ' + channel.says + (channel.reading !== null ? ' ' + channel.reading + ' dB' : '');
+        }).join(', ') + '; best: ' + (found.best || 'none'));
+        resolve(found);
+      });
+      if (tool.stdout) {
+        tool.stdout.on('data', function(data) {
+          printed += data.toString();
+        });
+      }
+      job.limit(self.TUNE_SURVEY_TIMEOUT);
+    }).fail(reject);
+  });
+};
+
+// What a survey says of the channels the dialog asked about
+ControllerRtlsdrRadio.prototype.tuneSaid = function(frequency, wanted, survey, listed) {
+  var self = this;
+  var said = {};
+  fmscan.said(survey, {
+    sensitivity: self.config.get('scan_sensitivity', 8),
+    known: (self.stationsDb.fm || []).filter(function(station) {
+      return !station.deleted;
+    }).map(function(station) {
+      return Math.round(parseFloat(station.frequency) * 1e6);
+    })
+  }).forEach(function(channel) {
+    said[Math.round(channel.freq / 1000)] = channel;
+  });
+  
+  var centre = Math.round(parseFloat(frequency) * 1000);
+  var own = Math.round(parseFloat(listed) * 1000);
+  var best = null;
+  var channels = wanted.map(function(khz) {
+    var heard = said[khz];
+    var name = self.tuneFrequency(khz / 1000);
+    var other = khz !== own ? self.getStationByUri('rtlsdr://fm/' + name) : null;
+    var channel = {
+      frequency: name,
+      // 'unread': the survey did not reach this channel
+      says: heard ? heard.says : 'unread',
+      reading: heard && typeof heard.reading === 'number' ? Math.round(heard.reading * 10) / 10 : null,
+      level: heard && heard.level !== null && heard.level !== undefined ? heard.level : null,
+      mono: !!(heard && heard.mono),
+      offset: heard && typeof heard.offset === 'number' ? Math.round(heard.offset) : null,
+      // the name of another station of the list that holds this frequency
+      held: other && !other.station.deleted ? (other.station.customName || other.station.name || ('FM ' + name)) : null,
+      own: khz === own,
+      best: false
+    };
+    if ((channel.says === 'stereo' || channel.says === 'mono') && !channel.held) {
+      var away = Math.abs(khz - centre);
+      if (!best || away < best.away || (away === best.away && channel.reading > best.channel.reading)) {
+        best = { away: away, channel: channel };
+      }
+    }
+    return channel;
+  });
+  if (best) {
+    best.channel.best = true;
+  }
+  // kept for the station that is given one of these frequencies (tuneKeep)
+  self.tuneSurveyed = { at: Date.now(), channels: channels };
+  return {
+    frequency: frequency,
+    step_khz: self.getRegionSettings().spacing_khz,
+    gain: survey.slices.length ? survey.slices[0].gain : null,
+    channels: channels,
+    best: best ? best.channel.frequency : null
+  };
+};
+
+// The player as it is now: what the dialog puts back when it is done
+ControllerRtlsdrRadio.prototype.tunePlayerNow = function() {
+  var state = null;
+  try {
+    state = this.commandRouter.volumioGetState();
+  } catch (e) {
+    // no state to be had: nothing is put back
+  }
+  state = state && typeof state === 'object' ? state : {};
+  return { status: state.status, position: state.position, service: state.service, uri: state.uri, volatile: !!state.volatile };
+};
+
+ControllerRtlsdrRadio.prototype.tuneQueue = function() {
+  var queue = null;
+  try {
+    queue = this.commandRouter.volumioGetQueue();
+  } catch (e) {
+    // no queue to be had
+  }
+  return Array.isArray(queue) ? queue : [];
+};
+
+// Whether a play that is starting is one the tune dialog makes: a frequency tried out, or
+// the station that was playing before put on again. Neither is a play of the station.
+ControllerRtlsdrRadio.prototype.tuneUncounted = function(uri) {
+  var resumed = this.tuneResumes === uri;
+  this.tuneResumes = null;
+  return resumed || !!(this.tuneTrial && this.tuneTrial.uri === uri);
+};
+
+// What the player is asked for is waited for, but not for ever: Volumio does not answer
+// every request (removing the queue item it is on is one it leaves unanswered). Resolves
+// or rejects as the request does, or resolves with nothing when the time is up.
+ControllerRtlsdrRadio.prototype.tuneWithin = function(asked, ms) {
+  return new Promise(function(resolve, reject) {
+    var timer = setTimeout(resolve, ms);
+    Promise.resolve(asked).then(function(value) {
+      clearTimeout(timer);
+      resolve(value);
+    }, function(e) {
+      clearTimeout(timer);
+      reject(e);
+    });
+  });
+};
+
+// Where in the queue the dialog's own item is, or -1: where it was put, if it is still
+// there. Anything else is left alone: an item too many is better than one of the user's gone.
+ControllerRtlsdrRadio.prototype.tuneItemAt = function(trial) {
+  if (!trial || !trial.mine) {
+    return -1;
+  }
+  var item = this.tuneQueue()[trial.index];
+  return item && item.service === 'rtlsdr_radio' && item.uri === trial.uri ? trial.index : -1;
+};
+
+// The dialog's own queue item is taken out again. Whether it has gone is read from the
+// queue itself.
+ControllerRtlsdrRadio.prototype.tuneDropItem = function(trial) {
+  var self = this;
+  var index = self.tuneItemAt(trial);
+  if (index === -1) {
+    return Promise.resolve();
+  }
+  trial.mine = false;
+  var had = self.tuneQueue().length;
+  try {
+    Promise.resolve(self.commandRouter.volumioRemoveQueueItem({ value: index })).catch(function() {});
+  } catch (e) {
+    self.logger.info('[RTL-SDR Radio] Tune: the queue item of ' + trial.frequency + ' MHz could not be removed: ' + e);
+    return Promise.resolve();
+  }
+  return new Promise(function(resolve) {
+    var looks = 0;
+    (function look() {
+      if (self.tuneQueue().length < had || ++looks > 30) {
+        resolve();
+      } else {
+        setTimeout(look, 100);
+      }
+    })();
+  });
+};
+
+// Play a frequency for the user to listen to: as an item at the end of the player's own
+// queue, so that the sound, the gain and the reception level are those of any station.
+// It is no play of a station of the list, and the item is the dialog's: the next
+// frequency is played as the same item, and tuneEnd removes it.
+ControllerRtlsdrRadio.prototype.tuneListen = function(frequency) {
+  var self = this;
+  return self.tuneInTurn(function() {
+    return self.tuneListenNow(frequency);
+  });
+};
+
+// One change to the player's queue at a time: a step asked for while the one before is
+// still being put on waits for it
+ControllerRtlsdrRadio.prototype.tuneInTurn = function(what) {
+  var turn = (this.tuneTurn || Promise.resolve()).then(what, what);
+  this.tuneTurn = turn.catch(function() {});
+  return turn;
+};
+
+ControllerRtlsdrRadio.prototype.tuneListenNow = function(frequency) {
+  var self = this;
+  var router = self.commandRouter;
+  var uri = 'rtlsdr://fm/' + frequency;
+  var earlier = self.tuneTrial;
+  var before = earlier ? earlier.before : self.tunePlayerNow();
+  self.logger.info('[RTL-SDR Radio] Tune: listening to ' + frequency + ' MHz');
+  
+  // The dialog has an item in the queue already: it is given the new frequency. (Taken
+  // out and put in again, every step would be told to the user as a removal.)
+  if (self.tuneItemAt(earlier) !== -1) {
+    return self.tuneWithin(router.volumioStop(), self.TUNE_PLAYER_WAIT).then(function() {
+      return self.explodeUri(uri);
+    }).then(function(tracks) {
+      var index = self.tuneItemAt(earlier);
+      if (index === -1 || !tracks || !tracks[0]) {
+        earlier.mine = false;
+        return self.tuneListenNow(frequency);   // gone meanwhile: as a new item
+      }
+      var item = self.tuneQueue()[index];
+      ['uri', 'title', 'name', 'artist', 'album', 'albumart'].forEach(function(field) {
+        item[field] = tracks[0][field];
+      });
+      self.tuneTrial = { uri: uri, frequency: frequency, before: before, index: index, mine: true };
+      try {
+        router.volumioPushQueue(self.tuneQueue());
+      } catch (e) {
+        // the queue is shown as it was until the player next tells it
+      }
+      return self.tuneWithin(router.volumioPlay(index), self.TUNE_PLAYER_WAIT);
+    });
+  }
+  
+  var had = self.tuneQueue().length;
+  var trial = self.tuneTrial = { uri: uri, frequency: frequency, before: before, index: had, mine: false };
+  return self.tuneWithin(router.addQueueItems([{ service: 'rtlsdr_radio', uri: uri }]), self.TUNE_PLAYER_WAIT).then(function(added) {
+    if (added && typeof added.firstItemIndex === 'number') {
+      trial.index = added.firstItemIndex;
+    }
+    // (an item the queue ended with already is not added a second time: then it is the user's)
+    trial.mine = self.tuneQueue().length > had;
+    if (!self.tuneQueue()[trial.index]) {
+      throw new Error('the player did not take the frequency into its queue');
+    }
+    return self.tuneWithin(router.volumioPlay(trial.index), self.TUNE_PLAYER_WAIT);
+  });
+};
+
+// The dialog is done: what it played is stopped, its queue item removed, and the player
+// put back on the item it was on, playing if it was. What the user has put on meanwhile
+// is left alone. Resolves with whether there was anything to end.
+ControllerRtlsdrRadio.prototype.tuneEnd = function() {
+  var self = this;
+  return self.tuneInTurn(function() {
+    return self.tuneEndNow();
+  });
+};
+
+ControllerRtlsdrRadio.prototype.tuneEndNow = function() {
+  var self = this;
+  var router = self.commandRouter;
+  var trial = self.tuneTrial;
+  if (!trial) {
+    return Promise.resolve(false);
+  }
+  self.tuneTrial = null;
+  
+  var now = self.tunePlayerNow();
+  var ours = now.service === 'rtlsdr_radio' && now.uri === trial.uri;
+  var elsewhere = now.status === 'play' && !ours;
+  var back = !elsewhere && typeof trial.before.position === 'number' && !!self.tuneQueue()[trial.before.position] &&
+    trial.before.position !== self.tuneItemAt(trial) ? trial.before.position : null;
+  var resume = back !== null && trial.before.status === 'play' && !trial.before.volatile;
+  
+  return self.tuneWithin(ours && now.status === 'play' ? router.volumioStop() : null, self.TUNE_PLAYER_WAIT).then(function() {
+    // Volumio, asked to remove the item it is on, stays on none (and does not answer):
+    // it is put on the earlier item first
+    if (back !== null) {
+      try {
+        router.stateMachine.currentPosition = back;
+        if (self.tuneItemAt(trial) === -1) {
+          router.volumioPushState(router.stateMachine.getState());
+        }
+      } catch (e) {
+        // the player's own business: the item is removed all the same
+      }
+    }
+    return self.tuneDropItem(trial);
+  }).then(function() {
+    self.logger.info('[RTL-SDR Radio] Tune: done' + (resume ? ', back to what was playing' : ''));
+    if (resume) {
+      var item = self.tuneQueue()[back];
+      self.tuneResumes = item && item.service === 'rtlsdr_radio' ? item.uri : null;
+      return self.tuneWithin(router.volumioPlay(back), self.TUNE_PLAYER_WAIT);
+    }
+  }).then(function() {
+    return true;
+  });
+};
+
+// The player's queue knows a station by its frequency: its items for the one go to the other
+ControllerRtlsdrRadio.prototype.tuneQueueFollows = function(from, to) {
+  try {
+    var machine = this.commandRouter.stateMachine;
+    var queue = machine.playQueue.arrayQueue;
+    var followed = 0;
+    queue.forEach(function(item) {
+      if (item && item.service === 'rtlsdr_radio' && item.uri === 'rtlsdr://fm/' + from) {
+        item.uri = 'rtlsdr://fm/' + to;
+        item.artist = to + ' MHz';
+        followed++;
+      }
+    });
+    if (followed > 0) {
+      this.commandRouter.volumioPushQueue(queue);
+      machine.playQueue.saveQueue();
+    }
+  } catch (e) {
+    // no queue to be found: its items keep the old frequency
+  }
+};
+
+// The station at one frequency is given another. Its name, logo, favourite mark and
+// play count stay with it; what the dialog's survey read at the new frequency is noted;
+// items of the player's queue that are this station follow it. Where another station of
+// the list holds the new frequency, keep says which of the two stays: 'this' (the other
+// is taken out of the list) or 'other' (this one is deleted, and can be restored).
+// Without it nothing is changed and the answer names the other ({ conflict }, 409).
+ControllerRtlsdrRadio.prototype.tuneKeep = function(from, to, keep) {
+  var self = this;
+  var entry = self.getStationByUri('rtlsdr://fm/' + from);
+  if (!entry || entry.station.deleted) {
+    return { status: 404, error: 'No station at ' + from + ' MHz' };
+  }
+  var station = entry.station;
+  if (from === to) {
+    return { success: true, station: station, removed: null };
+  }
+  
+  var others = (self.stationsDb.fm || []).filter(function(other) {
+    return other !== station && parseFloat(other.frequency) === parseFloat(to);
+  });
+  var live = others.filter(function(other) { return !other.deleted; })[0];
+  if (live && keep !== 'this' && keep !== 'other') {
+    return { status: 409, conflict: { frequency: to, name: live.customName || live.name || ('FM ' + to) } };
+  }
+  if (live && keep === 'other') {
+    station.deleted = true;
+    if (!self.saveStations()) {
+      return { status: 500, error: 'The station list could not be saved' };
+    }
+    self.tuneQueueFollows(from, to);
+    self.logger.info('[RTL-SDR Radio] Tune: ' + from + ' MHz deleted: ' + to + ' MHz holds the station already');
+    return { success: true, station: live, removed: from, deleted: true };
+  }
+  
+  // One station to a frequency: whatever else the list has there, deleted ones too, goes
+  self.stationsDb.fm = self.stationsDb.fm.filter(function(other) {
+    return others.indexOf(other) === -1;
+  });
+  station.frequency = to;
+  if (/^FM \d/.test(String(station.name || ''))) {
+    station.name = 'FM ' + to;   // a name that was only the frequency
+  }
+  var read = self.tuneSurveyed && Date.now() - self.tuneSurveyed.at < 600000 ?
+    self.tuneSurveyed.channels.filter(function(channel) { return channel.frequency === to; })[0] : null;
+  if (read && (read.says === 'stereo' || read.says === 'mono')) {
+    station.quality = read.reading;
+    station.level = read.level;
+    station.mono = read.mono;
+    station.last_seen = new Date().toISOString();
+  }
+  if (!self.saveStations()) {
+    return { status: 500, error: 'The station list could not be saved' };
+  }
+  self.logos.retuned({ frequency: from }, { frequency: to });
+  self.tuneQueueFollows(from, to);
+  
+  self.logger.info('[RTL-SDR Radio] Tune: the station at ' + from + ' MHz is now at ' + to + ' MHz' +
+    (live ? '; the entry that was there is taken out of the list' : ''));
+  return { success: true, station: station, removed: live ? to : null };
+};
+
 ControllerRtlsdrRadio.prototype.scanFm = function() {
   var self = this;
   var defer = libQ.defer();
@@ -9389,7 +9882,7 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
   // Update play statistics
   var uri = 'rtlsdr://dab/' + channel + '/' + encodeURIComponent(serviceName);
   var stationInfo = self.getStationByUri(uri);
-  if (stationInfo) {
+  if (stationInfo && !self.tuneUncounted(uri)) {
     stationInfo.station.playCount = (stationInfo.station.playCount || 0) + 1;
     stationInfo.station.lastPlayed = new Date().toISOString();
     self.saveStations();

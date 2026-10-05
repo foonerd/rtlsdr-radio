@@ -1148,6 +1148,344 @@ test('FM scan: fast or detailed, by the setting or by the choice made in the Sta
   assert.deepStrictEqual(running(), []);
 });
 
+// A stand-in for the player's queue, for the tune dialog: it plays what it is told through
+// the plugin, as Volumio does
+function standInPlayer(queue) {
+  var player = { queue: queue, position: 0, status: 'stop', did: [] };
+  function state() {
+    var item = player.queue[player.position];
+    return { status: player.status, position: player.position, service: item ? item.service : undefined, uri: item ? item.uri : undefined };
+  }
+  function halt() {
+    var ours = player.status === 'play' && player.queue[player.position] && player.queue[player.position].service === 'rtlsdr_radio';
+    player.status = 'stop';
+    return ours ? plugin.stop() : Promise.resolve();
+  }
+  var was = {};
+  ['volumioGetState', 'volumioGetQueue', 'volumioPushQueue', 'volumioPushState', 'addQueueItems', 'volumioPlay', 'volumioStop', 'volumioRemoveQueueItem'].forEach(function(name) {
+    was[name] = Object.getOwnPropertyDescriptor(coreCommand, name);
+  });
+  var machine = coreCommand.stateMachine;
+  var stopWas = machine.stop;
+  coreCommand.volumioGetState = state;
+  coreCommand.volumioGetQueue = function() { return player.queue; };
+  coreCommand.volumioPushQueue = function() { player.did.push('queue pushed'); };
+  coreCommand.volumioPushState = function() { player.did.push('state pushed'); };
+  coreCommand.addQueueItems = function(items) {
+    return Promise.resolve(plugin.explodeUri(items[0].uri)).then(function(tracks) {
+      var last = player.queue[player.queue.length - 1];
+      if (last && last.uri === tracks[0].uri) {
+        return { firstItemIndex: player.queue.length - 1 };   // Volumio does not add the last item a second time
+      }
+      player.queue = player.queue.concat(tracks);
+      return { firstItemIndex: player.queue.length - 1 };
+    });
+  };
+  coreCommand.volumioPlay = function(n) {
+    return halt().then(function() {
+      player.position = n;
+      player.status = 'play';
+      return player.queue[n].service === 'rtlsdr_radio' ? plugin.clearAddPlayTrack(player.queue[n]) : null;
+    });
+  };
+  coreCommand.volumioStop = halt;
+  coreCommand.volumioRemoveQueueItem = function(which) {
+    player.did.push('removed ' + player.queue[which.value].uri);
+    // as Volumio does: asked to remove the item it is on, it stops, stays on that position
+    // and never answers
+    if (player.position === which.value) {
+      halt().then(function() { player.queue.splice(which.value, 1); });
+      return new Promise(function() {});
+    }
+    if (player.position > which.value) {
+      player.position--;
+    }
+    player.queue.splice(which.value, 1);
+    return Promise.resolve();
+  };
+  machine.stop = function() { return halt(); };
+  machine.playQueue = { saveQueue: function() { player.did.push('queue saved'); } };
+  Object.defineProperty(machine.playQueue, 'arrayQueue', { get: function() { return player.queue; } });
+  Object.defineProperty(machine, 'currentPosition', { configurable: true, get: function() { return player.position; }, set: function(n) { player.position = n; } });
+  player.uris = function() { return player.queue.map(function(item) { return item.uri; }); };
+  player.away = function() {
+    Object.keys(was).forEach(function(name) {
+      delete coreCommand[name];
+    });
+    machine.stop = stopWas;
+    delete machine.playQueue;
+    delete machine.currentPosition;
+  };
+  return player;
+}
+
+test('tune dialog: the channels around a station, as a scan would judge them', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  plugin.stationsDb.fm = [
+    { frequency: '100.9', name: 'FM 100.9', customName: 'Classic', playCount: 12 },
+    { frequency: '101.3', name: 'FM 101.3', customName: 'Mystery', playCount: 4 },
+    { frequency: '101.4', name: 'FM 101.4', playCount: 2 },
+    { frequency: '99.9', name: 'FM 99.9', deleted: true }
+  ];
+  var player = standInPlayer([{ service: 'rtlsdr_radio', uri: 'rtlsdr://fm/100.9', name: 'Classic' }]);
+  process.env.FAKE_SURVEY = 'fm-survey-every.txt';
+  try {
+    // the band the page steps through
+    assert.deepStrictEqual(JSON.parse((await get('/api/status')).text).fmBand, { start: 87.5, end: 108, step_khz: 100 });
+
+    // a station of ours is playing: it is stopped for the look, as for a scan
+    await coreCommand.volumioPlay(0);
+    await sleep(300);
+    assert.strictEqual(plugin.deviceState, 'playing_fm');
+    logs.length = 0;
+    var answer = await post('/api/tune/survey', { frequency: '101.3' });
+    assert.strictEqual(answer.status, 200, answer.text);
+    var found = JSON.parse(answer.text);
+    assert.deepStrictEqual(running(), []);
+    assert.strictEqual(player.status, 'stop');
+    assert.strictEqual(plugin.deviceState, 'idle');
+    // five channels either side on the region's raster, every one listened to, with the
+    // stations of the list named to the tool and the dongle's correction applied as in a scan
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), /^-b 100\.80M:101\.80M:100k -e -n 100900000 -n 101300000 -n 101400000$/m);
+    assert.deepStrictEqual([found.frequency, found.step_khz, found.gain], ['101.3', 100, 25.4]);
+    assert.deepStrictEqual(found.channels.map(function(c) { return c.frequency; }),
+      ['100.8', '100.9', '101.0', '101.1', '101.2', '101.3', '101.4', '101.5', '101.6', '101.7', '101.8']);
+    var by = {};
+    found.channels.forEach(function(c) { by[c.frequency] = c; });
+    assert.deepStrictEqual([by['101.2'].says, by['101.2'].reading, by['101.2'].level, by['101.2'].mono, by['101.2'].held], ['mono', 27.5, 3, true, null]);
+    assert.deepStrictEqual([by['101.4'].says, by['101.4'].reading, by['101.4'].level, by['101.4'].held], ['stereo', 31.5, 4, 'FM 101.4']);
+    assert.deepStrictEqual([by['100.9'].says, by['100.9'].held], ['stereo', 'Classic']);
+    assert.deepStrictEqual([by['101.3'].says, by['101.3'].own, by['101.3'].held], ['off channel', true, null]);
+    assert.deepStrictEqual([by['100.8'].says, by['100.8'].reading], ['neighbour', null]);
+    // the best: the nearest a scan would list that no other station of the list holds
+    assert.strictEqual(found.best, '101.2');
+    assert.deepStrictEqual(found.channels.filter(function(c) { return c.best; }).map(function(c) { return c.frequency; }), ['101.2']);
+    assert.ok(logs.some(function(m) { return /Tune: around 101\.3 MHz: .*101\.2 mono 27\.5 dB.*; best: 101\.2$/.test(m); }), logs.join('\n'));
+
+    // looked around another frequency than the station's own: the station is still the one being tuned
+    found = JSON.parse((await post('/api/tune/survey', { frequency: '101.5', station: '101.3' })).text);
+    assert.deepStrictEqual(found.channels.filter(function(c) { return c.own; }).map(function(c) { return c.frequency; }), ['101.3']);
+    assert.strictEqual(found.channels.filter(function(c) { return c.frequency === '101.3'; })[0].held, null);
+    // nearest to where it looked; of two equally near, 101.4 is held, so 101.2 it is
+    assert.strictEqual(found.best, '101.2');
+
+    // at the edge of the band there are fewer channels
+    found = JSON.parse((await post('/api/tune/survey', { frequency: '107.9' })).text);
+    assert.deepStrictEqual(found.channels.map(function(c) { return c.frequency; }), ['107.4', '107.5', '107.6', '107.7', '107.8', '107.9', '108.0']);
+
+    // what is no frequency of the band is refused
+    assert.strictEqual((await post('/api/tune/survey', { frequency: '12' })).status, 400);
+    assert.strictEqual((await post('/api/tune/survey', {})).status, 400);
+
+    // a tool that cannot read the dongle: an answer in words, and nothing left running
+    process.env.FAKE_GAIN_FAILS = '1';
+    answer = await post('/api/tune/survey', { frequency: '101.3' });
+    assert.strictEqual(answer.status, 500);
+    assert.match(JSON.parse(answer.text).error, /cannot open device/);
+  } finally {
+    delete process.env.FAKE_GAIN_FAILS;
+    delete process.env.FAKE_SURVEY;
+    player.away();
+    plugin.stationsDb.fm = before;
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
+test('tune dialog: a frequency is listened to as an item of the queue, and the player is put back', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  plugin.stationsDb.fm = [
+    { frequency: '100.9', name: 'FM 100.9', customName: 'Classic', playCount: 12 },
+    { frequency: '101.3', name: 'FM 101.3', customName: 'Mystery', playCount: 4 }
+  ];
+  var player = standInPlayer([{ service: 'mpd', uri: 'music/a.flac', name: 'A song' }, { service: 'mpd', uri: 'music/b.flac', name: 'B' }]);
+  try {
+    // the player is stopped on its second item
+    player.position = 1;
+    assert.strictEqual(JSON.parse((await get('/api/status')).text).tune, null);
+
+    var answer = await post('/api/tune/listen', { frequency: '101.3' });
+    assert.strictEqual(answer.status, 200, answer.text);
+    await sleep(400);
+    assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 101\.3M /);
+    assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/101.3']);
+    assert.deepStrictEqual([player.position, player.status], [2, 'play']);
+    // the page is told what is being tried, and reads the reception from the status
+    plugin.considerFmLevel(31.5, '101.3', 'x', false);
+    var status = JSON.parse((await get('/api/status')).text);
+    assert.strictEqual(status.tune, '101.3');
+    assert.deepStrictEqual([status.signal.type, status.signal.level, status.signal.db, status.signal.mono], ['fm', 4, 31.5, false]);
+
+    // a step: the dialog's item is given the next frequency, and nothing is removed for it
+    await post('/api/tune/listen', { frequency: 101.2 });
+    await sleep(400);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 101\.2M /);
+    assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/101.2']);
+    assert.deepStrictEqual([player.queue[2].name, player.queue[2].artist, player.position, player.status], ['FM 101.2', '101.2 MHz', 2, 'play']);
+    assert.ok(!player.did.some(function(what) { return /^removed/.test(what); }), player.did.join());
+    // two steps asked for at once: one after the other, and one item at the end of it
+    await Promise.all([post('/api/tune/listen', { frequency: '101.1' }), post('/api/tune/listen', { frequency: '101.0' })]);
+    await sleep(400);
+    assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/101.0']);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 101M /);
+
+    // done: stopped, the item gone, the player on the item it was on
+    answer = JSON.parse((await post('/api/tune/end')).text);
+    assert.strictEqual(answer.ended, true);
+    assert.deepStrictEqual(running(), []);
+    assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac']);
+    assert.deepStrictEqual([player.position, player.status], [1, 'stop']);
+    assert.strictEqual(JSON.parse((await get('/api/status')).text).tune, null);
+    // listening was no play of a station of the list
+    assert.deepStrictEqual(plugin.stationsDb.fm.map(function(s) { return s.playCount; }), [12, 4]);
+    assert.ok(!plugin.stationsDb.fm.some(function(s) { return s.lastPlayed; }));
+    // and nothing was added to the list
+    assert.strictEqual(plugin.stationsDb.fm.length, 2);
+    // ended twice is no fault
+    assert.strictEqual(JSON.parse((await post('/api/tune/end')).text).ended, false);
+
+    // what was playing before plays again
+    player.queue.push({ service: 'rtlsdr_radio', uri: 'rtlsdr://fm/100.9', name: 'Classic' });
+    await coreCommand.volumioPlay(2);
+    await sleep(300);
+    assert.strictEqual(plugin.stationsDb.fm[0].playCount, 13);
+    await post('/api/tune/listen', { frequency: '101.3' });
+    await sleep(300);
+    assert.deepStrictEqual([player.position, player.uris()[3]], [3, 'rtlsdr://fm/101.3']);
+    await post('/api/tune/end');
+    await sleep(400);
+    assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/100.9']);
+    assert.deepStrictEqual([player.position, player.status], [2, 'play']);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 100\.9M /);
+    // put on again by the dialog, it is not played once more by the count
+    assert.strictEqual(plugin.stationsDb.fm[0].playCount, 13);
+
+    // the frequency tried is the queue's last item already: it is the user's, and stays
+    await post('/api/tune/listen', { frequency: '100.9' });
+    await sleep(300);
+    assert.strictEqual(player.uris().length, 3);
+    await post('/api/tune/end');
+    await sleep(300);
+    assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/100.9']);
+    assert.deepStrictEqual([player.position, player.status, plugin.stationsDb.fm[0].playCount], [2, 'play', 13]);
+
+    // a queue that held nothing: the dialog's item is the one the player is on, and goes all the same
+    await coreCommand.volumioStop();
+    var held = player.queue;
+    player.queue = [];
+    player.position = 0;
+    await post('/api/tune/listen', { frequency: '101.3' });
+    await sleep(300);
+    assert.deepStrictEqual([player.uris(), player.status], [['rtlsdr://fm/101.3'], 'play']);
+    await post('/api/tune/end');
+    assert.deepStrictEqual([player.uris(), player.status], [[], 'stop']);
+    assert.deepStrictEqual(running(), []);
+    player.queue = held;
+    player.position = 2;
+
+    // the user has put something else on meanwhile: it is left alone, only the item goes
+    await coreCommand.volumioStop();
+    await post('/api/tune/listen', { frequency: '101.3' });
+    await sleep(300);
+    await coreCommand.volumioPlay(0);
+    assert.deepStrictEqual([player.position, player.status], [0, 'play']);
+    await post('/api/tune/end');
+    assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/100.9']);
+    assert.deepStrictEqual([player.position, player.status], [0, 'play']);
+
+    assert.strictEqual((await post('/api/tune/listen', { frequency: 'loud' })).status, 400);
+  } finally {
+    await plugin.tuneEnd();
+    await plugin.stop();
+    player.away();
+    plugin.stationsDb.fm = before;
+    plugin.saveStations();
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
+test('tune dialog: a station is given the frequency, with all that is its own', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  plugin.stationsDb.fm = [
+    { frequency: '100.9', name: 'FM 100.9', customName: 'Classic', playCount: 12 },
+    { frequency: '101.3', name: 'FM 101.3', customName: 'Mystery', playCount: 4, favorite: true, pi: 'C4B1' },
+    { frequency: '101.4', name: 'FM 101.4', playCount: 2 },
+    { frequency: '101.2', name: 'FM 101.2', deleted: true },
+    { frequency: '98.5', name: 'FM 98.5' }
+  ].map(function(station) { return plugin.transformStationToV2(station, 'fm'); });
+  plugin.stationsDb.fm[1].favorite = true;
+  plugin.stationsDb.fm[1].playCount = 4;
+  plugin.stationsDb.fm[3].deleted = true;
+  var player = standInPlayer([{ service: 'rtlsdr_radio', uri: 'rtlsdr://fm/101.3', name: 'Mystery', artist: '101.3 MHz' }, { service: 'mpd', uri: 'music/a.flac' }]);
+  fs.ensureDirSync(plugin.logos.dir);
+  fs.writeFileSync(plugin.logos.dir + '/fm-10130.png', pngOf(600, 600));
+  plugin.logos.index.logos['fm-10130'] = { file: 'fm-10130.png', url: 'https://x.example/a.png', by: 'name', ref: 'X' };
+  process.env.FAKE_SURVEY = 'fm-survey-every.txt';
+  function list() {
+    return plugin.stationsDb.fm.map(function(s) { return s.frequency + (s.deleted ? ' deleted' : ''); });
+  }
+  try {
+    await post('/api/tune/survey', { frequency: '101.3' });
+
+    // another station holds the frequency: nothing is changed, and the answer names it
+    var answer = await post('/api/tune/keep', { from: '101.3', to: '101.4' });
+    assert.strictEqual(answer.status, 409);
+    assert.deepStrictEqual(JSON.parse(answer.text), { conflict: { frequency: '101.4', name: 'FM 101.4' } });
+    assert.deepStrictEqual(list(), ['100.9', '101.3', '101.4', '101.2 deleted', '98.5']);
+
+    // a free frequency (a deleted entry there is no station): the station moves
+    answer = await post('/api/tune/keep', { from: '101.3', to: '101.2' });
+    assert.strictEqual(answer.status, 200, answer.text);
+    var kept = JSON.parse(answer.text);
+    assert.deepStrictEqual([kept.success, kept.removed, kept.station.frequency], [true, null, '101.2']);
+    assert.deepStrictEqual(list(), ['100.9', '101.2', '101.4', '98.5']);
+    var station = plugin.stationsDb.fm[1];
+    assert.deepStrictEqual([station.customName, station.favorite, station.playCount, station.pi, station.deleted], ['Mystery', true, 4, 'C4B1', false]);
+    // a name that was only the frequency follows it, and what the survey read there is noted
+    assert.strictEqual(station.name, 'FM 101.2');
+    assert.deepStrictEqual([station.quality, station.level, station.mono], [27.5, 3, true]);
+    // the list is saved
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(CONFIG_DIR + '/stations.json', 'utf8')).fm.map(function(s) { return s.frequency; }), ['100.9', '101.2', '101.4', '98.5']);
+    // the logo went with it
+    assert.strictEqual(plugin.logos.describe(station).file, 'fm-10120.png');
+    assert.ok(!fs.existsSync(plugin.logos.dir + '/fm-10130.png'));
+    // and the queue item that is this station follows
+    assert.deepStrictEqual(player.uris(), ['rtlsdr://fm/101.2', 'music/a.flac']);
+    assert.strictEqual(player.queue[0].artist, '101.2 MHz');
+    assert.deepStrictEqual(player.did, ['queue pushed', 'queue saved']);
+
+    // onto a frequency another station holds, this one kept: the other leaves the list
+    answer = await post('/api/tune/keep', { from: '101.2', to: '101.4', keep: 'this' });
+    kept = JSON.parse(answer.text);
+    assert.deepStrictEqual([answer.status, kept.removed, kept.station.customName], [200, '101.4', 'Mystery']);
+    assert.deepStrictEqual(list(), ['100.9', '101.4', '98.5']);
+    assert.strictEqual(plugin.stationsDb.fm[1].playCount, 4);
+    assert.strictEqual(plugin.logos.describe(plugin.stationsDb.fm[1]).file, 'fm-10140.png');
+
+    // the other kept: this one is deleted, to be restored if wanted, and the queue goes to the other
+    answer = await post('/api/tune/keep', { from: '101.4', to: '100.9', keep: 'other' });
+    kept = JSON.parse(answer.text);
+    assert.deepStrictEqual([answer.status, kept.removed, kept.deleted, kept.station.customName], [200, '101.4', true, 'Classic']);
+    assert.deepStrictEqual(list(), ['100.9', '101.4 deleted', '98.5']);
+    assert.deepStrictEqual(player.uris(), ['rtlsdr://fm/100.9', 'music/a.flac']);
+
+    // the same frequency again changes nothing; one that is no station's, or deleted, is refused
+    answer = await post('/api/tune/keep', { from: '98.5', to: '98.5' });
+    assert.deepStrictEqual([answer.status, JSON.parse(answer.text).removed], [200, null]);
+    assert.strictEqual((await post('/api/tune/keep', { from: '99.9', to: '99.8' })).status, 404);
+    assert.strictEqual((await post('/api/tune/keep', { from: '101.4', to: '99.8' })).status, 404);
+    assert.strictEqual((await post('/api/tune/keep', { from: '98.5', to: 'up' })).status, 400);
+    assert.deepStrictEqual(list(), ['100.9', '101.4 deleted', '98.5']);
+  } finally {
+    delete process.env.FAKE_SURVEY;
+    player.away();
+    plugin.logos.index.logos = {};
+    plugin.stationsDb.fm = before;
+    plugin.saveStations();
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
 test('FM scan: a tool that cannot read the dongle is a failed scan, and the station list is left alone', async function() {
   plugin.stationsDb.fm = [{ frequency: '100.0', name: 'FM 100.0' }];
   toasts.length = 0;

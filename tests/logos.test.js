@@ -933,3 +933,41 @@ test('the user\'s logos go into a backup and come back from it, each checked lik
   assert.strictEqual(other.logos.importUser(null, pictures.check), 0);
   assert.strictEqual(other.logos.importUser({}, pictures.check), 0);
 });
+
+test('a station given another frequency takes its logos with it', function() {
+  var rig = make([]);
+  var was = { frequency: '101.3', name: 'FM 101.3' };
+  var is = { frequency: '101.2', name: 'FM 101.2' };
+  // one found for it, one the user chose
+  fs.ensureDirSync(rig.dir);
+  fs.writeFileSync(rig.dir + '/fm-10130.png', PNG);
+  rig.logos.index.logos['fm-10130'] = { file: 'fm-10130.png', url: 'https://bauer.example/x.png', by: 'name', ref: 'X' };
+  rig.logos.setUser(was, { body: JPG, extension: 'jpg' }, { from: 'upload', ref: 'mine.jpg' });
+  assert.strictEqual(rig.logos.describe(was).file, 'user-fm-10130.jpg');
+  // the new frequency holds a logo of its own, found for whatever was listed there
+  fs.writeFileSync(rig.dir + '/fm-10120.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  rig.logos.index.logos['fm-10120'] = { file: 'fm-10120.svg', url: 'https://bauer.example/y.svg', by: 'name', ref: 'Y' };
+
+  var arrived = rig.asked(/^arrived/).length;
+  rig.logos.retuned(was, is);
+  assert.deepStrictEqual([rig.logos.describe(is).from, rig.logos.describe(is).file, rig.logos.describe(is).ref], ['user', 'user-fm-10120.jpg', 'mine.jpg']);
+  assert.ok(fs.readFileSync(rig.dir + '/user-fm-10120.jpg').equals(JPG));
+  assert.deepStrictEqual([rig.logos.index.logos['fm-10120'].file, rig.logos.index.logos['fm-10120'].ref], ['fm-10120.png', 'X']);
+  assert.ok(fs.readFileSync(rig.dir + '/fm-10120.png').equals(PNG));
+  // nothing is left under the old frequency, and what the new one held has given way
+  assert.strictEqual(rig.logos.describe(was).file, null);
+  assert.deepStrictEqual(fs.readdirSync(rig.dir).filter(function(name) { return /10130|\.svg$/.test(name); }), []);
+  assert.strictEqual(rig.asked(/^arrived/).length, arrived + 1);
+  // it outlives a restart
+  rig.open();
+  assert.strictEqual(rig.logos.describe(is).file, 'user-fm-10120.jpg');
+
+  // a station that brings none leaves what the new frequency holds
+  rig.logos.retuned({ frequency: '99.9' }, is);
+  assert.strictEqual(rig.logos.describe(is).file, 'user-fm-10120.jpg');
+  // and what is no frequency changes nothing
+  rig.logos.retuned({ frequency: 'x' }, is);
+  rig.logos.retuned(is, is);
+  assert.strictEqual(rig.logos.describe(is).file, 'user-fm-10120.jpg');
+});
+

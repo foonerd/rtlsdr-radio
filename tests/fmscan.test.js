@@ -542,3 +542,28 @@ test('a very strong station whose reading moves between the looks is a station',
   var fallen = fmscan.parse('CHANNEL: freq=88300000 rf=-3.9 top=1 pilot=40.0 low=36.0 offset=100 again=20.0\n');
   assert.deepStrictEqual(fmscan.stations(fallen, { sensitivity: 8 }), []);
 });
+
+test('what a scan would say of each channel, for the tune dialog', function() {
+  var survey = fmscan.parse(fixture('fm-survey-every.txt'));
+  var said = {};
+  fmscan.said(survey, { sensitivity: 8 }).forEach(function(channel) {
+    said[(channel.freq / 1e6).toFixed(1)] = channel;
+  });
+  assert.strictEqual(Object.keys(said).length, survey.channels.length);
+  // a station, with the reading it is judged by and its level
+  assert.deepStrictEqual([said['101.4'].says, said['101.4'].reading, said['101.4'].level, said['101.4'].mono], ['stereo', 31.5, 4, false]);
+  // one without a pilot: the reading is of its carrier
+  assert.deepStrictEqual([said['101.2'].says, said['101.2'].reading, said['101.2'].level, said['101.2'].mono], ['mono', 27.5, 3, true]);
+  // why the others are none
+  assert.strictEqual(said['101.3'].says, 'off channel');
+  assert.strictEqual(said['101.3'].reading, 13.2);
+  assert.strictEqual(said['101.1'].says, 'no pilot');
+  assert.strictEqual(said['93.4'].says, 'beside');
+  assert.strictEqual(said['88.3'].says, 'made in the tuner');
+  // right beside a far stronger station: not listened to, nothing read
+  assert.deepStrictEqual([said['100.8'].says, said['100.8'].reading, said['100.8'].level], ['neighbour', null, null]);
+  // the same stations as the scan lists
+  var stations = Object.keys(said).filter(function(mhz) { return said[mhz].says === 'stereo' || said[mhz].says === 'mono'; });
+  assert.strictEqual(stations.length, fmscan.judged(survey, { sensitivity: 8 }).stations.length);
+});
+

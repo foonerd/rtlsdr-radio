@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.4.2 - Dongle Report: the plugin's measurements on the dongle that is plugged in, as one file to send; the log tells a few samples at full scale from sound that was cut off"
+    "changelog": "v1.4.3 - FM scan with an E4000 dongle: the tuner's mirror of a strong station is no longer listed as a station; Dongle Report: mirrors named, the last report kept across a restart"
   },
   "engines": {
     "node": ">=20",

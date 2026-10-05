@@ -1,0 +1,217 @@
+SLICE: freq=88450000 gain=25.4 step=15 of=29 level=44.8 cut=0.00 backoff=4.3 floor=-26.0
+CHANNEL: freq=87500000 rf=-27.9 top=1 pilot=2.3 low=-5.2 offset=7523 quiet=18.8 swing=18.6 wide=10.70 again=-
+CHANNEL: freq=87600000 rf=-26.0 top=1 pilot=7.8 low=-9.2 offset=5850 quiet=21.2 swing=19.1 wide=10.27 narrow=8.7 again=-1.5 againq=19.9 agains=17.8
+CHANNEL: freq=87700000 rf=-23.7 top=1 pilot=5.2 low=-4.5 offset=13420 quiet=19.4 swing=24.2 wide=10.73 narrow=9.6 again=3.0 againq=19.1 agains=18.5
+CHANNEL: freq=87800000 rf=-22.2 top=1 pilot=16.7 low=2.5 offset=-7180 quiet=21.6 swing=22.7 wide=7.37 narrow=15.2 again=2.0 againq=19.0 agains=16.4
+CHANNEL: freq=87900000 rf=-25.4 top=1 pilot=8.5 low=-8.1 offset=-14304 quiet=18.6 swing=20.2 wide=11.88 narrow=4.4 again=2.3 againq=19.5 agains=18.2
+CHANNEL: freq=88000000 rf=-26.9 top=1 pilot=0.9 low=-6.3 offset=3395 quiet=19.6 swing=17.0 wide=10.21 again=-
+CHANNEL: freq=88100000 rf=-24.9 top=1 pilot=4.0 low=-6.0 offset=6226 quiet=19.5 swing=21.0 wide=10.46 narrow=5.2 again=2.9 againq=20.1 agains=17.2
+CHANNEL: freq=88200000 rf=-19.8 top=1 pilot=7.2 low=-0.9 offset=19234 quiet=21.6 swing=30.6 wide=9.15 narrow=11.9 again=3.5 againq=19.4 agains=18.6
+CHANNEL: freq=88300000 rf=-17.9 top=1 pilot=19.9 low=8.9 offset=-5604 quiet=23.5 swing=30.4 wide=5.84 narrow=19.3 again=1.5 againq=21.6 agains=15.9
+CHANNEL: freq=88400000 rf=-21.9 top=1 pilot=5.1 low=-4.3 offset=-15051 quiet=20.2 swing=22.6 wide=10.15 narrow=7.1 again=-0.4 againq=20.0 agains=17.8
+CHANNEL: freq=88500000 rf=-26.5 top=1 pilot=8.0 low=2.3 offset=2068 quiet=20.3 swing=18.9 wide=9.60 narrow=4.9 again=4.3 againq=21.8 agains=16.1
+CHANNEL: freq=88600000 rf=-25.5 top=1 pilot=0.8 low=-5.2 offset=-4527 quiet=20.9 swing=17.9 wide=10.89 again=-
+CHANNEL: freq=88700000 rf=-24.1 top=1 pilot=9.9 low=5.5 offset=18440 quiet=18.4 swing=22.3 wide=12.90 narrow=5.1 again=11.6 againq=19.0 agains=22.5
+CHANNEL: freq=88800000 rf=-20.6 top=1 pilot=17.6 low=14.5 offset=-4450 quiet=21.8 swing=14.8 wide=4.52 narrow=23.6 again=18.9 againq=21.4 agains=13.8
+CHANNEL: freq=88900000 rf=-23.7 top=1 pilot=3.3 low=-1.9 offset=803 quiet=18.6 swing=21.0 wide=11.90 narrow=-2.1 again=3.8 againq=19.2 agains=21.3
+CHANNEL: freq=89000000 rf=-21.0 top=0
+CHANNEL: freq=89100000 rf=-11.1 top=1 pilot=32.8 low=31.8 offset=-43 quiet=34.0 swing=13.8 wide=0.00 again=34.4 againq=35.6 agains=12.7
+CHANNEL: freq=89200000 rf=-21.0 top=0
+CHANNEL: freq=89300000 rf=-24.2 top=1 pilot=-1.9 low=-13.5 offset=-15611 quiet=20.5 swing=18.4 wide=8.47 again=-
+CHANNEL: freq=89400000 rf=-26.3 top=1 pilot=7.0 low=3.4 offset=6175 quiet=19.5 swing=19.4 wide=12.81 narrow=2.7 again=-1.1 againq=18.2 agains=19.5
+SLICE: freq=90450000 gain=22.9 step=14 of=29 level=65.8 cut=0.00 backoff=0.0 floor=-23.5
+CHANNEL: freq=89500000 rf=9.2 top=0
+CHANNEL: freq=89600000 rf=17.4 top=1 pilot=57.8 low=55.6 offset=-15 quiet=59.4 swing=25.5 wide=0.00 again=57.8 againq=59.4 agains=20.1
+CHANNEL: freq=89700000 rf=10.3 top=0
+CHANNEL: freq=89800000 rf=-21.6 top=1 pilot=2.3 low=-5.1 offset=-17200 quiet=20.2 swing=18.1 wide=11.02 again=-
+CHANNEL: freq=89900000 rf=-21.8 top=1 pilot=0.8 low=-11.5 offset=17622 quiet=20.7 swing=17.7 wide=10.44 again=-
+CHANNEL: freq=90000000 rf=-21.3 top=1 pilot=-2.4 low=-10.5 offset=-12084 quiet=20.5 swing=15.8 wide=8.82 again=-
+CHANNEL: freq=90100000 rf=-23.7 top=1 pilot=-6.3 low=-17.6 offset=1427 quiet=19.2 swing=20.8 wide=13.74 again=-
+CHANNEL: freq=90200000 rf=-21.3 top=1 pilot=-7.1 low=-12.0 offset=4758 quiet=21.0 swing=16.2 wide=5.91 again=-
+CHANNEL: freq=90300000 rf=-22.5 top=1 pilot=3.6 low=-3.1 offset=-8556 quiet=19.3 swing=18.7 wide=12.03 narrow=2.8 again=4.0 againq=19.2 agains=18.4
+CHANNEL: freq=90400000 rf=-23.6 top=1 pilot=2.3 low=-18.2 offset=12811 quiet=21.5 swing=16.5 wide=7.37 again=-
+CHANNEL: freq=90500000 rf=-25.1 top=1 pilot=0.8 low=-0.3 offset=-16607 quiet=19.2 swing=17.4 wide=10.99 again=-
+CHANNEL: freq=90600000 rf=-23.1 top=1 pilot=-2.5 low=-13.1 offset=12067 quiet=20.4 swing=21.6 wide=13.20 again=-
+CHANNEL: freq=90700000 rf=-22.0 top=1 pilot=-0.0 low=-7.7 offset=-9010 quiet=22.4 swing=17.9 wide=6.33 again=-
+CHANNEL: freq=90800000 rf=-24.0 top=1 pilot=2.4 low=-2.8 offset=-53 quiet=19.1 swing=20.5 wide=13.50 again=-
+CHANNEL: freq=90900000 rf=-22.2 top=1 pilot=17.7 low=13.6 offset=14020 quiet=18.7 swing=21.7 wide=11.77 narrow=1.8 again=19.1 againq=20.7 agains=17.6
+CHANNEL: freq=91000000 rf=-13.9 top=1 pilot=28.7 low=26.7 offset=-4060 quiet=30.2 swing=8.9 wide=0.00 again=29.6 againq=31.1 agains=5.7
+CHANNEL: freq=91100000 rf=-23.5 top=0
+CHANNEL: freq=91200000 rf=-22.3 top=0
+CHANNEL: freq=91300000 rf=-9.8 top=1 pilot=32.0 low=29.9 offset=-51 quiet=33.4 swing=9.0 wide=0.00 again=31.6 againq=33.0 agains=5.8
+CHANNEL: freq=91400000 rf=-23.1 top=0
+SLICE: freq=92450000 gain=49.6 step=29 of=29 level=32.6 cut=0.13 backoff=0.0 floor=-32.0
+CHANNEL: freq=91500000 rf=-32.2 top=1 pilot=1.2 low=-20.3 offset=1973 quiet=20.9 swing=17.9 wide=11.54 again=-
+CHANNEL: freq=91600000 rf=-29.8 top=1 pilot=0.1 low=-12.4 offset=11059 quiet=21.2 swing=15.4 wide=7.01 again=-
+CHANNEL: freq=91700000 rf=-30.3 top=1 pilot=-3.1 low=-28.2 offset=-11178 quiet=19.0 swing=18.0 wide=10.94 again=-
+CHANNEL: freq=91800000 rf=-29.6 top=1 pilot=1.2 low=-12.3 offset=14612 quiet=20.2 swing=18.3 wide=10.36 again=-
+CHANNEL: freq=91900000 rf=-29.5 top=1 pilot=2.9 low=-14.5 offset=-14308 quiet=22.1 swing=18.2 wide=8.71 again=-
+CHANNEL: freq=92000000 rf=-31.5 top=1 pilot=2.8 low=-11.4 offset=2051 quiet=19.5 swing=19.8 wide=12.98 again=-
+CHANNEL: freq=92100000 rf=-30.4 top=1 pilot=0.5 low=-3.2 offset=-885 quiet=20.3 swing=15.9 wide=7.52 again=-
+CHANNEL: freq=92200000 rf=-31.5 top=1 pilot=3.2 low=-6.4 offset=-3647 quiet=19.5 swing=17.4 wide=11.08 narrow=0.0 again=-3.8 againq=18.6 agains=17.2
+CHANNEL: freq=92300000 rf=-30.2 top=1 pilot=-3.0 low=-6.9 offset=12121 quiet=20.1 swing=16.2 wide=8.70 again=-
+CHANNEL: freq=92400000 rf=-31.6 top=1 pilot=2.0 low=-7.8 offset=-11447 quiet=20.7 swing=17.8 wide=10.63 again=-
+CHANNEL: freq=92500000 rf=-32.8 top=1 pilot=2.5 low=-1.0 offset=6328 quiet=20.1 swing=18.7 wide=11.25 again=-
+CHANNEL: freq=92600000 rf=-31.3 top=1 pilot=2.7 low=-10.0 offset=-6827 quiet=19.7 swing=18.0 wide=10.17 again=-
+CHANNEL: freq=92700000 rf=-32.0 top=1 pilot=3.7 low=-3.7 offset=3585 quiet=21.2 swing=21.5 wide=13.25 narrow=0.7 again=2.5 againq=19.6 agains=21.3
+CHANNEL: freq=92800000 rf=-29.3 top=1 pilot=-0.8 low=-8.1 offset=2382 quiet=21.9 swing=17.0 wide=5.65 again=-
+CHANNEL: freq=92900000 rf=-31.9 top=1 pilot=0.5 low=-5.5 offset=-13194 quiet=18.6 swing=19.7 wide=12.58 again=-
+CHANNEL: freq=93000000 rf=-32.6 top=1 pilot=3.5 low=-2.4 offset=5014 quiet=19.7 swing=17.6 wide=9.68 narrow=2.7 again=-0.6 againq=20.8 agains=17.8
+CHANNEL: freq=93100000 rf=-29.7 top=0
+CHANNEL: freq=93200000 rf=-18.4 top=1 pilot=33.1 low=31.2 offset=-4039 quiet=34.8 swing=10.1 wide=0.00 again=33.3 againq=35.0 agains=12.9
+CHANNEL: freq=93300000 rf=-31.0 top=0
+CHANNEL: freq=93400000 rf=-32.8 top=1 pilot=17.7 low=13.6 offset=5686 quiet=18.0 swing=26.1 wide=15.05 narrow=4.8 again=18.0 againq=19.8 agains=28.2
+SLICE: freq=94450000 gain=49.6 step=29 of=29 level=22.9 cut=0.00 backoff=0.0 floor=-36.3
+CHANNEL: freq=93500000 rf=-23.7 top=1 pilot=32.0 low=28.4 offset=-73 quiet=32.7 swing=11.3 wide=0.01 again=32.0 againq=31.7 agains=11.6
+CHANNEL: freq=93600000 rf=-31.4 top=1 pilot=16.8 low=16.5 offset=-14294 quiet=19.5 swing=25.1 wide=14.12 narrow=7.0 again=20.1 againq=19.1 agains=25.8
+CHANNEL: freq=93700000 rf=-34.3 top=1 pilot=4.1 low=-2.9 offset=6422 quiet=18.8 swing=18.7 wide=12.45 narrow=2.7 again=8.4 againq=19.9 agains=18.5
+CHANNEL: freq=93800000 rf=-32.9 top=1 pilot=12.4 low=5.7 offset=-1937 quiet=20.3 swing=15.5 wide=7.92 narrow=14.4 again=11.2 againq=20.4 agains=15.6
+CHANNEL: freq=93900000 rf=-34.2 top=1 pilot=10.2 low=1.9 offset=-1034 quiet=20.4 swing=18.7 wide=11.82 narrow=1.6 again=10.7 againq=20.2 agains=18.5
+CHANNEL: freq=94000000 rf=-34.4 top=1 pilot=-0.7 low=-25.8 offset=-4825 quiet=20.0 swing=16.8 wide=9.76 again=-
+CHANNEL: freq=94100000 rf=-35.0 top=1 pilot=5.0 low=-6.7 offset=-113 quiet=19.5 swing=16.8 wide=9.62 narrow=-0.6 again=3.2 againq=20.8 agains=16.9
+CHANNEL: freq=94200000 rf=-35.0 top=1 pilot=5.8 low=-8.9 offset=3723 quiet=20.9 swing=18.1 wide=11.45 narrow=5.6 again=3.8 againq=20.4 agains=17.9
+CHANNEL: freq=94300000 rf=-34.6 top=1 pilot=2.5 low=-3.8 offset=-1619 quiet=18.9 swing=17.2 wide=10.21 again=-
+CHANNEL: freq=94400000 rf=-36.2 top=1 pilot=2.4 low=-5.7 offset=3777 quiet=19.7 swing=17.2 wide=10.31 again=-
+CHANNEL: freq=94500000 rf=-37.0 top=1 pilot=3.7 low=-4.4 offset=-6705 quiet=20.9 swing=17.2 wide=10.22 narrow=1.7 again=1.7 againq=20.5 agains=17.7
+CHANNEL: freq=94600000 rf=-36.3 top=1 pilot=4.2 low=-9.4 offset=-5344 quiet=20.2 swing=17.7 wide=10.69 narrow=4.9 again=3.2 againq=19.2 agains=18.0
+CHANNEL: freq=94700000 rf=-36.4 top=1 pilot=-0.1 low=-8.8 offset=4545 quiet=20.9 swing=17.2 wide=10.16 again=-
+CHANNEL: freq=94800000 rf=-30.7 top=0
+CHANNEL: freq=94900000 rf=-20.2 top=1 pilot=36.3 low=34.1 offset=-87 quiet=36.9 swing=13.7 wide=0.00 again=37.0 againq=38.0 agains=16.8
+CHANNEL: freq=95000000 rf=-31.0 top=0
+CHANNEL: freq=95100000 rf=-37.0 top=1 pilot=0.0 low=-6.4 offset=-158 quiet=20.2 swing=18.2 wide=11.79 again=-
+CHANNEL: freq=95200000 rf=-34.2 top=1 pilot=1.4 low=-11.0 offset=17702 quiet=21.5 swing=14.2 wide=6.47 again=-
+CHANNEL: freq=95300000 rf=-34.5 top=1 pilot=1.6 low=-8.7 offset=-29648 quiet=19.8 swing=19.8 wide=15.28 again=-
+CHANNEL: freq=95400000 rf=-37.6 top=1 pilot=-2.2 low=-7.0 offset=-4130 quiet=21.3 swing=16.8 wide=8.87 again=-
+SLICE: freq=96450000 gain=49.6 step=29 of=29 level=23.6 cut=0.00 backoff=0.0 floor=-38.3
+CHANNEL: freq=95500000 rf=-39.4 top=1 pilot=2.4 low=-4.3 offset=823 quiet=20.2 swing=17.0 wide=10.47 again=-
+CHANNEL: freq=95600000 rf=-38.3 top=1 pilot=-1.2 low=-9.7 offset=8025 quiet=19.5 swing=17.6 wide=10.77 again=-
+CHANNEL: freq=95700000 rf=-29.2 top=0
+CHANNEL: freq=95800000 rf=-22.4 top=1 pilot=35.5 low=33.2 offset=-58 quiet=35.6 swing=24.8 wide=0.01 again=35.8 againq=35.9 agains=23.5
+CHANNEL: freq=95900000 rf=-29.7 top=0
+CHANNEL: freq=96000000 rf=-38.5 top=1 pilot=-1.4 low=-5.5 offset=49 quiet=20.1 swing=17.4 wide=11.19 again=-
+CHANNEL: freq=96100000 rf=-37.5 top=1 pilot=4.1 low=-12.4 offset=5651 quiet=20.0 swing=16.1 wide=8.75 narrow=5.1 again=4.0 againq=19.4 agains=16.3
+CHANNEL: freq=96200000 rf=-37.7 top=1 pilot=4.9 low=-3.9 offset=-3661 quiet=20.2 swing=18.6 wide=11.71 narrow=6.5 again=-0.4 againq=19.4 agains=18.2
+CHANNEL: freq=96300000 rf=-37.3 top=1 pilot=-1.8 low=-41.1 offset=3277 quiet=19.3 swing=16.5 wide=9.66 again=-
+CHANNEL: freq=96400000 rf=-39.2 top=1 pilot=1.6 low=-10.3 offset=-4571 quiet=18.7 swing=17.5 wide=10.38 again=-
+CHANNEL: freq=96500000 rf=-40.1 top=1 pilot=7.1 low=-1.3 offset=2632 quiet=18.0 swing=19.1 wide=12.45 narrow=1.4 again=5.7 againq=21.1 agains=18.9
+CHANNEL: freq=96600000 rf=-36.9 top=1 pilot=7.7 low=-0.2 offset=1474 quiet=19.3 swing=16.1 wide=7.81 narrow=9.8 again=8.4 againq=20.3 agains=16.0
+CHANNEL: freq=96700000 rf=-37.0 top=1 pilot=9.1 low=4.9 offset=-1650 quiet=20.2 swing=16.4 wide=9.04 narrow=13.9 again=10.4 againq=20.0 agains=16.9
+CHANNEL: freq=96800000 rf=-37.4 top=1 pilot=4.4 low=-0.6 offset=4823 quiet=19.5 swing=22.2 wide=11.98 narrow=3.8 again=9.2 againq=20.3 agains=24.0
+CHANNEL: freq=96900000 rf=-35.1 top=1 pilot=20.8 low=19.5 offset=-956 quiet=23.0 swing=21.0 wide=2.68 narrow=26.6 again=20.8 againq=24.4 agains=28.5
+CHANNEL: freq=97000000 rf=-37.9 top=1 pilot=9.2 low=7.7 offset=5421 quiet=19.4 swing=28.8 wide=15.12 narrow=8.6 again=8.0 againq=18.8 agains=31.0
+CHANNEL: freq=97100000 rf=-34.6 top=1 pilot=-0.5 low=-5.8 offset=-587 quiet=23.0 swing=18.1 wide=2.96 again=-
+CHANNEL: freq=97200000 rf=-28.0 top=0
+CHANNEL: freq=97300000 rf=-19.6 top=1 pilot=41.8 low=36.9 offset=-86 quiet=41.8 swing=17.5 wide=0.00 again=40.2 againq=40.2 agains=19.3
+CHANNEL: freq=97400000 rf=-28.6 top=0
+SLICE: freq=98450000 gain=49.6 step=29 of=29 level=34.6 cut=0.00 backoff=0.0 floor=-41.1
+CHANNEL: freq=97500000 rf=-40.8 top=1 pilot=2.5 low=-1.0 offset=18761 quiet=21.4 swing=16.7 wide=9.78 again=-
+CHANNEL: freq=97600000 rf=-38.9 top=1 pilot=1.8 low=-5.9 offset=-1939 quiet=19.3 swing=17.4 wide=9.90 again=-
+CHANNEL: freq=97700000 rf=-39.1 top=1 pilot=2.5 low=-2.1 offset=1130 quiet=20.2 swing=17.4 wide=10.55 again=-
+CHANNEL: freq=97800000 rf=-39.6 top=1 pilot=1.7 low=-1.2 offset=-5454 quiet=21.5 swing=17.5 wide=10.19 again=-
+CHANNEL: freq=97900000 rf=-41.1 top=1 pilot=-0.4 low=-6.3 offset=-5574 quiet=19.0 swing=18.0 wide=11.28 again=-
+CHANNEL: freq=98000000 rf=-40.7 top=1 pilot=5.2 low=-5.2 offset=6058 quiet=20.4 swing=16.7 wide=9.74 narrow=5.7 again=4.5 againq=20.1 agains=16.6
+CHANNEL: freq=98100000 rf=-40.4 top=1 pilot=-2.3 low=-16.4 offset=-1381 quiet=20.6 swing=18.7 wide=11.13 again=-
+CHANNEL: freq=98200000 rf=-39.8 top=1 pilot=3.1 low=-1.9 offset=1826 quiet=19.0 swing=16.2 wide=9.34 narrow=4.3 again=2.4 againq=21.3 agains=16.3
+CHANNEL: freq=98300000 rf=-40.0 top=1 pilot=10.3 low=4.8 offset=-4147 quiet=20.5 swing=15.4 wide=8.92 narrow=13.2 again=9.9 againq=20.1 agains=15.6
+CHANNEL: freq=98400000 rf=-39.0 top=0
+CHANNEL: freq=98500000 rf=-18.1 top=1 pilot=41.4 low=40.1 offset=-3954 quiet=43.3 swing=22.2 wide=0.00 again=44.3 againq=46.2 agains=23.9
+CHANNEL: freq=98600000 rf=-24.6 top=0
+CHANNEL: freq=98700000 rf=-25.5 top=0
+CHANNEL: freq=98800000 rf=-19.2 top=1 pilot=41.7 low=38.9 offset=20 quiet=43.2 swing=23.2 wide=0.00 again=41.6 againq=43.2 agains=25.0
+CHANNEL: freq=98900000 rf=-25.4 top=0
+CHANNEL: freq=99000000 rf=-41.7 top=1 pilot=-0.7 low=-8.8 offset=751 quiet=20.3 swing=16.8 wide=10.07 again=-
+CHANNEL: freq=99100000 rf=-41.5 top=1 pilot=2.7 low=-10.2 offset=1484 quiet=17.8 swing=17.2 wide=10.66 again=-
+CHANNEL: freq=99200000 rf=-40.9 top=1 pilot=-2.8 low=-14.0 offset=1200 quiet=20.3 swing=16.4 wide=9.75 again=-
+CHANNEL: freq=99300000 rf=-41.5 top=1 pilot=1.0 low=-21.8 offset=-4248 quiet=19.6 swing=17.1 wide=10.50 again=-
+CHANNEL: freq=99400000 rf=-42.4 top=1 pilot=-1.3 low=-7.2 offset=-2606 quiet=19.1 swing=17.1 wide=10.32 again=-
+SLICE: freq=100450000 gain=49.6 step=29 of=29 level=42.9 cut=0.32 backoff=0.0 floor=-40.8
+CHANNEL: freq=99500000 rf=-43.3 top=1 pilot=1.9 low=-3.6 offset=5876 quiet=19.2 swing=17.8 wide=10.83 again=-
+CHANNEL: freq=99600000 rf=-41.2 top=1 pilot=-2.1 low=-12.4 offset=8192 quiet=20.3 swing=16.3 wide=9.35 again=-
+CHANNEL: freq=99700000 rf=-40.8 top=1 pilot=-0.2 low=-11.5 offset=-5546 quiet=21.0 swing=16.6 wide=9.45 again=-
+CHANNEL: freq=99800000 rf=-41.6 top=1 pilot=1.6 low=-3.1 offset=5097 quiet=18.7 swing=19.0 wide=12.18 again=-
+CHANNEL: freq=99900000 rf=-24.4 top=0
+CHANNEL: freq=100000000 rf=-18.2 top=1 pilot=41.5 low=39.7 offset=170 quiet=41.6 swing=26.0 wide=0.00 again=43.7 againq=44.0 agains=25.5
+CHANNEL: freq=100100000 rf=-24.2 top=0
+CHANNEL: freq=100200000 rf=-40.8 top=1 pilot=3.3 low=-11.7 offset=-7933 quiet=18.8 swing=17.5 wide=10.89 narrow=-0.0 again=0.6 againq=18.9 agains=17.5
+CHANNEL: freq=100300000 rf=-40.0 top=1 pilot=2.8 low=-1.3 offset=12872 quiet=19.2 swing=18.4 wide=10.94 again=-
+CHANNEL: freq=100400000 rf=-40.6 top=1 pilot=-0.1 low=-15.9 offset=-8234 quiet=19.3 swing=17.1 wide=9.47 again=-
+CHANNEL: freq=100500000 rf=-38.6 top=0
+CHANNEL: freq=100600000 rf=-20.9 top=1 pilot=39.1 low=38.6 offset=-4210 quiet=39.9 swing=3.3 wide=0.00 again=37.8 againq=38.6 agains=4.3
+CHANNEL: freq=100700000 rf=-39.9 top=0
+CHANNEL: freq=100800000 rf=-36.9 top=0
+CHANNEL: freq=100900000 rf=-14.8 top=1 pilot=44.3 low=40.7 offset=-182 quiet=45.1 swing=3.2 wide=0.00 again=43.1 againq=43.9 agains=4.2
+CHANNEL: freq=101000000 rf=-37.0 top=0
+CHANNEL: freq=101100000 rf=-35.8 top=1 pilot=-2.0 low=-14.1 offset=12109 quiet=21.3 swing=28.5 wide=11.92 again=-
+CHANNEL: freq=101200000 rf=-31.2 top=1 pilot=-5.2 low=-15.3 offset=363 quiet=27.5 swing=24.0 wide=0.49 again=-9.1 againq=28.0 agains=20.0
+CHANNEL: freq=101300000 rf=-31.1 top=1 pilot=13.2 low=7.6 offset=15788 quiet=18.9 swing=34.6 wide=12.96 narrow=10.9 again=13.5 againq=18.5 agains=33.0
+CHANNEL: freq=101400000 rf=-28.3 top=1 pilot=31.5 low=30.3 offset=-226 quiet=31.3 swing=33.3 wide=0.39 again=30.6 againq=30.8 agains=32.5
+SLICE: freq=102450000 gain=49.6 step=29 of=29 level=11.3 cut=0.00 backoff=0.0 floor=-38.3
+CHANNEL: freq=101500000 rf=-34.3 top=1 pilot=16.8 low=9.0 offset=-18510 quiet=20.1 swing=30.2 wide=13.44 narrow=11.5 again=16.5 againq=20.3 agains=31.1
+CHANNEL: freq=101600000 rf=-38.3 top=1 pilot=3.6 low=-0.4 offset=-7430 quiet=20.3 swing=18.1 wide=9.77 narrow=2.1 again=2.8 againq=21.2 agains=17.8
+CHANNEL: freq=101700000 rf=-38.5 top=1 pilot=0.6 low=-13.6 offset=7470 quiet=20.1 swing=19.4 wide=12.24 again=-
+CHANNEL: freq=101800000 rf=-36.8 top=1 pilot=-0.2 low=-4.8 offset=-902 quiet=22.1 swing=15.8 wide=7.05 again=-
+CHANNEL: freq=101900000 rf=-38.3 top=1 pilot=0.6 low=-15.2 offset=-3007 quiet=19.7 swing=17.7 wide=11.71 again=-
+CHANNEL: freq=102000000 rf=-37.1 top=1 pilot=5.4 low=-2.4 offset=5754 quiet=21.5 swing=16.1 wide=7.82 narrow=3.9 again=3.2 againq=20.0 agains=16.2
+CHANNEL: freq=102100000 rf=-34.3 top=1 pilot=14.7 low=11.3 offset=15753 quiet=20.5 swing=30.5 wide=13.49 narrow=7.4 again=14.5 againq=20.6 agains=28.6
+CHANNEL: freq=102200000 rf=-30.5 top=1 pilot=24.6 low=23.3 offset=-811 quiet=25.0 swing=26.5 wide=0.91 narrow=26.0 again=24.9 againq=25.0 agains=28.9
+CHANNEL: freq=102300000 rf=-34.7 top=1 pilot=10.9 low=8.3 offset=-19992 quiet=21.4 swing=22.0 wide=10.52 narrow=5.8 again=9.3 againq=20.8 agains=21.4
+CHANNEL: freq=102400000 rf=-39.4 top=1 pilot=5.2 low=1.7 offset=3174 quiet=19.6 swing=17.3 wide=11.20 narrow=4.7 again=1.8 againq=20.3 agains=17.3
+CHANNEL: freq=102500000 rf=-38.5 top=1 pilot=-2.1 low=-8.7 offset=-1706 quiet=21.0 swing=15.6 wide=7.71 again=-
+CHANNEL: freq=102600000 rf=-38.2 top=1 pilot=-4.8 low=-10.6 offset=-3801 quiet=20.3 swing=17.9 wide=11.47 again=-
+CHANNEL: freq=102700000 rf=-37.1 top=1 pilot=-0.4 low=-2.8 offset=10789 quiet=22.4 swing=17.2 wide=9.05 again=-
+CHANNEL: freq=102800000 rf=-37.1 top=1 pilot=0.0 low=-3.5 offset=-11615 quiet=18.7 swing=19.0 wide=10.30 again=-
+CHANNEL: freq=102900000 rf=-35.9 top=1 pilot=-1.8 low=-10.4 offset=21640 quiet=20.2 swing=23.1 wide=12.80 again=-
+CHANNEL: freq=103000000 rf=-32.9 top=1 pilot=-4.3 low=-30.3 offset=-3422 quiet=24.4 swing=19.5 wide=3.23 again=-
+CHANNEL: freq=103100000 rf=-37.0 top=1 pilot=1.8 low=0.4 offset=-9667 quiet=18.8 swing=23.8 wide=13.87 again=-
+CHANNEL: freq=103200000 rf=-36.9 top=1 pilot=-1.9 low=-21.9 offset=5771 quiet=19.3 swing=15.6 wide=8.02 again=-
+CHANNEL: freq=103300000 rf=-37.6 top=1 pilot=2.3 low=-6.3 offset=-9572 quiet=20.5 swing=17.0 wide=10.40 again=-
+CHANNEL: freq=103400000 rf=-38.7 top=1 pilot=-0.3 low=-6.8 offset=3731 quiet=20.1 swing=19.5 wide=10.72 again=-
+SLICE: freq=104450000 gain=49.6 step=29 of=29 level=26.6 cut=0.00 backoff=0.0 floor=-39.4
+CHANNEL: freq=103500000 rf=-37.8 top=1 pilot=22.2 low=17.7 offset=17102 quiet=20.4 swing=28.5 wide=15.23 narrow=10.8 again=15.0 againq=20.9 agains=32.7
+CHANNEL: freq=103600000 rf=-30.9 top=1 pilot=31.4 low=28.8 offset=-1363 quiet=28.0 swing=17.8 wide=0.25 again=31.7 againq=28.5 agains=25.0
+CHANNEL: freq=103700000 rf=-35.9 top=1 pilot=18.6 low=15.7 offset=-11105 quiet=20.2 swing=22.6 wide=11.14 narrow=6.9 again=20.7 againq=20.8 agains=27.0
+CHANNEL: freq=103800000 rf=-38.3 top=1 pilot=2.8 low=-15.1 offset=-5069 quiet=20.2 swing=17.8 wide=11.38 again=-
+CHANNEL: freq=103900000 rf=-38.3 top=1 pilot=-2.4 low=-15.2 offset=1743 quiet=20.9 swing=17.5 wide=8.15 again=-
+CHANNEL: freq=104000000 rf=-39.4 top=1 pilot=-3.2 low=-5.7 offset=-6197 quiet=19.9 swing=19.5 wide=11.91 again=-
+CHANNEL: freq=104100000 rf=-39.1 top=1 pilot=2.1 low=-2.4 offset=8604 quiet=20.4 swing=17.5 wide=10.78 again=-
+CHANNEL: freq=104200000 rf=-38.3 top=1 pilot=2.3 low=-2.1 offset=-4433 quiet=20.8 swing=17.0 wide=9.06 again=-
+CHANNEL: freq=104300000 rf=-39.1 top=1 pilot=3.8 low=-1.5 offset=157 quiet=21.7 swing=20.1 wide=12.44 narrow=3.4 again=-0.7 againq=19.1 agains=19.4
+CHANNEL: freq=104400000 rf=-39.8 top=1 pilot=2.9 low=-6.6 offset=-2084 quiet=21.3 swing=16.9 wide=8.07 again=-
+CHANNEL: freq=104500000 rf=-41.0 top=1 pilot=2.0 low=-1.4 offset=-745 quiet=19.4 swing=17.3 wide=10.50 again=-
+CHANNEL: freq=104600000 rf=-39.1 top=1 pilot=2.5 low=-6.5 offset=4305 quiet=17.8 swing=17.4 wide=10.85 again=-
+CHANNEL: freq=104700000 rf=-37.7 top=1 pilot=3.5 low=-15.9 offset=5127 quiet=21.5 swing=17.2 wide=9.52 narrow=3.1 again=-0.3 againq=19.9 agains=17.5
+CHANNEL: freq=104800000 rf=-28.4 top=0
+CHANNEL: freq=104900000 rf=-22.8 top=1 pilot=36.9 low=33.6 offset=201 quiet=37.1 swing=29.7 wide=0.00 again=37.0 againq=37.2 agains=29.1
+CHANNEL: freq=105000000 rf=-28.3 top=0
+CHANNEL: freq=105100000 rf=-40.1 top=1 pilot=3.9 low=-3.3 offset=2380 quiet=20.9 swing=17.0 wide=10.21 narrow=4.9 again=-3.8 againq=20.7 agains=17.2
+CHANNEL: freq=105200000 rf=-40.2 top=1 pilot=2.0 low=0.5 offset=-2829 quiet=19.1 swing=17.6 wide=10.61 again=-
+CHANNEL: freq=105300000 rf=-23.7 top=0
+CHANNEL: freq=105400000 rf=-18.3 top=1 pilot=43.0 low=39.7 offset=-574 quiet=42.9 swing=25.8 wide=0.00 again=40.5 againq=40.4 agains=23.8
+SLICE: freq=106450000 gain=49.6 step=29 of=29 level=30.5 cut=0.00 backoff=0.0 floor=-36.8
+CHANNEL: freq=105500000 rf=-27.0 top=0
+CHANNEL: freq=105600000 rf=-39.1 top=1 pilot=5.8 low=-0.1 offset=-730 quiet=19.7 swing=16.6 wide=8.32 narrow=7.8 again=4.9 againq=19.8 agains=16.5
+CHANNEL: freq=105700000 rf=-34.8 top=0
+CHANNEL: freq=105800000 rf=-27.5 top=1 pilot=30.9 low=29.7 offset=-116 quiet=30.9 swing=19.4 wide=0.03 again=29.7 againq=30.3 agains=19.7
+CHANNEL: freq=105900000 rf=-34.1 top=1 pilot=14.3 low=11.1 offset=-31909 quiet=20.1 swing=24.2 wide=12.91 narrow=7.5 again=15.2 againq=20.4 agains=24.2
+CHANNEL: freq=106000000 rf=-38.8 top=1 pilot=-0.6 low=-5.1 offset=9011 quiet=19.1 swing=17.6 wide=10.30 again=-
+CHANNEL: freq=106100000 rf=-24.6 top=0
+CHANNEL: freq=106200000 rf=-17.2 top=1 pilot=41.6 low=39.9 offset=-208 quiet=41.8 swing=28.6 wide=0.00 again=40.3 againq=41.4 agains=23.3
+CHANNEL: freq=106300000 rf=-23.1 top=0
+CHANNEL: freq=106400000 rf=-38.8 top=1 pilot=-1.7 low=-19.1 offset=20977 quiet=20.4 swing=24.7 wide=14.50 again=-
+CHANNEL: freq=106500000 rf=-33.5 top=1 pilot=1.4 low=-10.2 offset=-10890 quiet=23.3 swing=18.8 wide=4.26 again=-
+CHANNEL: freq=106600000 rf=-36.8 top=1 pilot=1.9 low=-14.9 offset=-13599 quiet=20.0 swing=20.8 wide=12.66 again=-
+CHANNEL: freq=106700000 rf=-36.7 top=1 pilot=3.0 low=-4.9 offset=12411 quiet=19.6 swing=17.2 wide=11.12 narrow=4.3 again=1.4 againq=19.5 agains=17.6
+CHANNEL: freq=106800000 rf=-34.4 top=1 pilot=15.4 low=11.5 offset=-4650 quiet=21.9 swing=12.0 wide=5.66 narrow=21.3 again=12.3 againq=19.7 agains=12.3
+CHANNEL: freq=106900000 rf=-37.5 top=1 pilot=6.2 low=-12.4 offset=4041 quiet=19.5 swing=19.9 wide=12.64 narrow=3.0 again=0.8 againq=19.6 agains=19.1
+CHANNEL: freq=107000000 rf=-35.9 top=1 pilot=4.8 low=-11.6 offset=279 quiet=21.4 swing=16.3 wide=7.01 narrow=4.6 again=0.8 againq=21.6 agains=16.9
+CHANNEL: freq=107100000 rf=-36.8 top=1 pilot=1.0 low=-5.5 offset=-64 quiet=19.5 swing=18.9 wide=11.51 again=-
+CHANNEL: freq=107200000 rf=-35.2 top=1 pilot=6.7 low=-4.8 offset=10274 quiet=20.2 swing=16.9 wide=10.20 narrow=0.1 again=4.5 againq=20.4 agains=17.3
+CHANNEL: freq=107300000 rf=-34.5 top=1 pilot=10.5 low=8.8 offset=-6685 quiet=18.9 swing=17.4 wide=8.12 narrow=12.7 again=9.2 againq=19.5 agains=16.4
+CHANNEL: freq=107400000 rf=-36.5 top=1 pilot=8.8 low=-0.1 offset=2816 quiet=20.4 swing=21.9 wide=13.10 narrow=6.6 again=6.2 againq=19.6 agains=21.5
+SLICE: freq=108450000 gain=49.6 step=29 of=29 level=13.0 cut=0.00 backoff=0.0 floor=-35.8
+CHANNEL: freq=107500000 rf=-35.8 top=1 pilot=2.4 low=-11.4 offset=538 quiet=21.2 swing=17.0 wide=7.48 again=-
+CHANNEL: freq=107600000 rf=-36.1 top=1 pilot=5.7 low=-17.5 offset=3811 quiet=21.2 swing=17.5 wide=12.32 narrow=-1.1 again=-5.2 againq=19.5 agains=18.6
+CHANNEL: freq=107700000 rf=-32.1 top=1 pilot=14.1 low=10.6 offset=18720 quiet=20.5 swing=23.1 wide=11.13 narrow=8.2 again=10.4 againq=19.0 agains=22.6
+CHANNEL: freq=107800000 rf=-28.7 top=1 pilot=26.3 low=22.1 offset=-931 quiet=26.5 swing=25.2 wide=0.93 again=24.2 againq=24.5 agains=25.3
+CHANNEL: freq=107900000 rf=-32.2 top=1 pilot=14.5 low=10.1 offset=-4089 quiet=19.8 swing=27.6 wide=13.39 narrow=8.6 again=13.5 againq=19.2 agains=28.0
+CHANNEL: freq=108000000 rf=-33.8 top=1 pilot=-0.1 low=-3.5 offset=-11998 quiet=19.8 swing=19.2 wide=9.14 again=-

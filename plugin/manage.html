@@ -880,6 +880,34 @@
       line-height: 1.5;
     }
     
+    .confirm-choices label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border: 1px solid rgba(128, 128, 128, 0.35);
+      border-radius: 6px;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    
+    .confirm-choices input {
+      margin-top: 3px;
+      flex: none;
+    }
+    
+    .confirm-choices .choice-name {
+      display: block;
+      font-weight: 600;
+    }
+    
+    .confirm-choices .choice-doc {
+      display: block;
+      font-size: 0.9em;
+      opacity: 0.8;
+    }
+    
     .freq-comparison {
       display: flex;
       align-items: center;
@@ -2472,6 +2500,7 @@
       </div>
       <div class="modal-body">
         <p id="confirm-modal-message">Are you sure?</p>
+        <div class="confirm-choices" id="confirm-modal-choices" style="display: none;"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="confirm-cancel">
@@ -2595,7 +2624,9 @@
     }
     
     // Generic confirmation modal
-    function showConfirmModal(title, message, type = 'warning') {
+    // choices: [{ value, name, doc, chosen }] to choose one of in the dialog; the promise
+    // then gives the value chosen instead of true
+    function showConfirmModal(title, message, type = 'warning', choices = null) {
       return new Promise((resolve) => {
         const modal = document.getElementById('confirm-modal');
         const header = document.getElementById('confirm-modal-header');
@@ -2617,6 +2648,29 @@
         // Set content
         document.getElementById('confirm-modal-title').textContent = title;
         document.getElementById('confirm-modal-message').textContent = message;
+        const choiceBox = document.getElementById('confirm-modal-choices');
+        choiceBox.textContent = '';
+        choiceBox.style.display = choices ? '' : 'none';
+        (choices || []).forEach((choice) => {
+          const label = document.createElement('label');
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = 'confirm-choice';
+          input.value = choice.value;
+          input.checked = !!choice.chosen;
+          const text = document.createElement('span');
+          const name = document.createElement('span');
+          name.className = 'choice-name';
+          name.textContent = choice.name;
+          const doc = document.createElement('span');
+          doc.className = 'choice-doc';
+          doc.textContent = choice.doc;
+          text.appendChild(name);
+          text.appendChild(doc);
+          label.appendChild(input);
+          label.appendChild(text);
+          choiceBox.appendChild(label);
+        });
         document.getElementById('confirm-cancel-text').textContent = t('BTN_CANCEL');
         document.getElementById('confirm-ok-text').textContent = t('BTN_CONFIRM');
         
@@ -2625,9 +2679,10 @@
         
         // Set up event handlers
         const handleOk = () => {
+          const chosen = choices ? choiceBox.querySelector('input:checked') : null;
           modal.classList.remove('show');
           cleanup();
-          resolve(true);
+          resolve(choices ? (chosen ? chosen.value : choices[0].value) : true);
         };
         
         const handleCancel = () => {
@@ -3961,19 +4016,29 @@
     
     // Rescan FM stations
     document.getElementById('rescan-fm-btn').addEventListener('click', async () => {
-      const confirmed = await showConfirmModal(
+      // Which kind of scan: the one last used is offered first
+      let depth = 'fast';
+      try {
+        depth = (await (await fetch('/api/status')).json()).fmScanDepth === 'detailed' ? 'detailed' : 'fast';
+      } catch (ignored) { /* the fast one is offered */ }
+      const chosen = await showConfirmModal(
         t('CONFIRM_RESCAN_FM_TITLE'),
         t('CONFIRM_RESCAN_FM'),
-        'info'
+        'info',
+        [
+          { value: 'fast', name: t('FM_SCAN_FAST_NAME'), doc: t('FM_SCAN_FAST_DOC'), chosen: depth === 'fast' },
+          { value: 'detailed', name: t('FM_SCAN_DETAILED_NAME'), doc: t('FM_SCAN_DETAILED_DOC'), chosen: depth === 'detailed' }
+        ]
       );
-      if (!confirmed) return;
+      if (!chosen) return;
       
       try {
         showScanningModal('fm');
         
         const response = await fetch('/api/stations/scan-fm', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depth: chosen })
         });
         
         if (!response.ok) throw new Error('Rescan failed');

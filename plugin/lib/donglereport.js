@@ -34,7 +34,7 @@ var fmscan = require('./fmscan');
 var snr = require('./snr');
 
 // The shape of report.json; raised when it changes
-var REPORT_FORM = 2;
+var REPORT_FORM = 3;
 
 var FM_RATE = 2400000;       // samples a second of an FM recording: one slice of the survey
 var DAB_RATE = 2048000;      // of a DAB recording: what the decoder works at
@@ -44,7 +44,7 @@ var SLICE_HALF = 1000000;    // a station belongs to the slice whose centre is w
 var TEST_MS = 8000;          // fn-rtl_test reads this long: time enough to lose samples
 var RECORD_MS = 1700;        // a recording: about a second of samples once the tuner has settled
 var SELFTEST_LIMIT = 30000;
-var SURVEY_LIMIT = 240000;   // the survey takes half a minute on a Pi 5, minutes on the slowest boards
+var SURVEY_LIMIT = 600000;   // the survey takes under a minute on a Pi 5, minutes on the slowest boards
 var GAIN_LIMIT = 120000;
 var END_WAIT = 2500;         // a tool asked to end has this long before it is killed
 var STRONGEST = 6;           // stations whose gain is measured one by one
@@ -256,15 +256,19 @@ function text(report) {
     }).join(', ') + ' (the setting here: +' + fm.sensitivity + ' dB)');
     row('Made in the tuner', fm.ghosts.length ? fm.ghosts.map(function(c) { return mhz(c.freq); }).join(', ') + ' MHz (refused)' : 'none refused');
     row('Tuner\'s mirrors', fm.mirrors && fm.mirrors.length ? fm.mirrors.map(function(c) { return mhz(c.freq); }).join(', ') + ' MHz (refused)' : 'none refused');
+    row('Dongle\'s tuning', fm.tuning ? (fm.tuning.ppm === 0 ? 'on frequency' : Math.abs(fm.tuning.ppm) + ' parts per million ' +
+      (fm.tuning.ppm > 0 ? 'high' : 'low') + ' (' + (Math.abs(fm.tuning.ppm) / 10).toFixed(1) + ' kHz at 100 MHz)') +
+      ', by the carriers of ' + fm.tuning.stations + ' stations' : 'not told: too few stations received well, or they do not agree');
     lines.push('');
     table('Slices', [['MHz', 9], ['gain', 7], ['level of 127', 14], ['cut off %', 11], ['taken down', 12], ['floor', 0]],
       fm.slices.map(function(slice) {
         return [mhz(slice.freq), slice.gain === null ? '-' : gainName(slice.gain), slice.level, slice.cut, slice.backoff, slice.floor === null ? '-' : slice.floor];
       }));
     lines.push('');
-    table('Stations at +' + fm.sensitivity + ' dB', [['MHz', 9], ['pilot dB', 10], ['weakest', 9], ['carrier Hz', 12], ['power dB', 0]],
+    table('Stations at +' + fm.sensitivity + ' dB', [['MHz', 9], ['pilot dB', 10], ['weakest', 9], ['carrier Hz', 12], ['power dB', 10], ['', 0]],
       fm.stations.map(function(station) {
-        return [mhz(station.freq), station.pilot, station.low, station.offset === null ? '-' : Math.round(station.offset), station.rf];
+        return [mhz(station.freq), station.pilot, station.low, station.offset === null ? '-' : Math.round(station.offset), station.rf,
+          station.mono ? 'no pilot (mono): read by its carrier' : ''];
       }));
     if (fm.gains && fm.gains.length) {
       lines.push('');
@@ -575,7 +579,7 @@ DongleReport.prototype.make = function(wanted) {
   }).then(function() {
     self.step('survey', 'surveying the FM band');
     var began = Date.now();
-    return self.tool('fn-rtl-gain', ['-b', band.range], self.times.survey).then(function(ran) {
+    return self.tool('fn-rtl-gain', ['-b', band.range].concat(band.args || []), self.times.survey).then(function(ran) {
       report.fm.band = band.label;
       report.fm.sensitivity = sensitivity;
       report.fm.seconds = (Date.now() - began) / 1000;
@@ -594,6 +598,7 @@ DongleReport.prototype.make = function(wanted) {
         report.fm.stations = listed;
         report.fm.ghosts = fmscan.ghosts(survey, { sensitivity: sensitivity });
         report.fm.mirrors = fmscan.mirrors(survey, { sensitivity: sensitivity });
+        report.fm.tuning = fmscan.tuningError(survey, { sensitivity: sensitivity });
         report.fm.counts = {};
         SENSITIVITIES.forEach(function(s) {
           report.fm.counts[s] = fmscan.stations(survey, { sensitivity: s }).length;

@@ -44,19 +44,59 @@
  * more than one frequency was given, the gain that suits them all:
  *   BAND: gain=<dB> step=<n> of=<n>
  *
- *   fn-rtl-gain -b <low>:<high>:<spacing> [-p <ppm>] [-d <device>]
+ *   fn-rtl-gain -b <low>:<high>:<spacing> [-e] [-n <Hz> ...] [-p <ppm>] [-d <device>]
  *
  * surveys a band of FM broadcast channels, low to high in steps of spacing. The band is
  * taken in slices of 2 MHz, each at its own gain, and every channel is measured:
  *   SLICE: freq=<Hz> gain=<dB> step=<n> of=<n> level=<mean of 127> cut=<percent> backoff=<dB> floor=<dB>
- *   CHANNEL: freq=<Hz> rf=<dB> top=<0|1> [pilot=<dB> low=<dB> offset=<Hz> again=<dB>|-> [mirror=<share> moved=<dB>|-> [least=<dB>]]]
+ *   CHANNEL: freq=<Hz> rf=<dB> top=<0|1> [pilot=<dB> low=<dB> offset=<Hz> quiet=<dB> swing=<kHz> wide=<percent>
+ *            [narrow=<dB>] [own=<dB>] again=<dB>|-> [againq=<dB> agains=<kHz>]
+ *            [mirror=<share> moved=<dB>|-> [least=<dB> movedq=<dB>]]]
  * rf is the power in the channel, referred to the aerial socket (the gain taken off), on
- * a scale of its own; top says that the channel holds more than both its neighbours. A
- * channel that does is demodulated, and the 19 kHz pilot every stereo station sends is
- * measured against the noise above the programme (62 to 73 kHz): pilot is the middle of
- * the readings, low the least of them, offset how far the carrier lies from the
- * channel's centre. again is the pilot once more with the gain about 6 dB lower: a
- * station keeps its pilot, a signal the tuner manufactured does not.
+ * a scale of its own; top says that the channel is listened to. Without -e that is a
+ * channel that stands out: it holds at least what lies 100 kHz either side of it (one
+ * channel either side on a raster finer than that), measured where a station keeps
+ * most of its power, within 25 kHz of its carrier. A weak station does not show in the
+ * power at all, only in its pilot, and is then found where chance makes its channel
+ * stand out of the noise. With -e (every channel) all are listened to but those that
+ * are one of a neighbour's, which holds 15 dB more: a survey half as long again, that
+ * finds the weak stations every time. A channel named with -n is listened to either
+ * way (the stations a list holds already), and so are the channels within 100 kHz of
+ * a faint pilot, which may be heard from the channel next to the station's own. A
+ * channel that is top is demodulated, taken in
+ * 85 kHz either side of its centre, and the 19 kHz pilot every stereo station sends is
+ * measured against the noise above the programme (62 to 73 kHz): pilot is the middle
+ * of the readings, low the least of them, offset how far the carrier lies from the
+ * channel's centre. narrow is a faint pilot (under 25 dB) read once more with the
+ * channel taken in 55 kHz either side: a weak station reads better so, the spill of a
+ * strong station 200 kHz away, which carries that station's pilot, reads worse. own is
+ * how far the power at the channel's centre stands above the higher of the two places
+ * 50 kHz either side of it (each 25 kHz wide): a station's power peaks at its carrier,
+ * by 1 to 5 dB for a weak one, while a channel that only hears the station on the
+ * channel next to it has no peak of its own (0.5 dB at most). It is what tells two
+ * weak stations 100 kHz apart from one station heard on two channels. again
+ * is the pilot once more with the gain about 6 dB lower: a station keeps its pilot, a
+ * signal the tuner manufactured does not, and neither does a reading of noise that
+ * happened to look like one.
+ *
+ * A station that sends no pilot (mono) is measured too, by its carrier. quiet is how far
+ * a pilot of the usual strength (6.75 kHz of swing) would stand above the noise the
+ * station shows: on the scale of pilot, and within a decibel of it for the stereo
+ * stations it was tried on, but there whether a pilot is sent or not. It says little
+ * below about 25 dB: a channel with no carrier in it reads 17 to 23. swing is how far
+ * the programme swings the carrier (kHz, rms, of what lies below some 10 kHz of the
+ * demodulated signal, where the programme is and little of the noise) and wide the
+ * share of the time the carrier is more than 95 kHz from its place: a broadcast swings
+ * 10 to 40 kHz and never that far, a bare carrier does not swing, noise and a signal
+ * the tuner made by doubling a station's frequency go twice as far. againq and movedq
+ * are quiet at the second looks, agains the swing at the look with the gain lower: a
+ * station that was silent at the first look may not be at the second.
+ *
+ * The noise is read between 62 and 73 kHz of the demodulated signal, where a station
+ * sends nothing. Some do: a subsidiary carrier at 67 kHz, common in the Americas, sits
+ * exactly there, and such a station read 18 dB at any strength. Where that band holds
+ * ten times what 76 to 83 kHz holds (referred to the same frequency: noise rises with
+ * the square of it), the noise is read from the higher band instead.
  *
  * A tuner that mixes the band straight down to zero (an E4000) delivers every signal a
  * second time, weaker and turned over, as far on the other side of the frequency it is
@@ -68,7 +108,7 @@
  * the least of the readings, as pilot and low of the first look), a copy is not. moved
  * is - when the second look could not tell either.
  *
- *   fn-rtl-gain -b <low>:<high>:<spacing> -r <file> -c <Hz> [-g <dB>] [-a <file> [-l <dB>]]
+ *   fn-rtl-gain -b <low>:<high>:<spacing> [-e] [-n <Hz> ...] -r <file> -c <Hz> [-g <dB>] [-a <file> [-l <dB>]]
  *               [-m <file> -k <Hz>]
  *
  * does the same on one slice recorded with rtl_sdr at 2400000 samples per second and
@@ -128,8 +168,10 @@
 #define SLICE_REACH     1000000.0
 #define LISTEN_MS       800	/* at the gain found */
 #define AGAIN_MS        800	/* at the lower gain: as long as at the gain found, to be judged alike */
-/* a pilot below this (dB) is not asked for again at the lower gain */
-#define PILOT_SEEN      6.0
+/* a pilot below this (dB) is not asked for again at the lower gain: the least any setting takes for a station */
+#define PILOT_SEEN      3.0
+/* a carrier clear enough of the noise to be a station without a pilot: looked at twice as a pilot is */
+#define QUIET_SEEN      25.0
 /* a channel that may be the tuner's mirror of another: this share of it is that one turned over, */
 #define MIRROR_SEEN     0.2
 /* and that one holds this much more (dB) */
@@ -138,6 +180,28 @@
 #define MOVED_BY        450000.0
 /* a tuner's own noise around the frequency it is set to: this far either side is left out of a level */
 #define ZERO_GUARD      25000.0
+/* a station keeps most of its power within this of its carrier (two thirds to nine tenths, measured) */
+#define CORE_HALF       25000.0
+/* and reaches about this far: a channel is held against what lies there */
+#define REACH           100000.0
+/*
+ * Surveying every channel (-e), a channel is one of a neighbour's, not listened to,
+ * when the neighbour holds this much more close to the carrier (dB): nothing is
+ * received that close to a station that much stronger. Less, and it is listened to: a
+ * weak station does not show in the power at all, only in its pilot, and 200 kHz from
+ * a strong station the place between them holds that station's spill, which is more
+ * than the weak one's own.
+ */
+#define CLEARLY_MORE    15.0
+/* a channel's own peak: the power this far either side of its centre, against that as far either side of the places OWN_SIDE away */
+#define OWN_HALF        12500.0
+#define OWN_SIDE        50000.0
+/* how much more a neighbour may hold of a channel that is listened to: none, or CLEARLY_MORE with -e */
+static double may_hold_more = 0.0;
+/* the channels listened to whatever they hold (-n), Hz */
+#define MAX_NAMED       256
+static double named[MAX_NAMED];
+static int named_count = 0;
 
 #define NFFT            2048
 #define FRAMES          128
@@ -148,6 +212,10 @@ struct reading {
 	double pilot;		/* the middle of the readings, dB */
 	double low;		/* the least of them */
 	double offset;		/* of the carrier from the channel's centre, Hz */
+	double quiet;		/* a pilot of the usual strength over the noise, dB: the middle of the readings */
+	double swing;		/* how far the programme swings the carrier, kHz rms */
+	double wide;		/* the share of the time it is more than TOO_WIDE from its place, percent */
+	int upper;		/* the noise was read above a subsidiary carrier */
 	int blocks;
 };
 
@@ -155,9 +223,9 @@ static void usage(void)
 {
 	fprintf(stderr,
 		"usage: fn-rtl-gain -f <Hz> [-f <Hz> ...] [-s <samples per second>] [-p <ppm>] [-d <device>]\n"
-		"       fn-rtl-gain -b <low>:<high>:<spacing> [-p <ppm>] [-d <device>]\n"
-		"       fn-rtl-gain -b <low>:<high>:<spacing> -r <file> -c <Hz> [-g <dB>] [-a <file> [-l <dB>]]\n"
-		"                   [-m <file> -k <Hz>]\n"
+		"       fn-rtl-gain -b <low>:<high>:<spacing> [-e] [-n <Hz> ...] [-p <ppm>] [-d <device>]\n"
+		"       fn-rtl-gain -b <low>:<high>:<spacing> [-e] [-n <Hz> ...] -r <file> -c <Hz> [-g <dB>]\n"
+		"                   [-a <file> [-l <dB>]] [-m <file> -k <Hz>]\n"
 		"       fn-rtl-gain -t\n");
 }
 
@@ -331,13 +399,46 @@ static double band_power(const double *psd, double rate, double offset, double h
 
 #define TAPS_1          47	/* 2400000 -> 480000 */
 #define TAPS_2          53	/* 480000 -> 240000 */
+/*
+ * How far either side of its centre a channel is taken in, Hz: about what the receiver
+ * takes in when the station is played. Wider, and a station is heard from the channel
+ * next to its own as well as on it, and a weak one is heard less well on its own
+ * (some 2 dB of pilot at 110 kHz against this).
+ */
+#define CHANNEL_HALF    85000.0
+/*
+ * And narrower, Hz, for a second opinion on a faint pilot. A station too weak for the
+ * receiver to hold reads better through a narrower filter, which lets less noise in
+ * (1 to 7 dB at this width, on the weak stations of one band). What a strong station
+ * spills 200 kHz from its carrier carries its pilot too, but lies to one side of the
+ * channel and comes and goes with the programme: the narrower filter takes most of it
+ * away, and that pilot reads 3 to 9 dB worse.
+ */
+#define NARROW_HALF     55000.0
+/* a pilot from here on (dB) is not faint: it is given no second opinion */
+#define PLAIN_PILOT     25.0
 #define CHANNEL_RATE    240000
 #define BLOCK           (CHANNEL_RATE / 8)
-#define TONES           9
+#define TONES           14
+#define LOWER_TONES     8	/* 62 to 72.5 kHz: where the noise is read */
 #define MAX_BLOCKS      16
+/* the lower band holding this many times the upper one's noise holds a subsidiary carrier */
+#define OCCUPIED        10.0
+/* the swing of a pilot of the usual strength, Hz */
+#define PILOT_SWING     6750.0
+/* a broadcast never swings further than this from its place, Hz (75 kHz allowed, some go to 90) */
+#define TOO_WIDE        95000.0
+/*
+ * The programme is told from the noise by its place: summed over this many samples,
+ * three times over, the demodulated signal keeps what lies below some 10 kHz and loses
+ * what lies above 30 kHz, where the noise of a weak signal is (it rises with the square
+ * of the frequency). One value is kept of every so many.
+ */
+#define PROGRAMME_SPAN  8
 
 static const double TONE[TONES] = {
-	19000.0, 62000.0, 63500.0, 65000.0, 66500.0, 68000.0, 69500.0, 71000.0, 72500.0
+	19000.0, 62000.0, 63500.0, 65000.0, 66500.0, 68000.0, 69500.0, 71000.0, 72500.0,
+	76500.0, 78000.0, 79500.0, 81000.0, 82500.0
 };
 
 /* A low-pass filter: cutoff as a share of the sample rate */
@@ -363,7 +464,16 @@ static void low_pass(float *taps, int count, double cutoff)
  * Take the channel at offset Hz out of a slice sampled at SURVEY_RATE, demodulate it and
  * measure the pilot. Returns 0 when the piece is too short for one reading.
  */
-static float taps_1[TAPS_1], taps_2[TAPS_2];
+static float taps_1[TAPS_1], taps_2[TAPS_2], taps_narrow[TAPS_2];
+/* the filter a channel is taken in through: taps_2, or taps_narrow for the second opinion */
+static const float *stage_2 = taps_2;
+/*
+ * Where a look reads the noise: NOISE_FOUND by what it finds, or where the first look
+ * at the channel read it. Looks at one channel are held against each other, and are
+ * read alike.
+ */
+#define NOISE_FOUND     -1
+static int noise_from = NOISE_FOUND;
 
 static void filters(void)
 {
@@ -371,7 +481,8 @@ static void filters(void)
 
 	if (!ready) {
 		low_pass(taps_1, TAPS_1, 190000.0 / SURVEY_RATE);
-		low_pass(taps_2, TAPS_2, 110000.0 / 480000.0);
+		low_pass(taps_2, TAPS_2, CHANNEL_HALF / 480000.0);
+		low_pass(taps_narrow, TAPS_2, NARROW_HALF / 480000.0);
 		ready = 1;
 	}
 }
@@ -379,8 +490,19 @@ static void filters(void)
 static int listen(const uint8_t *iq, int pairs, double offset, struct reading *out)
 {
 	static float window[BLOCK];
-	static double coefficient[TONES];
+	static double coefficient[TONES], refer[TONES];
+	static double usual_pilot = 0.0;
 	static int ready = 0;
+	double quiets[MAX_BLOCKS];
+	double pilots[MAX_BLOCKS], lowers[MAX_BLOCKS], uppers[MAX_BLOCKS];
+	double span_1[PROGRAMME_SPAN], span_2[PROGRAMME_SPAN], span_3[PROGRAMME_SPAN];
+	double sum_1 = 0.0, sum_2 = 0.0, sum_3 = 0.0;
+	double programme = 0.0, programme_square = 0.0;
+	long programmes = 0;
+	int span_at = 0;
+	double lower_sum = 0.0, upper_sum = 0.0;
+	double too_wide = 2.0 * PI * TOO_WIDE / CHANNEL_RATE;
+	long wide = 0;
 	float ring_1r[2 * TAPS_1], ring_1i[2 * TAPS_1];
 	float ring_2r[2 * TAPS_2], ring_2i[2 * TAPS_2];
 	double s1[TONES], s2[TONES];
@@ -397,10 +519,20 @@ static int listen(const uint8_t *iq, int pairs, double offset, struct reading *o
 
 	filters();
 	if (!ready) {
-		for (k = 0; k < BLOCK; k++)
+		double sum = 0.0;
+
+		for (k = 0; k < BLOCK; k++) {
 			window[k] = (float)(0.5 - 0.5 * cos(2.0 * PI * k / (BLOCK - 1)));
-		for (t = 0; t < TONES; t++)
+			sum += window[k];
+		}
+		for (t = 0; t < TONES; t++) {
 			coefficient[t] = 2.0 * cos(2.0 * PI * TONE[t] / CHANNEL_RATE);
+			/* noise rises with the square of the frequency: every place referred to 67 kHz */
+			refer[t] = t == 0 ? 1.0 : (67000.0 / TONE[t]) * (67000.0 / TONE[t]);
+		}
+		/* what a tone of the usual pilot's swing shows in a block */
+		usual_pilot = 2.0 * PI * PILOT_SWING / CHANNEL_RATE * sum / 2.0;
+		usual_pilot *= usual_pilot;
 		ready = 1;
 	}
 	memset(ring_1r, 0, sizeof(ring_1r));
@@ -409,6 +541,8 @@ static int listen(const uint8_t *iq, int pairs, double offset, struct reading *o
 	memset(ring_2i, 0, sizeof(ring_2i));
 	for (t = 0; t < TONES; t++)
 		s1[t] = s2[t] = 0.0;
+	for (k = 0; k < PROGRAMME_SPAN; k++)
+		span_1[k] = span_2[k] = span_3[k] = 0.0;
 
 	rest_level(iq, pairs, &mean_i, &mean_q);
 	step_r = cos(-2.0 * PI * offset / SURVEY_RATE);
@@ -452,8 +586,8 @@ static int listen(const uint8_t *iq, int pairs, double offset, struct reading *o
 		/* every second of those: 240000 a second, the channel alone */
 		yr = yi = 0.0f;
 		for (k = 0; k < TAPS_2; k++) {
-			yr += taps_2[k] * ring_2r[at_2 + k];
-			yi += taps_2[k] * ring_2i[at_2 + k];
+			yr += stage_2[k] * ring_2r[at_2 + k];
+			yi += stage_2[k] * ring_2i[at_2 + k];
 		}
 
 		/* how far the signal turned since the sample before: the programme */
@@ -464,7 +598,24 @@ static int listen(const uint8_t *iq, int pairs, double offset, struct reading *o
 			last_r = yr;
 			last_i = yi;
 			turned += turn;
+			if (turn > too_wide || turn < -too_wide)
+				wide++;
 			outputs++;
+			/* the programme: three sums of the last samples, one of the other */
+			sum_1 += turn - span_1[span_at];
+			span_1[span_at] = turn;
+			sum_2 += sum_1 - span_2[span_at];
+			span_2[span_at] = sum_1;
+			sum_3 += sum_2 - span_3[span_at];
+			span_3[span_at] = sum_2;
+			if (++span_at == PROGRAMME_SPAN) {
+				double value = sum_3 / (PROGRAMME_SPAN * PROGRAMME_SPAN * PROGRAMME_SPAN);
+
+				span_at = 0;
+				programme += value;
+				programme_square += value * value;
+				programmes++;
+			}
 			for (t = 0; t < TONES; t++) {
 				double s0 = shaped + coefficient[t] * s1[t] - s2[t];
 
@@ -478,27 +629,74 @@ static int listen(const uint8_t *iq, int pairs, double offset, struct reading *o
 
 		/* an eighth of a second: the pilot against the noise above the programme */
 		{
-			double power[TONES], noise = 0.0;
+			double power[TONES], noise = 0.0, upper = 0.0;
 
 			for (t = 0; t < TONES; t++) {
 				power[t] = s1[t] * s1[t] + s2[t] * s2[t] - coefficient[t] * s1[t] * s2[t];
 				s1[t] = s2[t] = 0.0;
-				if (t > 0)
+				if (t > 0 && t <= LOWER_TONES)
 					noise += power[t];
+				else if (t > LOWER_TONES)
+					upper += power[t] * refer[t];
 			}
-			noise /= TONES - 1;
-			if (blocks < MAX_BLOCKS && noise > 0.0 && power[0] > 0.0)
-				readings[blocks++] = 10.0 * log10(power[0] / noise);
+			noise /= LOWER_TONES;
+			upper /= TONES - 1 - LOWER_TONES;
+			if (blocks < MAX_BLOCKS && noise > 0.0 && upper > 0.0 && power[0] > 0.0) {
+				pilots[blocks] = power[0];
+				lowers[blocks] = noise;
+				uppers[blocks++] = upper;
+				lower_sum += noise;
+				upper_sum += upper;
+			}
 		}
 	}
 
 	if (blocks == 0)
 		return 0;
+	/*
+	 * A subsidiary carrier where the noise is read: read it above that carrier. Such a
+	 * carrier is there all the time, so it is told from the whole look, not reading by
+	 * reading: one reading of noise can sit that far above another by chance.
+	 */
+	out->upper = noise_from == NOISE_FOUND ? lower_sum > OCCUPIED * upper_sum : noise_from;
+	for (k = 0; k < blocks; k++) {
+		double noise = out->upper ? uppers[k] : lowers[k];
+
+		quiets[k] = 10.0 * log10(usual_pilot / noise);
+		readings[k] = 10.0 * log10(pilots[k] / noise);
+	}
 	out->pilot = ranked(readings, blocks, 0.5);
 	out->low = ranked(readings, blocks, 0.0);
 	out->offset = turned / (double)outputs * CHANNEL_RATE / (2.0 * PI);
+	out->quiet = ranked(quiets, blocks, 0.5);
+	out->swing = 0.0;
+	if (programmes > 0) {
+		double mean = programme / (double)programmes;
+		double spread = programme_square / (double)programmes - mean * mean;
+
+		out->swing = sqrt(spread > 0.0 ? spread : 0.0) * CHANNEL_RATE / (2.0 * PI) / 1000.0;
+	}
+	out->wide = 100.0 * (double)wide / (double)outputs;
 	out->blocks = blocks;
 	return 1;
+}
+
+/*
+ * A further look at a channel, read as the first one was (first): through the narrower
+ * filter for the second opinion on a faint pilot, or as it was taken in before.
+ */
+static int listen_as(const struct reading *first, int narrow, const uint8_t *iq, int pairs, double offset,
+		     struct reading *out)
+{
+	int heard;
+
+	filters();
+	stage_2 = narrow ? taps_narrow : taps_2;
+	noise_from = first->upper;
+	heard = listen(iq, pairs, offset, out);
+	stage_2 = taps_2;
+	noise_from = NOISE_FOUND;
+	return heard;
 }
 
 /* ---- a channel held against the one at its mirror place ---- */
@@ -606,18 +804,47 @@ struct slice {
 	int first, last;	/* the channels reported; the ones outside are neighbours only */
 };
 
+/* The spectrum channel_levels() last made: what tops() reads */
+static double slice_psd[NFFT];
+
 /* The power on each channel of the slice, within half Hz of its centre, in dB */
 static int channel_levels(const struct slice *slice, const uint8_t *iq, int pairs,
 			  double half, double *level)
 {
-	static double psd[NFFT];
 	int c;
 
-	if (!spectrum(iq, pairs, psd))
+	if (!spectrum(iq, pairs, slice_psd))
 		return 0;
 	for (c = 0; c < slice->count; c++)
-		level[c] = band_power(psd, slice->rate, slice->channel[c] - slice->centre, half);
+		level[c] = band_power(slice_psd, slice->rate, slice->channel[c] - slice->centre, half);
 	return 1;
+}
+
+/*
+ * Which channels of the slice channel_levels() has just looked at may hold a station of
+ * their own: those that hold more, close to their centre, than the places 100 kHz
+ * either side do (or the channels next to them, on a raster finer than that). A
+ * station's power lies close to its carrier; what a stronger station spills into a
+ * channel 200 kHz away is little there and much in the place between the two.
+ */
+static void tops(const struct slice *slice, int *top)
+{
+	double step = slice->count > 1 ? slice->channel[1] - slice->channel[0] : REACH;
+	int c;
+
+	if (step > REACH)
+		step = REACH;
+	for (c = 0; c < slice->count; c++) {
+		double offset = slice->channel[c] - slice->centre;
+		double own = band_power(slice_psd, slice->rate, offset, CORE_HALF);
+
+		int n;
+
+		top[c] = own + may_hold_more >= band_power(slice_psd, slice->rate, offset - step, CORE_HALF) &&
+			 own + may_hold_more >= band_power(slice_psd, slice->rate, offset + step, CORE_HALF);
+		for (n = 0; n < named_count && !top[c]; n++)
+			top[c] = fabs(named[n] - slice->channel[c]) < 1000.0;
+	}
 }
 
 /* Whether the channel holds more than both its neighbours */
@@ -1084,12 +1311,16 @@ struct found {
 	int top;
 	int heard;		/* demodulated: reading holds the pilot */
 	struct reading reading;
-	int held;		/* measured again with the gain lower: again */
-	double again;
+	int narrowed;		/* a faint pilot, read through the narrower filter too: narrow */
+	double narrow;
+	int peaked;		/* the channel's own peak was measured: own */
+	double own;
+	int held;		/* measured again with the gain lower: again, and quiet and swing there */
+	double again, againq, agains;
 	int doubted;		/* may be the tuner's mirror of another channel */
 	double mirror;		/* the share of it that is that channel turned over */
-	int looked;		/* listened to with the tuner set elsewhere: moved, and the least reading */
-	double moved, least;
+	int looked;		/* listened to with the tuner set elsewhere: moved, the least reading, quiet */
+	double moved, least, movedq;
 };
 
 /*
@@ -1098,14 +1329,83 @@ struct found {
  * with the gain lower, or NULL when there is none. Returns 0 when there is nothing to
  * survey.
  */
+/*
+ * How far the power at a channel's centre stands above the higher of the places
+ * OWN_SIDE either side of it, dB. Returns 0 where it cannot be told: one of the three
+ * places lies on the tuner's own noise around the frequency it is set to, or outside
+ * the slice.
+ */
+static int own_peak(const struct slice *slice, double offset, double *own)
+{
+	double lower, upper;
+	int i;
+
+	for (i = -1; i <= 1; i++) {
+		double place = offset + i * OWN_SIDE;
+
+		if (fabs(place) < OWN_HALF + ZERO_GUARD || fabs(place) + OWN_HALF > slice->rate / 2.0)
+			return 0;
+	}
+	lower = band_power(slice_psd, slice->rate, offset - OWN_SIDE, OWN_HALF);
+	upper = band_power(slice_psd, slice->rate, offset + OWN_SIDE, OWN_HALF);
+	*own = band_power(slice_psd, slice->rate, offset, OWN_HALF) - (lower > upper ? lower : upper);
+	return 1;
+}
+
+/* Listen to one channel of a slice, and take the further looks what is heard there asks for */
+static void hear(const struct slice *slice, int c, const double *level, const uint8_t *iq, int pairs,
+		 const uint8_t *again, int again_pairs, struct found *f)
+{
+	double offset = slice->channel[c] - slice->centre;
+	struct reading held;
+	int m;
+
+	f->top = 1;
+	if (!listen(iq, pairs, offset, &f->reading))
+		return;
+	f->heard = 1;
+	/* nothing a station could be: no pilot, and no carrier clear of the noise */
+	if (f->reading.pilot < PILOT_SEEN && f->reading.quiet < QUIET_SEEN)
+		return;
+	if (f->reading.pilot >= PILOT_SEEN && f->reading.pilot < PLAIN_PILOT &&
+	    listen_as(&f->reading, 1, iq, pairs, offset, &held)) {
+		f->narrowed = 1;
+		f->narrow = held.pilot;
+	}
+	f->peaked = own_peak(slice, offset, &f->own);
+	if (again != NULL && listen_as(&f->reading, 0, again, again_pairs, offset, &held)) {
+		f->held = 1;
+		f->again = held.pilot;
+		f->againq = held.quiet;
+		f->agains = held.swing;
+	}
+	/* the channel at the mirror place: is this one its copy? */
+	if (fabs(offset) < slice->channel[1] - slice->channel[0])
+		return;
+	for (m = 0; m < slice->count; m++) {
+		if (fabs(slice->channel[m] - slice->centre + offset) < 1.0)
+			break;
+	}
+	if (m < slice->count && level[m] - level[c] >= MIRROR_STRONGER) {
+		double share = mirrored(iq, pairs, offset);
+
+		if (share >= MIRROR_SEEN) {
+			f->doubted = 1;
+			f->mirror = share;
+		}
+	}
+}
+
 static int examine(const struct slice *slice, const char *heading, const uint8_t *iq, int pairs,
 		   double gain, const uint8_t *again, int again_pairs, struct found *found)
 {
 	double level[MAX_CHANNELS];
-	int c;
+	int top[MAX_CHANNELS];
+	int c, d;
 
 	if (slice->first < 0 || !channel_levels(slice, iq, pairs, 75000.0, level))
 		return 0;
+	tops(slice, top);
 	for (c = 0; c < slice->count; c++)
 		level[c] -= gain;
 	printf("%s floor=%.1f\n", heading,
@@ -1113,35 +1413,23 @@ static int examine(const struct slice *slice, const char *heading, const uint8_t
 	fflush(stdout);
 
 	for (c = slice->first; c <= slice->last; c++) {
-		struct found *f = &found[c];
-		double offset = slice->channel[c] - slice->centre;
-		struct reading held;
-		int m;
-
-		memset(f, 0, sizeof(*f));
-		f->level = level[c];
-		f->top = is_top(level, slice->count, c);
-		if (!f->top || !listen(iq, pairs, offset, &f->reading))
+		memset(&found[c], 0, sizeof(found[c]));
+		found[c].level = level[c];
+		if (top[c])
+			hear(slice, c, level, iq, pairs, again, again_pairs, &found[c]);
+	}
+	/*
+	 * A faint pilot may be heard from the channel next to the station's own, which
+	 * did not stand out: the channels within reach of it are listened to as well, so
+	 * that the station is put where it shows best.
+	 */
+	for (c = slice->first; c <= slice->last; c++) {
+		if (!top[c] || !found[c].heard || found[c].reading.pilot < PILOT_SEEN ||
+		    found[c].reading.pilot >= PLAIN_PILOT)
 			continue;
-		f->heard = 1;
-		if (again != NULL && f->reading.pilot >= PILOT_SEEN && listen(again, again_pairs, offset, &held)) {
-			f->held = 1;
-			f->again = held.pilot;
-		}
-		/* the channel at the mirror place: is this one its copy? */
-		if (f->reading.pilot < PILOT_SEEN || fabs(offset) < slice->channel[1] - slice->channel[0])
-			continue;
-		for (m = 0; m < slice->count; m++) {
-			if (fabs(slice->channel[m] - slice->centre + offset) < 1.0)
-				break;
-		}
-		if (m < slice->count && level[m] - level[c] >= MIRROR_STRONGER) {
-			double share = mirrored(iq, pairs, offset);
-
-			if (share >= MIRROR_SEEN) {
-				f->doubted = 1;
-				f->mirror = share;
-			}
+		for (d = slice->first; d <= slice->last; d++) {
+			if (!found[d].top && fabs(slice->channel[d] - slice->channel[c]) < REACH + 1.0)
+				hear(slice, d, level, iq, pairs, again, again_pairs, &found[d]);
 		}
 	}
 	return 1;
@@ -1153,7 +1441,8 @@ static int examine(const struct slice *slice, const char *heading, const uint8_t
  * and the least of its readings, or 0 when the look cannot tell: the channel lies at
  * another's mirror place here too.
  */
-static int look(const uint8_t *iq, int pairs, double centre, double frequency, double *pilot, double *least)
+static int look(const uint8_t *iq, int pairs, double centre, double frequency, double *pilot, double *least,
+		double *quiet)
 {
 	static double psd[NFFT];
 	struct reading heard;
@@ -1168,6 +1457,7 @@ static int look(const uint8_t *iq, int pairs, double centre, double frequency, d
 		return 0;
 	*pilot = heard.pilot;
 	*least = heard.low;
+	*quiet = heard.quiet;
 	return 1;
 }
 
@@ -1181,15 +1471,20 @@ static void print_channels(const struct slice *slice, const struct found *found)
 
 		printf("CHANNEL: freq=%.0f rf=%.1f top=%d", slice->channel[c], f->level, f->top);
 		if (f->heard) {
-			printf(" pilot=%.1f low=%.1f offset=%.0f", f->reading.pilot, f->reading.low, f->reading.offset);
+			printf(" pilot=%.1f low=%.1f offset=%.0f quiet=%.1f swing=%.1f wide=%.2f", f->reading.pilot,
+			       f->reading.low, f->reading.offset, f->reading.quiet, f->reading.swing, f->reading.wide);
+			if (f->narrowed)
+				printf(" narrow=%.1f", f->narrow);
+			if (f->peaked)
+				printf(" own=%.1f", f->own);
 			if (f->held)
-				printf(" again=%.1f", f->again);
+				printf(" again=%.1f againq=%.1f agains=%.1f", f->again, f->againq, f->agains);
 			else
 				printf(" again=-");
 			if (f->doubted) {
 				printf(" mirror=%.2f", f->mirror);
 				if (f->looked)
-					printf(" moved=%.1f least=%.1f", f->moved, f->least);
+					printf(" moved=%.1f least=%.1f movedq=%.1f", f->moved, f->least, f->movedq);
 				else
 					printf(" moved=-");
 			}
@@ -1272,7 +1567,7 @@ static int survey(const struct band *band, int ppm, int device)
 				    (got = capture(&tuner, tuner.piece, tuner.piece_bytes)) < tuner.piece_bytes / 2)
 					break;
 				found[c].looked = look(tuner.piece, got / 2, beside, slice.channel[c],
-						       &found[c].moved, &found[c].least);
+						       &found[c].moved, &found[c].least, &found[c].movedq);
 			}
 		}
 		print_channels(&slice, found);
@@ -1345,7 +1640,7 @@ static int survey_file(const struct band *band, const char *path, const char *lo
 		for (c = slice.first; c <= slice.last; c++) {
 			if (found[c].doubted && moved != NULL && fabs(slice.channel[c] - moved_centre) < SLICE_REACH)
 				found[c].looked = look(moved, (int)(moved_size / 2), moved_centre, slice.channel[c],
-						       &found[c].moved, &found[c].least);
+						       &found[c].moved, &found[c].least, &found[c].movedq);
 		}
 		print_channels(&slice, found);
 	}
@@ -1436,7 +1731,7 @@ static int self_test(void)
 	int brief = SURVEY_RATE * COMPARE_MS / 1000;
 	uint8_t *iq = malloc((size_t)pairs * 2);
 	uint8_t *other = malloc((size_t)brief * 2);
-	double alike, misnamed, unlike, copy, apart, seen = 0.0, seen_least = 0.0;
+	double alike, misnamed, unlike, copy, apart, seen = 0.0, seen_least = 0.0, seen_quiet = 0.0;
 	int failed = 0;
 	int c, top_stereo = -1, top_plain = -1;
 
@@ -1467,6 +1762,18 @@ static int self_test(void)
 	}
 	if (!listen(iq, pairs, 150000.0, &empty) || empty.pilot > 6.0) {
 		printf("selftest: empty channel: pilot %.1f\n", empty.pilot);
+		failed = 1;
+	}
+	/*
+	 * The measures that need no pilot. The stereo station reads on them what its pilot
+	 * reads; the one without a pilot (a mono station: a programme of 40 kHz swing) is as
+	 * clear of the noise, swings as a broadcast does and never too far; the empty
+	 * channel has no carrier clear of anything and swings every way.
+	 */
+	if (fabs(stereo.quiet - stereo.pilot) > 3.0 || plain.quiet < 40.0 || plain.swing < 20.0 || plain.swing > 35.0 ||
+	    plain.wide > 0.5 || empty.quiet >= QUIET_SEEN || empty.wide < 5.0) {
+		printf("selftest: without a pilot: stereo quiet %.1f against pilot %.1f; mono quiet %.1f swing %.1f wide %.2f; empty quiet %.1f wide %.2f\n",
+		       stereo.quiet, stereo.pilot, plain.quiet, plain.swing, plain.wide, empty.quiet, empty.wide);
 		failed = 1;
 	}
 
@@ -1504,7 +1811,7 @@ static int self_test(void)
 	copy = mirrored(iq, pairs, -350000.0);
 	make_slice(iq, pairs, stations, 3, 1.0);
 	if (apart >= MIRROR_SEEN / 2.0 || copy < 2.0 * MIRROR_SEEN ||
-	    !look(iq, pairs, 100450000.0, 100600000.0, &seen, &seen_least) || seen > 6.0 || seen_least > seen) {
+	    !look(iq, pairs, 100450000.0, 100600000.0, &seen, &seen_least, &seen_quiet) || seen > 6.0 || seen_least > seen) {
 		printf("selftest: mirror: %.2f for a station of its own, %.2f for a copy, pilot %.1f dB where there is none\n",
 		       apart, copy, seen);
 		failed = 1;
@@ -1515,8 +1822,8 @@ static int self_test(void)
 	if (failed)
 		printf("selftest: failed\n");
 	else
-		printf("selftest: ok (pilot %.1f dB, none %.1f dB, alike %.1f dB, unlike %.1f dB, mirror %.2f, apart %.2f)\n",
-		       stereo.pilot, plain.pilot, alike, unlike, copy, apart);
+		printf("selftest: ok (pilot %.1f dB, none %.1f dB, alike %.1f dB, unlike %.1f dB, mirror %.2f, apart %.2f, mono %.1f dB swing %.1f kHz)\n",
+		       stereo.pilot, plain.pilot, alike, unlike, copy, apart, plain.quiet, plain.swing);
 	return failed;
 }
 
@@ -1535,7 +1842,7 @@ int main(int argc, char **argv)
 	int test = 0;
 	int option;
 
-	while ((option = getopt(argc, argv, "f:s:p:d:b:r:a:c:g:l:m:k:th")) != -1) {
+	while ((option = getopt(argc, argv, "f:s:p:d:b:r:a:c:g:l:m:k:en:th")) != -1) {
 		switch (option) {
 		case 'f':
 			if (count < MAX_FREQUENCIES)
@@ -1583,6 +1890,13 @@ int main(int argc, char **argv)
 			break;
 		case 'k':
 			moved_centre = scaled(optarg);
+			break;
+		case 'e':
+			may_hold_more = CLEARLY_MORE;
+			break;
+		case 'n':
+			if (named_count < MAX_NAMED)
+				named[named_count++] = scaled(optarg);
 			break;
 		case 't':
 			test = 1;

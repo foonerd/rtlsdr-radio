@@ -113,7 +113,7 @@ test('the summary names the dongle, the survey and the stations in words', funct
       { usb: { id: '0bda:2838', manufacturer: 'Nooelec', product: 'SMArt XTR v5', serial: '00000001', port: '1-2', speed: '480' } }),
     selftest: { ok: true, line: 'selftest: ok (pilot 52.9 dB)' },
     fm: { band: 'europe, 87.50 to 108 MHz, raster 100 kHz', sensitivity: 8, seconds: 28.12, slices: survey.slices, channels: survey.channels.length,
-      stations: stations, ghosts: [], mirrors: [{ freq: 98100000 }, { freq: 100300000 }], counts: { 8: stations.length, 5: stations.length + 1, 3: stations.length + 2 },
+      stations: stations, ghosts: [], mirrors: [{ freq: 98100000 }, { freq: 100300000 }], tuning: fmscan.tuningError(survey, { sensitivity: 8 }), counts: { 8: stations.length, 5: stations.length + 1, 3: stations.length + 2 },
       gains: [{ freq: 89100000, gain: 19, step: 9, of: 14, level: 59.7, cut: 0.05, backoff: 0 }] },
     recordingsAsked: true,
     recordings: [{ file: 'fm-88450000-42.0.iq', bytes: 4980736, why: 'the slice with the strongest station, at the highest gain' },
@@ -121,7 +121,7 @@ test('the summary names the dongle, the survey and the stations in words', funct
     problems: ['recording dab-222064000-42.0.iq: nothing was written']
   };
   var text = DongleReport.text(report);
-  assert.match(text, /^FM\/DAB Radio dongle report \(form 2\)\nMade 2026-10-05T07:00:00\.000Z by plugin 1\.4\.2 on Raspberry Pi 5 Model B Rev 1\.1, Volumio 4\.001, arm \/ arm\n/);
+  assert.match(text, /^FM\/DAB Radio dongle report \(form 3\)\nMade 2026-10-05T07:00:00\.000Z by plugin 1\.4\.2 on Raspberry Pi 5 Model B Rev 1\.1, Volumio 4\.001, arm \/ arm\n/);
   assert.match(text, /Calls itself: +Nooelec, SMArt XTR v5, SN: 00000001\n/);
   assert.match(text, /USB: +0bda:2838 \| Nooelec \| SMArt XTR v5, port 1-2, 480 Mbit\/s\n/);
   assert.match(text, /Tuner: +Elonics E4000\n/);
@@ -130,6 +130,7 @@ test('the summary names the dongle, the survey and the stations in words', funct
   assert.match(text, /Survey: +28\.1 s, \d+ slices, \d+ channels\n/);
   assert.ok(text.indexOf('Stations:             ' + stations.length + ' at +8 dB, ' + (stations.length + 1) + ' at +5 dB, ' + (stations.length + 2) + ' at +3 dB (the setting here: +8 dB)') !== -1, text);
   assert.match(text, /Tuner's mirrors: +98\.1, 100\.3 MHz \(refused\)\n/);
+  assert.match(text, /Dongle's tuning: +(on frequency|\d+ parts per million (high|low) \(\d+\.\d kHz at 100 MHz\)), by the carriers of \d+ stations\n/);
   assert.match(text, /fm-88450000-42\.0\.iq +4\.8 MB +the slice with the strongest station/);
   assert.match(text, /dab-222064000-42\.0\.iq +failed +DAB channel 11D/);
   assert.match(text, /Problems\n  recording dab-222064000-42\.0\.iq: nothing was written\n$/);
@@ -142,6 +143,14 @@ test('the summary names the dongle, the survey and the stations in words', funct
   assert.strictEqual(lines[at + 2].split(/\s+/).join(' '), ' ' + [(first.freq / 1e6).toFixed(1), first.pilot, first.low, Math.round(first.offset), first.rf].join(' '));
   assert.strictEqual(lines[at + 1 + stations.length + 1], '', 'one line for every station listed, then the table ends');
   assert.strictEqual(lines[lines.indexOf('  Slices') + 1], '    MHz      gain   level of 127  cut off %  taken down  floor');
+
+  // A station without a pilot is marked, and a survey too thin to tell the dongle's tuning says so
+  var carrier = fmscan.parse(fixture('fm-survey-carrier.txt'));
+  var withMono = Object.assign({}, report, { fm: Object.assign({}, report.fm, { stations: fmscan.stations(carrier, { sensitivity: 8 }), tuning: null }) });
+  var monoText = DongleReport.text(withMono);
+  assert.match(monoText, /\n    101\.2 +27\.6 +27\.6 +431 +-27\.3 +no pilot \(mono\): read by its carrier\n/);
+  assert.match(monoText, /\n    100\.9 +[\d.]+ +[\d.]+ +-?\d+ +-[\d.]+\n/);
+  assert.match(monoText, /Dongle's tuning: +not told: too few stations received well, or they do not agree\n/);
 
   // A survey that failed, and a report without recordings
   report.fm = { band: report.fm.band, error: 'fn-rtl-gain: the dongle delivers no samples' };

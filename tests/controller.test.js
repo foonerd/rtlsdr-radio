@@ -609,12 +609,12 @@ test('FM is brought to the level of everything else, whatever the receiver rate'
     plugin.config.set('fm_sample_rate', '240k');
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - rate vol 9\.10dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - lowpass -1 3183\.1 rate vol 9\.10dB$/);
     await plugin.stop();
     plugin.config.set('fm_sample_rate', '171k');
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -r 171k .* - rate vol 6\.16dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -r 171k .* - lowpass -1 3183\.1 rate vol 6\.16dB$/);
     await plugin.stop();
   } finally {
     plugin.config.set('fm_sample_rate', rate);
@@ -653,6 +653,42 @@ test('FM is brought to the level of everything else, whatever the receiver rate'
   await plugin.stop();
 });
 
+test('de-emphasis is the region\'s, applied to the sound and not by the receiver', async function() {
+  var region = plugin.config.get('fm_region', 'europe');
+  var manual = plugin.config.get('fm_deemphasis', false);
+  async function played() {
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(500);
+    var args = { receiver: fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8').trim(), sox: fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim() };
+    await plugin.stop();
+    return args;
+  }
+  try {
+    // Europe: 50 microseconds, one pole at 3183 Hz, before the resampler and the level
+    plugin.config.set('fm_region', 'europe');
+    var europe = await played();
+    assert.match(europe.sox, / -c 2 - lowpass -1 3183\.1 rate vol [\d.]+dB$/);
+    // the receiver is not asked for its own: it has the 75 microsecond curve only, and
+    // the RDS decoder and the reception meter want the signal as it is
+    assert.doesNotMatch(europe.receiver, /-E/);
+    // the Americas: 75 microseconds, 2122 Hz
+    plugin.config.set('fm_region', 'americas');
+    var americas = await played();
+    assert.match(americas.sox, / -c 2 - lowpass -1 2122\.1 rate vol [\d.]+dB$/);
+    assert.doesNotMatch(americas.receiver, /-E/);
+    // a region of one's own: by the switch, at 50 microseconds, or none
+    plugin.config.set('fm_region', 'custom');
+    plugin.config.set('fm_deemphasis', false);
+    assert.match((await played()).sox, / -c 2 - rate vol [\d.]+dB$/);
+    plugin.config.set('fm_deemphasis', true);
+    assert.match((await played()).sox, / -c 2 - lowpass -1 3183\.1 rate vol [\d.]+dB$/);
+  } finally {
+    plugin.config.set('fm_region', region);
+    plugin.config.set('fm_deemphasis', manual);
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
 test('the level of FM and of DAB can be taken down, and the log says whether the sound fitted', async function() {
   // What the settings page sends is kept only when it is a level: 0 down to -12 dB
   assert.strictEqual(plugin.levelFromForm({ value: 0, label: '0 dB' }), 0);
@@ -681,7 +717,7 @@ test('the level of FM and of DAB can be taken down, and the log says whether the
     process.env.FAKE_SOX_CLIPPED = '22000';
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - rate vol 3\.10dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - lowpass -1 3183\.1 rate vol 3\.10dB$/);
     await plugin.stop();
     await sleep(200);
     delete process.env.FAKE_SOX_CLIPPED;
@@ -703,7 +739,7 @@ test('the level of FM and of DAB can be taken down, and the log says whether the
     logs.length = 0;
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - rate vol 9\.10dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - lowpass -1 3183\.1 rate vol 9\.10dB$/);
     await plugin.stop();
     await sleep(200);
     assert.ok(soundLine(/Sound of FM 94\.9 MHz, level 0 dB: stayed below full scale/), logs.join('\n'));
@@ -744,7 +780,9 @@ test('FM scan: the band is surveyed as a job of its own, and the stations it sho
   var found = await plugin.scanFm();
   assert.deepStrictEqual(running(), []);
   assert.strictEqual(plugin.deviceState, 'idle');
-  assert.strictEqual(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8').trim(), '-b 87.50M:108M:100k');
+  // a fast scan unless set otherwise, and the stations the list holds are listened to whatever they show
+  assert.strictEqual(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8').trim(),
+    '-b 87.50M:108M:100k -n 100000000 -n 98300000 -n 99300000 -n 87250000');
   assert.strictEqual(found.length, 23);
 
   var fm = plugin.stationsDb.fm;
@@ -794,6 +832,162 @@ test('FM scan: signals made in an overloaded tuner are left out, and named in th
   }
   assert.ok(logs.some(function(m) { return /the signal at 88\.30 MHz is made in the tuner, not a station/.test(m); }));
   plugin.stationsDb.fm = [];
+});
+
+test('FM scan: a dongle that tunes off is found out, and the receiver is set on the carrier from then on', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  plugin.stationsDb.fm = [];
+  logs.length = 0;
+  assert.strictEqual(plugin.fmCorrection(), 0);
+  // every carrier 5.3 kHz below its channel, as a dongle 54 parts per million high gives
+  // them, on top of the 1 the surveying dongle was itself off by
+  process.env.FAKE_SURVEY = 'fm-survey-off.txt';
+  try {
+    await plugin.scanFm();
+    assert.strictEqual(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8').trim(), '-b 87.50M:108M:100k');
+    assert.strictEqual(plugin.fmCorrection(), 55);
+    assert.ok(logs.some(function(m) { return /by the carriers of \d+ stations the dongle tunes 55 parts per million high \(5\.5 kHz at 100 MHz\)/.test(m); }), logs.join('\n'));
+    assert.ok(logs.some(function(m) { return /FM tuning correction set to 55 parts per million for this dongle/.test(m); }));
+
+    // played: the gain is measured and the station received with the correction
+    await plugin.clearAddPlayTrack(fmTrack('98.8'));
+    await sleep(300);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), /^-f 98800000 -s 1368000 -p 55$/m);
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 98\.8M .* -F 9 -p 55$/m);
+    await plugin.stop();
+
+    // scanned again, now with the correction, and the carriers within a few hundred
+    // hertz of their channels: it holds
+    process.env.FAKE_SURVEY = 'fm-survey-carrier.txt';
+    await plugin.scanFm();
+    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8').trim(), /^-b 87\.50M:108M:100k( -n \d+){30} -p 55$/);
+    assert.strictEqual(plugin.fmCorrection(), 55);
+
+    // another dongle in its place: the correction was the other one's
+    var name = plugin.dongleName;
+    plugin.dongleName = function() { return '0bda:2838:Nooelec:NESDR SMArt v5:1'; };
+    try {
+      assert.strictEqual(plugin.fmCorrection(), 0);
+      assert.deepStrictEqual(plugin.fmCorrectionArgs(), []);
+      // its own scan: carriers on their channels, nothing to correct, and that is kept for it
+      await plugin.scanFm();
+      assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8').trim(), /^-b 87\.50M:108M:100k( -n \d+)+$/);
+      assert.strictEqual(plugin.config.get('fm_ppm_found'), 0);
+      assert.strictEqual(plugin.config.get('fm_ppm_dongle'), '0bda:2838:Nooelec:NESDR SMArt v5:1');
+    } finally {
+      plugin.dongleName = name;
+    }
+    // the first dongle back: not corrected until a scan has seen it again
+    assert.strictEqual(plugin.fmCorrection(), 0);
+  } finally {
+    delete process.env.FAKE_SURVEY;
+    plugin.config.set('fm_ppm_found', 0);
+    plugin.config.set('fm_ppm_dongle', '');
+    plugin.stationsDb.fm = before;
+    plugin.saveStations();
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
+test('FM scan: a station without a pilot is listed, and one the list holds stays on a little less', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  // 99.3 MHz holds nothing in this survey
+  plugin.stationsDb.fm = [{ frequency: '99.3', name: 'FM 99.3', playCount: 0 }];
+  var sensitivity = plugin.config.get('scan_sensitivity', 8);
+  logs.length = 0;
+  process.env.FAKE_SURVEY = 'fm-survey-carrier.txt';
+  try {
+    var found = await plugin.scanFm();
+    assert.strictEqual(found.length, 30);
+    var mono = plugin.stationsDb.fm.find(function(s) { return String(s.frequency) === '101.2'; });
+    assert.deepStrictEqual([mono.quality, mono.level, mono.mono], [27.6, 3, true]);
+    // the others send a pilot, and the list says so
+    assert.strictEqual(plugin.stationsDb.fm.filter(function(s) { return s.mono; }).length, 1);
+    assert.strictEqual(plugin.stationsDb.fm.find(function(s) { return String(s.frequency) === '100.9'; }).mono, false);
+    assert.ok(logs.some(function(m) { return /Found station: 101\.2 MHz \(no pilot: mono, carrier 27\.6 dB clear of the noise, level 3\/5/.test(m); }), logs.join('\n'));
+    assert.ok(!plugin.stationsDb.fm.some(function(s) { return String(s.frequency) === '99.3'; }));
+
+    // a bar of 18 dB: 93.8 MHz, with its pilot of 16.7 dB, is no new station at that, but
+    // the list holds it
+    plugin.config.set('scan_sensitivity', 18);
+    logs.length = 0;
+    var again = await plugin.scanFm();
+    var kept = logs.filter(function(m) { return /kept as one the list holds/.test(m); });
+    assert.strictEqual(kept.length, 1, logs.join('\n'));
+    assert.match(kept[0], /Found station: 93\.8 MHz \(pilot 16\.7 dB/);
+    plugin.stationsDb.fm = [];
+    var fresh = await plugin.scanFm();
+    assert.strictEqual(again.length - fresh.length, kept.length);
+  } finally {
+    delete process.env.FAKE_SURVEY;
+    plugin.config.set('scan_sensitivity', sensitivity);
+    plugin.config.set('fm_ppm_found', 0);
+    plugin.config.set('fm_ppm_dongle', '');
+    plugin.stationsDb.fm = before;
+    plugin.saveStations();
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
+test('FM scan: fast or detailed, by the setting or by the choice made in the Station Manager', async function() {
+  var before = JSON.parse(JSON.stringify(plugin.stationsDb.fm));
+  var depth = plugin.config.get('fm_scan_depth', 'fast');
+  function surveyed() {
+    return fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8').trim();
+  }
+  async function scanOver() {
+    for (var i = 0; i < 100; i++) {
+      await sleep(100);
+      var status = JSON.parse((await get('/api/status')).text);
+      if (status.deviceState === 'idle' && status.scan === null) {
+        return status;
+      }
+    }
+    throw new Error('the scan did not end');
+  }
+  try {
+    plugin.stationsDb.fm = [{ frequency: '98.3', name: 'FM 98.3', customName: 'Mine' }, { frequency: '101.0', name: 'FM 101.0', deleted: true }];
+    // fast: the channels that stand out, and the one station the list holds (not the deleted one)
+    plugin.config.set('fm_scan_depth', 'fast');
+    assert.strictEqual(JSON.parse((await get('/api/status')).text).fmScanDepth, 'fast');
+    await plugin.scanFm();
+    assert.strictEqual(surveyed(), '-b 87.50M:108M:100k -n 98300000');
+    assert.ok(logs.some(function(m) { return /Starting FM scan \(fast\)/.test(m); }));
+
+    // detailed, chosen in the Manager's dialog: every channel, and it is the setting from then on
+    plugin.stationsDb.fm = [{ frequency: '98.3', name: 'FM 98.3', customName: 'Mine' }];
+    assert.strictEqual((await post('/api/stations/scan-fm', { depth: 'detailed' })).status, 200);
+    var status = await scanOver();
+    assert.strictEqual(surveyed(), '-b 87.50M:108M:100k -e -n 98300000');
+    assert.strictEqual(status.fmScanDepth, 'detailed');
+    assert.strictEqual(plugin.config.get('fm_scan_depth'), 'detailed');
+    assert.ok(logs.some(function(m) { return /Starting FM scan \(detailed\)/.test(m); }));
+
+    // asked for without a choice, or with one that is none: as set
+    plugin.stationsDb.fm = [];
+    await post('/api/stations/scan-fm', { depth: 'thorough' });
+    await scanOver();
+    assert.strictEqual(surveyed(), '-b 87.50M:108M:100k -e');
+    plugin.stationsDb.fm = [];
+    await post('/api/stations/scan-fm', {});
+    await scanOver();
+    assert.strictEqual(surveyed(), '-b 87.50M:108M:100k -e');
+
+    // from the settings page, as the page sends it
+    await plugin.saveFmSettings({ fm_scan_depth: { value: 'fast', label: 'Fast' } });
+    assert.strictEqual(plugin.fmScanDepth(), 'fast');
+    await plugin.saveFmSettings({ fm_scan_depth: { value: 'everything', label: '?' } });
+    assert.strictEqual(plugin.fmScanDepth(), 'fast');
+    // and the dongle report surveys as a scan would, and says which
+    assert.strictEqual(plugin.receptionSettings()['FM scan'], 'fast');
+  } finally {
+    plugin.config.set('fm_scan_depth', depth);
+    plugin.config.set('fm_ppm_found', 0);
+    plugin.config.set('fm_ppm_dongle', '');
+    plugin.stationsDb.fm = before;
+    plugin.saveStations();
+  }
+  assert.deepStrictEqual(running(), []);
 });
 
 test('FM scan: a tool that cannot read the dongle is a failed scan, and the station list is left alone', async function() {
@@ -1515,7 +1709,7 @@ test('dongle report: made step by step, and handed out as one file', async funct
   var packed = fs.readFileSync(REPORT_DIR + '/' + view.zip.name, 'utf8').split('\n');
   assert.strictEqual(packed.filter(function(name) { return /\.iq$/.test(name); }).length, view.summary.recordings);
   var report = fs.readJsonSync(REPORT_DIR + '/files/report.json');
-  assert.strictEqual(report.form, 2);
+  assert.strictEqual(report.form, 3);
   // The gain for the strongest stations was measured as for playing: on the receiver's slice
   assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl-gain', 'utf8'), / -s \d+$/m);
   assert.deepStrictEqual(report.fm.mirrors, []);

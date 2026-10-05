@@ -125,7 +125,7 @@ function ControllerRtlsdrRadio(context) {
     dir: self.REPORT_DIR,
     logger: self.logger,
     acquire: function() { return self.acquireForTool('dongle report', { keepOpen: true }); },
-    band: function() { return self.fmSurveyBand(); },
+    band: function() { return Object.assign(self.fmSurveyBand(), { args: self.fmSurveyArgs() }); },
     sensitivity: function() { return self.config.get('scan_sensitivity', 8); },
     slice: function() { return self.receiverSlice(); },
     settings: function() { return self.receptionSettings(); },
@@ -172,10 +172,13 @@ function ControllerRtlsdrRadio(context) {
   self.FM_SCAN_TIMEOUT = 30000;      // FM scan timeout (30s)
   self.FM_DEVIATION = 75000;         // Hz: the deviation of a fully modulated FM broadcast
   self.FM_PEAK_DB = -1;              // where that deviation is put, in dB of full scale
+  self.FM_PPM_LEAST = 5;             // parts per million: a dongle off by less (0.5 kHz) is not corrected
+  self.FM_PPM_STEP = 3;              // a kept correction is changed when a scan finds it off by this or more
+  self.FM_PPM_MOST = 200;            // beyond any crystal: such a finding is not used
   self.LEVEL_LOWEST = -12;           // how far the user can take FM or DAB down, in dB
   self.CLIPPED_FEW = 100;            // samples a minute at full scale below which nothing is heard of it
   self.DONGLE_STEADY_RATE = 2800000; // samples a second a dongle delivers without losing any
-  self.FM_SURVEY_TIMEOUT = 180000;   // The FM band survey: seconds on a fast board, a minute or two on the slowest
+  self.FM_SURVEY_TIMEOUT = 600000;   // The FM band survey: under a minute on a fast board, minutes on the slowest
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
   self.DAB_DETECTION_TIMEOUT = 30000; // DAB ensemble detection timeout
   self.DAB_NOT_RECEIVED = 22;        // fn-dab's exit code when it finds no ensemble it can read
@@ -1503,6 +1506,10 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
     self.expressApp.post('/api/stations/scan-fm', function(req, res) {
       try {
         self.logger.info('[RTL-SDR Radio] FM scan triggered via web interface');
+        // the kind of scan chosen in the dialog is the setting from then on
+        if (req.body && (req.body.depth === 'fast' || req.body.depth === 'detailed')) {
+          self.config.set('fm_scan_depth', req.body.depth);
+        }
         self.scanFm();
         res.json({ success: true, message: 'FM scan started' });
       } catch (e) {
@@ -1603,6 +1610,7 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
           dbLoadedAt: self.dbLoadedAt,
           dbVersion: self.stationsDb.version || 0,
           serverPort: self.MANAGEMENT_PORT,
+          fmScanDepth: self.fmScanDepth(),
           signal: signalInfo,
           scan: self.scanProgress ? {
             type: self.scanProgress.type,
@@ -2910,6 +2918,14 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
       };
     }
     
+    var fmScanDepth = findContentItem(fmSection, 'fm_scan_depth');
+    if (fmScanDepth) {
+      fmScanDepth.value = {
+        value: self.fmScanDepth(),
+        label: self.getI18nString(self.fmScanDepth() === 'detailed' ? 'FM_SCAN_DETAILED' : 'FM_SCAN_FAST')
+      };
+    }
+    
     var fmOversampling = findContentItem(fmSection, 'fm_oversampling');
     if (fmOversampling) {
       fmOversampling.value = self.config.get('fm_oversampling', false);
@@ -3353,6 +3369,14 @@ ControllerRtlsdrRadio.prototype.saveFmSettings = function(data) {
       var sensitivity = parseInt(sensitivityValue);
       if (!isNaN(sensitivity)) {
         self.config.set('scan_sensitivity', sensitivity);
+      }
+    }
+    
+    // Save the kind of FM scan
+    if (data.fm_scan_depth !== undefined) {
+      var depth = data.fm_scan_depth && data.fm_scan_depth.value !== undefined ? data.fm_scan_depth.value : data.fm_scan_depth;
+      if (depth === 'fast' || depth === 'detailed') {
+        self.config.set('fm_scan_depth', depth);
       }
     }
     
@@ -5121,6 +5145,8 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // -A std: Standard audio
   // -F 9: FIR filter size
   var rtlArgs = ['-f', freq + 'M', '-M', 'fm', '-s', fmSampleRate, '-l', '0', '-A', 'std', '-g', String(gain), '-F', '9'];
+  // on the station's carrier, where the dongle is known to tune off
+  rtlArgs = rtlArgs.concat(self.fmCorrectionArgs());
   
   // Add oversampling if enabled (helps with strong signals, may reduce RDS quality).
   // It asks the dongle for sixteen times the receiver rate: 2.7 million samples a
@@ -5132,17 +5158,15 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
     self.logger.info('[RTL-SDR Radio] FM oversampling is not used at ' + fmSampleRate + ': the dongle cannot sample that fast');
   }
   
-  // Apply de-emphasis based on region settings
-  // In custom mode, use manual toggle; otherwise use region's de-emphasis
-  var applyDeemphasis = (regionKey === 'custom') ? fmDeemphasis : (regionSettings.deemphasis_us > 0);
-  var deemphasisUs = (regionKey === 'custom') ? (fmDeemphasis ? 50 : 0) : regionSettings.deemphasis_us;
-  
-  if (applyDeemphasis) {
-    // Note: rtl_fm -E deemp provides 50us de-emphasis (Europe/Asia/Australia standard)
-    // Americas uses 75us but rtl_fm only supports 50us natively
-    // For Americas, we apply 50us which is close enough for most listening
-    rtlArgs.push('-E', 'deemp');
-    self.logger.info('[RTL-SDR Radio] De-emphasis enabled (' + deemphasisUs + 'us, region: ' + regionKey + ')');
+  // De-emphasis: a broadcast is sent with its treble raised, by a curve named after a
+  // time constant (50 us in most of the world, 75 us in the Americas), and a receiver
+  // takes it down again by the same curve. The region says which; in custom mode the
+  // manual switch says whether, at 50 us. It is applied to the sound (sox, below), not
+  // by the receiver: fn-rtl_fm's own (-E deemp) knows the 75 us curve only, and would
+  // take it out of what the RDS decoder and the reception meter are given as well.
+  var deemphasisUs = (regionKey === 'custom') ? (fmDeemphasis ? 50 : 0) : (Number(regionSettings.deemphasis_us) || 0);
+  if (deemphasisUs > 0) {
+    self.logger.info('[RTL-SDR Radio] De-emphasis: ' + deemphasisUs + ' us (region: ' + regionKey + ')');
   }
   
   self.logger.info('[RTL-SDR Radio] Starting FM with RDS: fn-rtl_fm ' + rtlArgs.join(' '));
@@ -5159,16 +5183,28 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
     { stdio: ['pipe', 'pipe', 'pipe'] });
   self.redseaProcess = redseaProcess;
   
-  // sox for resampling: FM sample rate mono -> output rate stereo, and for the level
+  // sox for de-emphasis, for resampling (FM sample rate mono -> output rate stereo) and
+  // for the level, in that order
   var soxArgs = ['-t', 'raw', '-r', fmSampleRate, '-e', 'signed', '-b', '16', '-c', '1', '-',
                  '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-e', 'signed', '-b', '16', '-c', '2', '-'];
+  // De-emphasis is one pole at 1 / (2 pi x the time constant): 3183 Hz for 50 us, 2122 Hz
+  // for 75 us. At the receiver's rate, before the resampler, sox's filter follows the
+  // curve within 0.1 dB up to 15 kHz; at the output rate it would be 1.4 dB off there.
+  var levelGain = self.fmLevelGain(fmSampleRate);
+  var fmLevel = self.levelSetting('fm_level');
+  var levelled = levelGain !== null || fmLevel !== 0;
+  if (deemphasisUs > 0) {
+    soxArgs.push('lowpass', '-1', (1e6 / (2 * Math.PI * deemphasisUs)).toFixed(1));
+  }
   // The level is applied to the sound at the output rate, after sox's resampler: what
   // the receiver delivers above the audio band (the stereo pilot and subcarriers, the
   // noise of a weak station) would otherwise count against full scale and be cut off.
-  var levelGain = self.fmLevelGain(fmSampleRate);
-  var fmLevel = self.levelSetting('fm_level');
-  if (levelGain !== null || fmLevel !== 0) {
-    soxArgs.push('rate', 'vol', ((levelGain || 0) + fmLevel).toFixed(2) + 'dB');
+  // (An effect named makes sox put its resampler last unless it is named too.)
+  if (deemphasisUs > 0 || levelled) {
+    soxArgs.push('rate');
+  }
+  if (levelled) {
+    soxArgs.push('vol', ((levelGain || 0) + fmLevel).toFixed(2) + 'dB');
   }
   var soxStarted = Date.now();
   var soxProcess = job.run('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] }, function(entry) {
@@ -5188,9 +5224,11 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // The reception is measured on the same signal, once a second
   var meter = null;
   var meterRate = FmQuality.parseRate(fmSampleRate);
+  var listed = self.getStationByUri('rtlsdr://fm/' + freqStr);
   if (meterRate) {
     meter = new FmQuality(meterRate, {
-      deemphasis: applyDeemphasis,
+      // a station the scan listed as sending no pilot is read by its carrier from the start
+      mono: !!(listed && listed.station && listed.station.mono),
       onReading: function(db) {
         if (self.tuner.current === job && !job.stopping) {
           self.considerFmLevel(db, freqStr, stationName);
@@ -6953,6 +6991,7 @@ ControllerRtlsdrRadio.prototype.measureGain = function(job, frequencies, rate) {
     var args = [];
     frequencies.forEach(function(hz) { args.push('-f', String(hz)); });
     args.push('-s', String(rate));
+    args = args.concat(self.fmCorrectionArgs());
     
     // The tool ends before the receiver starts: the job outlives it
     var keepOpen = job.keepOpen;
@@ -7076,10 +7115,12 @@ ControllerRtlsdrRadio.prototype.receptionSettings = function() {
   return {
     'FM gain': self.config.get('fm_gain_auto', true) ? 'automatic' : 'set to ' + self.config.get('fm_gain', 50),
     'FM scan sensitivity': '+' + self.config.get('scan_sensitivity', 8) + ' dB',
+    'FM scan': self.fmScanDepth(),
     'FM scan offset': self.getRegionSettings().scan_offset_khz + ' kHz',
     'FM sample rate': self.config.get('fm_sample_rate', '171k'),
     'FM oversampling': self.config.get('fm_oversampling', false) ? 'on' : 'off',
     'FM level': self.levelSetting('fm_level') + ' dB',
+    'FM tuning correction': self.fmCorrection() + ' ppm (found by the last scan; the report measures without it)',
     'DAB gain': self.config.get('dab_gain_auto', true) ? 'automatic' : 'set to ' + self.numberSetting('dab_gain', 80),
     'DAB PPM correction': self.numberSetting('dab_ppm', 0),
     'DAB level': self.levelSetting('dab_level') + ' dB'
@@ -7217,6 +7258,87 @@ ControllerRtlsdrRadio.prototype.fmCaptureRate = function(rate, oversampling) {
   }
   var passes = Math.floor(Math.log2(Math.floor(1000000 / hz) + 1)) + 1;
   return Math.round(hz * Math.pow(2, passes));
+};
+
+// What tells one dongle from another, wherever it is plugged in: its ids and the names
+// and serial number it gives itself. "none" when no dongle is found.
+ControllerRtlsdrRadio.prototype.dongleName = function() {
+  var dongle = this.usbDongle();
+  return dongle ? [dongle.id, dongle.manufacturer, dongle.product, dongle.serial].join(':') : 'none';
+};
+
+// The correction of the dongle's tuning for FM, in parts per million. A dongle's crystal
+// is off by a fixed share of the frequency (a cheap one by 50 parts per million and
+// more: 5 kHz in the FM band), and so every station lies off its channel by that share.
+// A scan tells it from the stations' carriers (noteTuningError); it is kept for the
+// dongle that scan was made with and is 0 for any other.
+ControllerRtlsdrRadio.prototype.fmCorrection = function() {
+  var ppm = Math.round(Number(this.config.get('fm_ppm_found', 0)));
+  if (!isFinite(ppm) || ppm === 0 || Math.abs(ppm) > this.FM_PPM_MOST ||
+      this.config.get('fm_ppm_dongle', '') !== this.dongleName()) {
+    return 0;
+  }
+  return ppm;
+};
+
+// The correction as fn-rtl_fm and fn-rtl-gain take it: nothing when there is none
+ControllerRtlsdrRadio.prototype.fmCorrectionArgs = function() {
+  var ppm = this.fmCorrection();
+  return ppm !== 0 ? ['-p', String(ppm)] : [];
+};
+
+// After a scan: what the carriers of its stations say of the dongle's tuning.
+// surveyedWith: the correction the survey was made with; what it finds comes on top.
+ControllerRtlsdrRadio.prototype.noteTuningError = function(survey, surveyedWith) {
+  var self = this;
+  var found = fmscan.tuningError(survey, { sensitivity: self.config.get('scan_sensitivity', 8) });
+  if (!found) {
+    return;
+  }
+  var dongle = self.dongleName();
+  var same = self.config.get('fm_ppm_dongle', '') === dongle;
+  var total = surveyedWith + found.ppm;
+  self.logger.info('[RTL-SDR Radio] FM scan: by the carriers of ' + found.stations + ' stations the dongle tunes ' +
+    (total === 0 ? 'on frequency' : Math.abs(total) + ' parts per million ' + (total > 0 ? 'high' : 'low') +
+      ' (' + (Math.abs(total) / 10).toFixed(1) + ' kHz at 100 MHz)') +
+    (surveyedWith !== 0 ? ', ' + Math.abs(found.ppm) + ' beside the correction in use' : ''));
+  if (Math.abs(total) > self.FM_PPM_MOST) {
+    return;
+  }
+  if (same && Math.abs(found.ppm) < self.FM_PPM_STEP) {
+    return;
+  }
+  var wanted = Math.abs(total) < self.FM_PPM_LEAST ? 0 : total;
+  if (same && wanted === surveyedWith) {
+    return;
+  }
+  var another = !same && !!self.config.get('fm_ppm_dongle', '');
+  self.config.set('fm_ppm_found', wanted);
+  self.config.set('fm_ppm_dongle', dongle);
+  self.logger.info('[RTL-SDR Radio] FM tuning correction ' + (wanted === 0 ? 'not needed for this dongle' :
+    'set to ' + wanted + ' parts per million for this dongle') +
+    (same ? ' (was ' + surveyedWith + ')' : another ? ' (what was kept was another dongle\'s)' : ''));
+};
+
+// How thoroughly an FM scan searches the band: 'fast' listens to the channels that stand
+// out from their neighbours and to the stations the list holds; 'detailed' listens to
+// every channel, finds the weak stations that do not stand out, and takes about half as
+// long again.
+ControllerRtlsdrRadio.prototype.fmScanDepth = function() {
+  return this.config.get('fm_scan_depth', 'fast') === 'detailed' ? 'detailed' : 'fast';
+};
+
+// What the survey tool is given beside the band: -e for a detailed scan, and the
+// frequencies of the stations the list holds (-n), which are listened to either way
+ControllerRtlsdrRadio.prototype.fmSurveyArgs = function() {
+  var args = this.fmScanDepth() === 'detailed' ? ['-e'] : [];
+  (this.stationsDb.fm || []).forEach(function(station) {
+    var hz = Math.round(parseFloat(station.frequency) * 1e6);
+    if (!station.deleted && isFinite(hz) && hz > 0 && args.length < 500) {
+      args.push('-n', String(hz));
+    }
+  });
+  return args;
 };
 
 // The samples a second the receiver reads the dongle at with the settings as they are
@@ -8492,6 +8614,7 @@ ControllerRtlsdrRadio.prototype.mergeStationData = function(existingStation, new
     merged.signal_strength = newStation.signal_strength;
     merged.quality = newStation.quality;
     merged.level = newStation.level;
+    merged.mono = !!newStation.mono;
     if (newStation.pi) {
       merged.pi = newStation.pi;
     }
@@ -8545,7 +8668,7 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
       // processes one after another, so the job ends when the scan says so
       job.keepOpen = true;
       
-      self.logger.info('[RTL-SDR Radio] Starting FM scan...');
+      self.logger.info('[RTL-SDR Radio] Starting FM scan (' + self.fmScanDepth() + ')...');
       self.commandRouter.pushToastMessage('info', self.getI18nString('FM_RADIO'), self.getI18nString('TOAST_FM_SCANNING_UI'));
       
       // fn-rtl-gain -b [lower]M:[upper]M:[spacing]k surveys the band on the region's
@@ -8556,7 +8679,8 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
       var lowerFreq = effectiveStart.toFixed(2);
       var upperFreq = regionSettings.band_end;
       var spacing = regionSettings.spacing_khz + 'k';
-      var scanArgs = ['-b', self.fmSurveyBand().range];
+      var surveyedWith = self.fmCorrection();
+      var scanArgs = ['-b', self.fmSurveyBand().range].concat(self.fmSurveyArgs(), self.fmCorrectionArgs());
       
       // The tool takes the band in slices of 2 MHz and names each as it finishes it
       var slices = Math.max(1, Math.ceil((upperFreq - effectiveStart + regionSettings.spacing_khz / 1000) / 2));
@@ -8640,6 +8764,7 @@ ControllerRtlsdrRadio.prototype.scanFm = function() {
             return looked[parseFloat(frequency).toFixed(places)] === true;
           });
           self.saveStations();
+          self.noteTuningError(survey, surveyedWith);
           
           var totalStations = self.stationsDb.fm.length;
           self.commandRouter.pushToastMessage('success', self.getI18nString('FM_RADIO'), 
@@ -8735,7 +8860,7 @@ ControllerRtlsdrRadio.prototype.listenForPi = function(job, frequency, gain) {
     try {
       // 171k: the rate the RDS decoder works best at
       receiver = job.spawn('fn-rtl_fm', ['-f', frequency + 'M', '-M', 'fm', '-s', '171k', '-l', '0', '-A', 'std',
-        '-g', String(gain), '-F', '9'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        '-g', String(gain), '-F', '9'].concat(self.fmCorrectionArgs()), { stdio: ['ignore', 'pipe', 'pipe'] });
       decoder = job.spawn('fn-redsea', ['-r', '171k'], { stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
       if (receiver) {
@@ -8823,20 +8948,32 @@ ControllerRtlsdrRadio.prototype.stationsFromSurvey = function(survey, regionSett
   var self = this;
   var sensitivity = self.config.get('scan_sensitivity', 8);
   var now = new Date().toISOString();
+  // The stations the list holds already stay on a little less than a new one must show
+  var judged = {
+    sensitivity: sensitivity,
+    known: (self.stationsDb.fm || []).filter(function(station) {
+      return !station.deleted;
+    }).map(function(station) {
+      return Math.round(parseFloat(station.frequency) * 1e6);
+    })
+  };
   
   survey.slices.forEach(function(slice) {
     self.logger.info('[RTL-SDR Radio] FM scan: slice at ' + (slice.freq / 1e6).toFixed(2) + ' MHz, gain ' + slice.gain + ' dB' +
       (slice.backoff > 0 ? ' (taken down ' + slice.backoff + ' dB: the tuner was overloaded)' : '') +
       ', level ' + slice.level + ' of 127, cut off ' + slice.cut + '%');
   });
-  fmscan.ghosts(survey, { sensitivity: sensitivity }).forEach(function(channel) {
+  fmscan.ghosts(survey, judged).forEach(function(channel) {
     self.logger.info('[RTL-SDR Radio] FM scan: the signal at ' + (channel.freq / 1e6).toFixed(2) +
-      ' MHz is made in the tuner, not a station (pilot ' + channel.pilot + ' dB, ' + channel.again + ' dB with the gain lowered)');
+      ' MHz is made in the tuner, not a station (' + (channel.mono ?
+        'no pilot, carrier ' + channel.quiet + ' dB clear of the noise, ' + channel.againq :
+        'pilot ' + channel.pilot + ' dB, ' + channel.again) + ' dB with the gain lowered)');
   });
-  fmscan.mirrors(survey, { sensitivity: sensitivity }).forEach(function(channel) {
+  fmscan.mirrors(survey, judged).forEach(function(channel) {
     self.logger.info('[RTL-SDR Radio] FM scan: the signal at ' + (channel.freq / 1e6).toFixed(2) +
-      ' MHz is the tuner\'s mirror of a stronger station, not a station (pilot ' + channel.pilot + ' dB, ' + channel.moved +
-      ' dB with the tuner set elsewhere)');
+      ' MHz is the tuner\'s mirror of a stronger station, not a station (' + (channel.mono ?
+        'no pilot, carrier ' + channel.quiet + ' dB clear of the noise, ' + channel.movedq :
+        'pilot ' + channel.pilot + ' dB, ' + channel.moved) + ' dB with the tuner set elsewhere)');
   });
   
   // Format to appropriate decimal places based on spacing and offset
@@ -8844,16 +8981,20 @@ ControllerRtlsdrRadio.prototype.stationsFromSurvey = function(survey, regionSett
   var spacingMHz = regionSettings.spacing_khz / 1000;
   var decimalPlaces = (spacingMHz < 0.1 || regionSettings.scan_offset_khz % 100 !== 0) ? 2 : 1;
   
-  return fmscan.stations(survey, { sensitivity: sensitivity }).map(function(found) {
+  return fmscan.stations(survey, judged).map(function(found) {
     var freqFormatted = (found.freq / 1e6).toFixed(decimalPlaces);
-    self.logger.info('[RTL-SDR Radio] Found station: ' + freqFormatted + ' MHz (pilot ' + found.pilot +
-      ' dB, level ' + found.level + '/5, carrier ' + Math.round(found.offset) + ' Hz off)');
+    self.logger.info('[RTL-SDR Radio] Found station: ' + freqFormatted + ' MHz (' +
+      (found.mono ? 'no pilot: mono, carrier ' + found.pilot + ' dB clear of the noise' : 'pilot ' + found.pilot + ' dB') +
+      ', level ' + (found.level === null ? 'none' : found.level + '/5') + ', carrier ' + Math.round(found.offset) + ' Hz off' +
+      (found.held ? '; less than a new station must show, kept as one the list holds' : '') + ')');
     return {
       frequency: freqFormatted,
       name: 'FM ' + freqFormatted,
       signal_strength: found.rf.toFixed(1),
       quality: found.pilot,
       level: found.level,
+      // sends no stereo pilot: its reception is read by its carrier, in a scan and when played
+      mono: !!found.mono,
       last_seen: now
     };
   });

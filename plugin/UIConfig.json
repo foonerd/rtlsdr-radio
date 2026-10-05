@@ -289,7 +289,8 @@
           "fm_oversampling",
           "fm_sample_rate",
           "fm_level",
-          "scan_sensitivity"
+          "scan_sensitivity",
+          "fm_scan_depth"
         ]
       },
       "content": [
@@ -353,6 +354,30 @@
             }
           ],
           "doc": "TRANSLATE.SCAN_SENSITIVITY_DOC",
+          "visibleIf": {
+            "field": "fm_enabled",
+            "value": true
+          }
+        },
+        {
+          "id": "fm_scan_depth",
+          "element": "select",
+          "label": "TRANSLATE.FM_SCAN_DEPTH",
+          "value": {
+            "value": "fast",
+            "label": ""
+          },
+          "options": [
+            {
+              "value": "fast",
+              "label": "TRANSLATE.FM_SCAN_FAST"
+            },
+            {
+              "value": "detailed",
+              "label": "TRANSLATE.FM_SCAN_DETAILED"
+            }
+          ],
+          "doc": "TRANSLATE.FM_SCAN_DEPTH_DOC",
           "visibleIf": {
             "field": "fm_enabled",
             "value": true

@@ -43,6 +43,10 @@
     "type": "number",
     "value": 8
   },
+  "fm_scan_depth": {
+    "type": "string",
+    "value": "fast"
+  },
   "show_fm_region": {
     "type": "boolean",
     "value": false

@@ -5097,10 +5097,13 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // sox for resampling: FM sample rate mono -> output rate stereo, and for the level
   var soxArgs = ['-t', 'raw', '-r', fmSampleRate, '-e', 'signed', '-b', '16', '-c', '1', '-',
                  '-t', 'raw', '-r', String(self.OUTPUT_SAMPLE_RATE), '-e', 'signed', '-b', '16', '-c', '2', '-'];
+  // The level is applied to the sound at the output rate, after sox's resampler: what
+  // the receiver delivers above the audio band (the stereo pilot and subcarriers, the
+  // noise of a weak station) would otherwise count against full scale and be cut off.
   var levelGain = self.fmLevelGain(fmSampleRate);
   var fmLevel = self.levelSetting('fm_level');
   if (levelGain !== null || fmLevel !== 0) {
-    soxArgs.push('vol', ((levelGain || 0) + fmLevel).toFixed(2) + 'dB');
+    soxArgs.push('rate', 'vol', ((levelGain || 0) + fmLevel).toFixed(2) + 'dB');
   }
   var soxProcess = job.run('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] }, function(entry) {
     self.logClipping('FM ' + freqStr + ' MHz', fmLevel, entry);

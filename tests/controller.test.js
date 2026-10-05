@@ -553,7 +553,9 @@ test('a DAB service that is not found ends the playback with a message', async f
 });
 
 test('FM is brought to the level of everything else, whatever the receiver rate', async function() {
-  // A fully modulated station at 1 dB below full scale: 75 kHz of 240k is -10.1 dB, of 171k -7.2 dB
+  // A fully modulated station at 1 dB below full scale: 75 kHz of 240k is -10.1 dB, of 171k -7.2 dB.
+  // The level comes after sox's resampler ("rate" named before it): applied before, it would
+  // cut off what the receiver delivers above the audio band.
   assert.strictEqual(plugin.fmLevelGain('240k').toFixed(2), '9.10');
   assert.strictEqual(plugin.fmLevelGain('171k').toFixed(2), '6.16');
   assert.strictEqual(plugin.fmLevelGain(200000).toFixed(2), '7.52');
@@ -565,12 +567,12 @@ test('FM is brought to the level of everything else, whatever the receiver rate'
     plugin.config.set('fm_sample_rate', '240k');
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - vol 9\.10dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - rate vol 9\.10dB$/);
     await plugin.stop();
     plugin.config.set('fm_sample_rate', '171k');
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -r 171k .* vol 6\.16dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -r 171k .* - rate vol 6\.16dB$/);
     await plugin.stop();
   } finally {
     plugin.config.set('fm_sample_rate', rate);
@@ -637,7 +639,7 @@ test('the level of FM and of DAB can be taken down, and the log says whether the
     process.env.FAKE_SOX_CLIPPED = '22000';
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - vol 3\.10dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - rate vol 3\.10dB$/);
     await plugin.stop();
     await sleep(200);
     delete process.env.FAKE_SOX_CLIPPED;
@@ -649,7 +651,7 @@ test('the level of FM and of DAB can be taken down, and the log says whether the
     logs.length = 0;
     await plugin.clearAddPlayTrack(fmTrack('94.9'));
     await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - vol 9\.10dB$/);
+    assert.match(fs.readFileSync('/tmp/fake-args-sox', 'utf8').trim(), / -c 2 - rate vol 9\.10dB$/);
     await plugin.stop();
     await sleep(200);
     assert.ok(soundLine(/Sound of FM 94\.9 MHz, level 0 dB: stayed below full scale/), logs.join('\n'));

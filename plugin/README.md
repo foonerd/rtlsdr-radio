@@ -5,7 +5,7 @@ Receive FM and DAB/DAB+ radio in Volumio 4 with an RTL-SDR USB dongle. Stations 
 ## What you need
 
 - Volumio 4 (Bookworm) on a Raspberry Pi, another ARM board or an x86-64 computer
-- An RTL-SDR USB dongle (RTL2832U with an R820T, R820T2 or R828D tuner)
+- An RTL-SDR USB dongle (RTL2832U with an R820T, R820T2, R828D or E4000 tuner)
 - An antenna for FM and/or DAB Band III
 
 ## Installing

@@ -6672,7 +6672,10 @@ ControllerRtlsdrRadio.prototype.holdArtwork = function(state) {
   var meant = Object.assign({}, state);
   state.albumart = shown.url;
   self.artTimer = setTimeout(function() {
+    // The time is up by the timer's clock; the wall clock may be a millisecond behind,
+    // which must not hold the picture a second time
     self.artTimer = null;
+    self.artShown = { uri: meant.uri, url: meant.albumart, since: Date.now() };
     self.pushPlayingState(meant);
   }, left);
 };

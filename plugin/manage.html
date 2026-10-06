@@ -1380,6 +1380,23 @@
       }
     }
     
+    .recog-input {
+      padding: 8px 12px;
+      background: #1c1c1c;
+      border: 1px solid #404040;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+      width: 100%;
+      max-width: 420px;
+    }
+    
+    .recog-input:focus {
+      outline: none;
+      border-color: #54b948;
+    }
+    
     .restore-label {
       display: block;
       margin-bottom: 5px;
@@ -1975,6 +1992,40 @@
           <button class="btn btn-secondary" id="btn-update-rollback" onclick="rollbackUpdate()" style="display: none;">
             <i class="fa fa-undo"></i>
             <span id="btn-update-rollback-text">Go Back</span>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Song Recognition Section -->
+      <div class="tab-header" style="margin-top: 30px;">
+        <div class="flex-1">
+          <h2 class="maintenance-header" id="recog-title">Song Recognition</h2>
+        </div>
+      </div>
+      
+      <div class="backup-section">
+        <p style="color: #888; font-size: 13px; margin-bottom: 12px;" id="recog-doc"></p>
+        <p style="font-size: 14px; margin-bottom: 6px;" id="recog-status"></p>
+        <p style="color: #888; font-size: 13px; margin-bottom: 12px;" id="recog-detail"></p>
+        <div style="margin-bottom: 12px;">
+          <label class="restore-label" id="recog-key-label" for="recog-key">AudD API token:</label>
+          <input type="password" id="recog-key" class="recog-input" autocomplete="off" spellcheck="false">
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label class="restore-label" id="recog-when-label" for="recog-when">Ask:</label>
+          <select id="recog-when" class="restore-select">
+            <option value="missing" id="recog-when-missing"></option>
+            <option value="always" id="recog-when-always"></option>
+          </select>
+        </div>
+        <div class="tab-header tab-header-no-margin">
+          <button class="btn btn-primary" id="btn-recog-save" onclick="saveRecognition()">
+            <i class="fa fa-floppy-o"></i>
+            <span id="btn-recog-save-text">Save</span>
+          </button>
+          <button class="btn btn-secondary" id="btn-recog-clear" onclick="clearRecognition()" style="display: none;">
+            <i class="fa fa-times"></i>
+            <span id="btn-recog-clear-text">Remove token</span>
           </button>
         </div>
       </div>
@@ -2979,6 +3030,14 @@
       document.getElementById('update-channel-beta').textContent = t('UPDATE_CHANNEL_BETA');
       document.getElementById('update-channel-preview').textContent = t('UPDATE_CHANNEL_PREVIEW');
       document.getElementById('update-notes-title').textContent = t('UPDATE_NOTES');
+      document.getElementById('recog-title').textContent = t('RECOG_TITLE');
+      document.getElementById('recog-doc').textContent = t('SHOW_RECOGNITION_DOC');
+      document.getElementById('recog-key-label').textContent = t('RECOG_KEY_LABEL');
+      document.getElementById('recog-when-label').textContent = t('RECOG_WHEN_LABEL');
+      document.getElementById('recog-when-missing').textContent = t('RECOGNISE_WHEN_MISSING');
+      document.getElementById('recog-when-always').textContent = t('RECOGNISE_WHEN_ALWAYS');
+      document.getElementById('btn-recog-save-text').textContent = t('RECOG_SAVE');
+      document.getElementById('btn-recog-clear-text').textContent = t('RECOG_CLEAR');
       document.getElementById('btn-update-check-text').textContent = t('UPDATE_CHECK');
       document.getElementById('logos-section-title').textContent = t('LOGOS_TITLE');
       document.getElementById('logos-desc').textContent = t('LOGOS_DESC');
@@ -5220,6 +5279,81 @@
       }
     }
     
+    // ---- Song recognition: the same setting as on the settings page, with its state ----
+    
+    function showRecognition(view) {
+      const key = document.getElementById('recog-key');
+      key.value = '';
+      key.placeholder = view.key.set ? t('RECOG_KEY_SET', view.key.tail) : t('RECOG_KEY_PLACEHOLDER');
+      document.getElementById('recog-when').value = view.when;
+      document.getElementById('btn-recog-clear').style.display = view.key.set ? '' : 'none';
+      let status;
+      if (!view.key.set) {
+        status = t('RECOG_OFF');
+      } else if (view.keyFailed) {
+        status = t('RECOG_REFUSED');
+      } else {
+        status = t('RECOG_ON', t(view.when === 'always' ? 'RECOGNISE_WHEN_ALWAYS' : 'RECOGNISE_WHEN_MISSING'));
+      }
+      document.getElementById('recog-status').textContent = status;
+      const details = [];
+      if (view.lastSong) {
+        details.push(t('RECOG_LAST', view.lastSong.artist, view.lastSong.title, new Date(view.lastSong.at).toLocaleTimeString()));
+      } else if (view.key.set) {
+        details.push(t('RECOG_NONE_YET'));
+      }
+      if (view.asked) {
+        details.push(t('RECOG_ASKED', view.asked));
+      }
+      document.getElementById('recog-detail').textContent = details.join(' ');
+    }
+    
+    async function loadRecognition() {
+      try {
+        const response = await fetch('/api/recognition');
+        showRecognition(await response.json());
+      } catch (e) {
+        // the plugin is not answering; the next visit to the tab asks again
+      }
+    }
+    
+    async function postRecognition(body) {
+      try {
+        const response = await fetch('/api/recognition', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const view = await response.json();
+        if (!response.ok) {
+          showToast(view.error || t('TOAST_SAVE_FAILED', response.status), 'error');
+          return false;
+        }
+        showRecognition(view);
+        return true;
+      } catch (e) {
+        showToast(t('TOAST_SAVE_FAILED', e.message), 'error');
+        return false;
+      }
+    }
+    
+    async function saveRecognition() {
+      const key = document.getElementById('recog-key').value.trim();
+      const body = { when: document.getElementById('recog-when').value };
+      if (key) {
+        body.key = key;   // an empty field keeps the token that is set
+      }
+      if (await postRecognition(body)) {
+        showToast(t('RECOG_SAVED'));
+      }
+    }
+    
+    async function clearRecognition() {
+      if (await postRecognition({ key: '' })) {
+        showToast(t('RECOG_CLEARED'));
+      }
+    }
+    
     async function loadUpdate() {
       try {
         const response = await fetch('/api/update');
@@ -5440,6 +5574,7 @@
         }, { once: true });
         maintenanceTab.addEventListener('click', loadLogosStatus);
         maintenanceTab.addEventListener('click', loadUpdate);
+        maintenanceTab.addEventListener('click', loadRecognition);
         maintenanceTab.addEventListener('click', loadReport);
       }
       

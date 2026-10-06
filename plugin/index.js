@@ -12,6 +12,7 @@ var Tuner = require('./lib/tuner');
 var FmQuality = require('./lib/fmquality');
 var fmscan = require('./lib/fmscan');
 var Logos = require('./lib/logos');
+var Recogniser = require('./lib/recognise');
 var pictures = require('./lib/pictures');
 var Slides = require('./lib/slides');
 var Updater = require('./lib/update');
@@ -136,6 +137,12 @@ function ControllerRtlsdrRadio(context) {
   });
 
   // Station logos, fetched from the broadcasters when the player is online
+  // Song recognition from the sound, with a key of the user's own (lib/recognise.js)
+  self.recogniser = new Recogniser({
+    logger: self.logger,
+    onSong: function(song) { self.songRecognised(song); }
+  });
+  
   self.logos = new Logos({
     logger: self.logger,
     stations: function() { return (self.stationsDb && self.stationsDb.dab) || []; },
@@ -223,6 +230,7 @@ ControllerRtlsdrRadio.prototype.onVolumioStart = function() {
   self.config = new (require('v-conf'))();
   self.config.loadFile(configFile);
   self.carryDeemphasisOver();
+  self.recogniser.configure({ key: self.config.get('recognise_key', ''), when: self.config.get('recognise_when', 'missing') });
   
   // Load FM region data
   try {
@@ -296,6 +304,7 @@ ControllerRtlsdrRadio.prototype.onStart = function() {
 ControllerRtlsdrRadio.prototype.onStop = function() {
   var self = this;
   self.tuneWatchStop();
+  self.recogniser.stop();
   var defer = libQ.defer();
   
   // Stop all processes; the stop is complete only when they are gone
@@ -1523,6 +1532,28 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       } catch (e) {
         self.logger.error('[RTL-SDR Radio] Error starting FM scan: ' + e);
         res.status(500).json({ error: 'Failed to start FM scan' });
+      }
+    });
+    
+    // Song recognition: its state, and its setting from the Manager (the same setting
+    // as on the settings page)
+    self.expressApp.get('/api/recognition', function(req, res) {
+      res.json(self.recognitionView());
+    });
+    self.expressApp.post('/api/recognition', function(req, res) {
+      try {
+        var body = req.body || {};
+        if (body.key !== undefined && typeof body.key !== 'string') {
+          return res.status(400).json({ error: 'The key must be text' });
+        }
+        if (body.when !== undefined && body.when !== 'missing' && body.when !== 'always') {
+          return res.status(400).json({ error: 'when is missing or always' });
+        }
+        self.setRecognition({ key: body.key, when: body.when });
+        res.json(self.recognitionView());
+      } catch (e) {
+        self.logger.error('[RTL-SDR Radio] Song recognition settings: ' + e);
+        res.status(500).json({ error: String((e && e.message) || e) });
       }
     });
     
@@ -3041,6 +3072,24 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
     var dabLevelItem = findContentItem(dabSection, 'dab_level');
     if (dabLevelItem) {
       dabLevelItem.value = { value: self.levelSetting('dab_level'), label: self.levelSetting('dab_level') + ' dB' };
+    }
+  }
+  
+  // SECTION 8: SONG RECOGNITION
+  var recognitionSection = uiconf.sections[7];
+  if (recognitionSection) {
+    var showRecognition = findContentItem(recognitionSection, 'show_song_recognition');
+    if (showRecognition) {
+      showRecognition.value = self.config.get('show_song_recognition', false);
+    }
+    var recogniseKey = findContentItem(recognitionSection, 'recognise_key');
+    if (recogniseKey) {
+      recogniseKey.value = self.config.get('recognise_key', '');
+    }
+    var recogniseWhen = findContentItem(recognitionSection, 'recognise_when');
+    if (recogniseWhen) {
+      var whenValue = self.config.get('recognise_when', 'missing') === 'always' ? 'always' : 'missing';
+      recogniseWhen.value = { value: whenValue, label: self.getI18nString(whenValue === 'always' ? 'RECOGNISE_WHEN_ALWAYS' : 'RECOGNISE_WHEN_MISSING') };
     }
   }
   
@@ -5302,6 +5351,13 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // Pipe sox -> aplay
   soxProcess.stdout.pipe(aplayProcess.stdin);
   
+  // The sound goes to the song recogniser as well, which keeps the last twenty seconds
+  self.recognising = { freq: freqStr, name: stationName };
+  self.recogniser.start('rtlsdr://fm/' + freqStr);
+  soxProcess.stdout.on('data', function(chunk) {
+    self.recogniser.feed(chunk);
+  });
+  
   // The reception is measured on the same signal, once a second
   var meter = null;
   var meterRate = FmQuality.parseRate(fmSampleRate);
@@ -5956,6 +6012,14 @@ ControllerRtlsdrRadio.prototype.artworkFor = function(song, fallbackIcon, push) 
   }
   self.artworkSong = key;
 
+  // A cover the song recogniser found: shown as it is
+  if (song.artworkUrl) {
+    self.lastValidArtwork = { url: song.artworkUrl, artist: song.artist, title: song.title };
+    self.artworkTimestamp = Date.now();
+    push(song.artworkUrl);
+    return;
+  }
+
   // The text itself names the album (a soundtrack, for one): no lookup needed
   if (song.album) {
     push(pictureOf({ artist: song.artist, album: song.album }));
@@ -6005,8 +6069,12 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
       if (tag['content-type'] === 'item.title') title = tag.data;
     }
   }
+  // the song as the broadcaster tags it (RT+), which a song recognised from the sound gives way to
+  var tagged = !!(artist && title);
   if (!artist) artist = parsed.artist;
   if (!title) title = parsed.title;
+  // A song recognised from the sound stands ahead of the text, unless the text is tagged
+  var recognised = rds.recognised || null;
   
   // Throttle updates - minimum interval between pushes
   // Exception: Signal level changes bypass throttle for responsive UI, and so does the
@@ -6046,7 +6114,7 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
   // Note: sigLevel already defined above for throttle bypass
   var mono = rds.mono !== undefined ? rds.mono : !!(station && station.mono);
   var stateKey = displayName + '|' + (artist || rds.radiotext || '') + '|' + (title || rds.prog_type || '') + '|' + sigLevel +
-    (mono ? '|mono' : '');
+    (mono ? '|mono' : '') + (recognised ? '|' + recognised.artist + '|' + recognised.title : '');
   
   // Skip if state hasn't changed
   if (self.lastRdsState === stateKey) {
@@ -6111,6 +6179,12 @@ ControllerRtlsdrRadio.prototype.pushRdsState = function(freq, stationName) {
 
   var song = bestEffortArtwork && artist && title && parsed.confidence >= artworkThreshold && !artistBlocked && !titleBlocked ?
     { artist: artist, title: title, confidence: parsed.confidence } : null;
+  self.recogniser.textNamesSong(!!song);
+  if (recognised && (!song || !tagged)) {
+    artist = recognised.artist;
+    title = recognised.title;
+    song = { artist: recognised.artist, title: recognised.title, album: recognised.album, artworkUrl: recognised.artwork, confidence: 100 };
+  }
   self.artworkFor(song, fallbackIcon, pushFmState);
 };
 
@@ -6379,7 +6453,11 @@ ControllerRtlsdrRadio.prototype.handleDabDls = function(label, dlPlusData) {
     artworkArtist: artworkArtist, // For Cover Art Archive
     artworkTitle: artworkTitle,   // For Cover Art Archive
     artworkAlbum: artworkAlbum,   // From soundtrack pattern - skip Last.fm if present
-    parsedConfidence: (dlPlusData && dlPlusData.artist) ? 100 : (parsed ? parsed.confidence : 0)
+    parsedConfidence: (dlPlusData && dlPlusData.artist) ? 100 : (parsed ? parsed.confidence : 0),
+    // the song as the broadcaster tags it (DL Plus), which a song recognised from the sound gives way to
+    artworkTagged: !!(dlPlusData && dlPlusData.artist && dlPlusData.title),
+    // a song recognised from the sound outlives the text's changes
+    recognised: (self.currentDls && self.currentDls.recognised) || null
   };
   
   // Push updated state
@@ -6500,6 +6578,13 @@ ControllerRtlsdrRadio.prototype.pushDabState = function() {
 
   var song = bestEffortArtwork && dls.artworkArtist && dls.artworkTitle && dls.parsedConfidence >= artworkThreshold && !artistBlocked && !titleBlocked ?
     { artist: dls.artworkArtist, title: dls.artworkTitle, album: dls.artworkAlbum || null, confidence: dls.parsedConfidence } : null;
+  self.recogniser.textNamesSong(!!song);
+  if (dls.recognised && (!song || !dls.artworkTagged)) {
+    // a song recognised from the sound stands ahead of the text, unless the broadcaster
+    // tags a song in the text
+    dlsText = dls.recognised.artist + ' - ' + dls.recognised.title;
+    song = { artist: dls.recognised.artist, title: dls.recognised.title, album: dls.recognised.album, artworkUrl: dls.recognised.artwork, confidence: 100 };
+  }
   self.artworkFor(song, fallbackIcon, pushState);
 };
 
@@ -6663,6 +6748,8 @@ ControllerRtlsdrRadio.prototype.resume = function() {
 // by their own ids, and a job started afterwards is never reached.
 ControllerRtlsdrRadio.prototype.stopDecoder = function() {
   var self = this;
+  self.recogniser.stop();
+  self.recognising = null;
   
   self.logger.info('[RTL-SDR Radio] Stopping all processes');
   self.intentionalStop = true;
@@ -7232,6 +7319,7 @@ ControllerRtlsdrRadio.prototype.receptionSettings = function() {
     'FM de-emphasis': (self.fmDeemphasisUs() > 0 ? self.fmDeemphasisUs() + ' us' : 'none') +
       (self.fmDeemphasisChoice() === 'region' ? ' (the region\'s)' : ' (chosen)'),
     'FM tuning correction': self.fmCorrection() + ' ppm (found by the last scan; the report measures without it)',
+    'Song recognition': self.recogniser.enabled() ? 'on, ' + self.recogniser.when : 'off',
     'DAB gain': self.config.get('dab_gain_auto', true) ? 'automatic' : 'set to ' + self.numberSetting('dab_gain', 80),
     'DAB PPM correction': self.numberSetting('dab_ppm', 0),
     'DAB level': self.levelSetting('dab_level') + ' dB'
@@ -8841,6 +8929,73 @@ ControllerRtlsdrRadio.prototype.signalNow = function() {
   return null;
 };
 
+// The song recogniser has a song (or has lost it): the state shows it, where the
+// station's text names none
+ControllerRtlsdrRadio.prototype.songRecognised = function(song) {
+  var self = this;
+  if (self.deviceState === 'playing_fm' && self.recognising) {
+    if (!self.currentRds) {
+      self.currentRds = {};
+    }
+    self.currentRds.recognised = song;
+    self.lastRdsUpdate = 0;
+    self.pushRdsState(self.recognising.freq, self.recognising.name);
+  } else if (self.deviceState === 'playing_dab' && self.currentDls) {
+    self.currentDls.recognised = song;
+    self.pushDabState();
+  }
+};
+
+// The one setting of song recognition, set from the settings page or from the Station
+// Manager: the key (an empty one switches it off) and when to ask. A key entered
+// anywhere shows the section on the settings page.
+ControllerRtlsdrRadio.prototype.setRecognition = function(wanted) {
+  var self = this;
+  if (wanted.key !== undefined) {
+    var key = String(wanted.key || '').trim();
+    self.config.set('recognise_key', key);
+    if (key) {
+      self.config.set('show_song_recognition', true);
+    }
+  }
+  if (wanted.when !== undefined) {
+    self.config.set('recognise_when', wanted.when === 'always' ? 'always' : 'missing');
+  }
+  self.recogniser.configure({ key: self.config.get('recognise_key', ''), when: self.config.get('recognise_when', 'missing') });
+  self.logger.info('[RTL-SDR Radio] Song recognition: ' + (self.recogniser.enabled() ? 'on, ' + self.recogniser.when : 'off'));
+};
+
+// What the Station Manager shows of it: never the key itself, only its last four
+// characters, that page being open on the home network
+ControllerRtlsdrRadio.prototype.recognitionView = function() {
+  var key = String(this.config.get('recognise_key', '') || '');
+  var status = this.recogniser.status();
+  status.key = { set: key !== '', tail: key ? key.slice(-4) : null };
+  return status;
+};
+
+// Settings: song recognition
+ControllerRtlsdrRadio.prototype.saveRecognitionSettings = function(data) {
+  var self = this;
+  var defer = libQ.defer();
+  try {
+    if (data.show_song_recognition !== undefined) {
+      self.config.set('show_song_recognition', data.show_song_recognition);
+    }
+    self.setRecognition({
+      key: data.recognise_key,
+      when: data.recognise_when !== undefined ? (data.recognise_when.value || data.recognise_when) : undefined
+    });
+    self.commandRouter.pushToastMessage('success', 'FM/DAB Radio', self.getI18nString('SAVE_SUCCESS'));
+    defer.resolve();
+  } catch (e) {
+    self.logger.error('[RTL-SDR Radio] Failed to save song recognition settings: ' + e);
+    self.commandRouter.pushToastMessage('error', 'FM/DAB Radio', self.getI18nString('SAVE_ERROR'));
+    defer.reject(e);
+  }
+  return defer.promise;
+};
+
 // ---- The tune dialog of the Station Manager: an FM station's frequency, tried out ----
 
 // A frequency as the station list writes it, or null for what is none the receiver takes
@@ -10132,6 +10287,12 @@ ControllerRtlsdrRadio.prototype.startDabPlayback = function(job, channel, servic
       
       dabProcess.stdout.pipe(soxProcess.stdin);
       soxProcess.stdout.pipe(aplayProcess.stdin);
+      
+      // The sound goes to the song recogniser as well
+      self.recogniser.start('rtlsdr://dab/' + channel + '/' + encodeURIComponent(serviceName));
+      soxProcess.stdout.on('data', function(chunk) {
+        self.recogniser.feed(chunk);
+      });
       
       self.soxProcess = soxProcess;
       self.aplayProcess = aplayProcess;

@@ -1561,6 +1561,120 @@ test('tune dialog: a station is given the frequency, with all that is its own', 
   assert.deepStrictEqual(running(), []);
 });
 
+test('song recognition: with a key, the sound is sent and a song told twice reaches the state', async function() {
+  var rec = plugin.recogniser;
+  var sent = [];
+  var answers = [];
+  var sendWas = rec.send, wavWas = rec.toWav, nowWas = rec.now;
+  var clock = Date.now();
+  rec.send = function(wav) { sent.push(wav.length); return Promise.resolve(answers.length ? answers.shift() : { status: 'success', result: null }); };
+  rec.toWav = function(pcm) { return Promise.resolve(Buffer.from('wav')); };
+  rec.now = function() { return clock; };
+  function answer(artist, title, timecode) {
+    return { status: 'success', result: { artist: artist, title: title, album: 'Dangerous Woman', timecode: timecode,
+      apple_music: { durationInMillis: 200000, artwork: { url: 'https://art.example/{w}x{h}bb.jpg' } } } };
+  }
+  var BYTES = 48000 * 2 * 2 * 20;
+  try {
+    // off without a key: nothing is sent, and the report's settings say so
+    assert.strictEqual(rec.enabled(), false);
+    assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'off');
+    await plugin.saveRecognitionSettings({ show_song_recognition: true, recognise_key: ' abc123 ', recognise_when: { value: 'missing', label: 'x' } });
+    assert.strictEqual(plugin.config.get('recognise_key'), 'abc123');
+    assert.strictEqual(rec.enabled(), true);
+    assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'on, missing');
+    // the Manager's door: the state with the key's tail only, and the same setting written
+    var view = JSON.parse((await get('/api/recognition')).text);
+    assert.deepStrictEqual([view.enabled, view.when, view.key, view.asked, view.lastSong], [true, 'missing', { set: true, tail: 'c123' }, 0, null]);
+    assert.ok(!JSON.stringify(view).includes('abc123'));
+    view = JSON.parse((await post('/api/recognition', { when: 'always' })).text);
+    assert.deepStrictEqual([view.when, view.key.set, plugin.config.get('recognise_when')], ['always', true, 'always']);
+    assert.strictEqual((await post('/api/recognition', { when: 'sometimes' })).status, 400);
+    assert.strictEqual((await post('/api/recognition', { key: 5 })).status, 400);
+    view = JSON.parse((await post('/api/recognition', { key: '' })).text);
+    assert.deepStrictEqual([view.enabled, view.key], [false, { set: false, tail: null }]);
+    view = JSON.parse((await post('/api/recognition', { key: 'abc123', when: 'missing' })).text);
+    assert.strictEqual(view.enabled, true);
+    assert.strictEqual(plugin.config.get('show_song_recognition'), true);
+    // the settings page shows the key and the choice
+    var page = JSON.parse(fs.readFileSync(__dirname + '/../plugin/UIConfig.json', 'utf8'));
+    plugin.populateUIConfig(page);
+    var section = page.sections[7];
+    assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).value, 'abc123');
+    assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).type, 'password');
+    assert.deepStrictEqual(section.content.find(function(i) { return i.id === 'recognise_when'; }).value.value, 'missing');
+
+    // a station plays: the sound reaches the recogniser from the chain
+    states.length = 0;
+    logs.length = 0;
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(400);
+    assert.strictEqual(rec.playing, 'rtlsdr://fm/94.9');
+    rec.feed(Buffer.alloc(BYTES, 7));
+    plugin.considerFmLevel(30, '94.9', 'FM 94.9', false);
+    await sleep(100);
+    // fifteen seconds on, with the text naming no song: asked; the first answer is held back
+    clock += 16000;
+    answers.push(answer('Ariana Grande', 'One Last Time', '01:13'));
+    rec.consider();
+    await sleep(100);
+    assert.strictEqual(sent.length, 1);
+    assert.ok(!states.some(function(s) { return /Ariana/.test(s.artist); }));
+    // the second answer agrees: the state carries artist, title and the cover
+    clock += 30000;
+    answers.push(answer('Ariana Grande', 'One Last Time', '01:43'));
+    rec.consider();
+    await sleep(200);
+    var shown = states[states.length - 1];
+    assert.deepStrictEqual([shown.artist, shown.album, shown.albumart], ['Ariana Grande', 'One Last Time', 'https://art.example/600x600bb.jpg']);
+    view = JSON.parse((await get('/api/recognition')).text);
+    assert.deepStrictEqual([view.asked, view.lastSong.artist, view.lastSong.title, view.song], [2, 'Ariana Grande', 'One Last Time', { artist: 'Ariana Grande', title: 'One Last Time' }]);
+    assert.ok(logs.some(function(m) { return /Song recognised: Ariana Grande - One Last Time \(1:43 into it\)/.test(m); }), logs.join('\n'));
+    // nothing more is asked while the song runs
+    clock += 60000;
+    rec.consider();
+    await sleep(100);
+    assert.strictEqual(sent.length, 2);
+    // the station's text reads as a song now: the recogniser is told (no question while
+    // it does), but what it shows is the recognised song still, a text being easily
+    // misread (a promo, a presenter's name)
+    plugin.currentRds.radiotext = 'The biggest hits - Tom.';
+    plugin.lastRdsUpdate = 0;
+    plugin.pushRdsState('94.9', 'FM 94.9');
+    assert.strictEqual(rec.named, true);
+    shown = states[states.length - 1];
+    assert.deepStrictEqual([shown.artist, shown.album], ['Ariana Grande', 'One Last Time']);
+    // a song the broadcaster tags in the text (RT+) is the broadcaster's word: it wins
+    plugin.currentRds.radiotext_plus = { tags: [{ 'content-type': 'item.artist', data: 'Dua Lipa' }, { 'content-type': 'item.title', data: 'Levitating' }] };
+    plugin.lastRdsUpdate = 0;
+    plugin.pushRdsState('94.9', 'FM 94.9');
+    shown = states[states.length - 1];
+    assert.deepStrictEqual([shown.artist, shown.album], ['Dua Lipa', 'Levitating']);
+    delete plugin.currentRds.radiotext_plus;
+
+    // stopped: the recogniser is stopped with the chain
+    await plugin.stop();
+    assert.strictEqual(rec.playing, null);
+    assert.strictEqual(rec.timer, null);
+
+    // on DAB the text is kept anew at every change: a recognised song is carried over,
+    // and a song the broadcaster tags (DL Plus) is marked as such
+    plugin.currentDabStation = { channel: '12B', serviceName: DAB_NAME, uri: 'rtlsdr://dab/12B/' + encodeURIComponent(DAB_NAME) };
+    plugin.currentDls = { rawLabel: 'x', recognised: { artist: 'JADE', title: 'Backbone', album: null, artwork: null } };
+    plugin.handleDabDls('Rich Williams brings you the 00s', null);
+    assert.deepStrictEqual([plugin.currentDls.recognised.artist, plugin.currentDls.artworkTagged], ['JADE', false]);
+    plugin.handleDabDls('Now: Dua Lipa - Levitating', { artist: 'Dua Lipa', title: 'Levitating' });
+    assert.deepStrictEqual([plugin.currentDls.recognised.artist, plugin.currentDls.artworkTagged, plugin.currentDls.artworkArtist], ['JADE', true, 'Dua Lipa']);
+    plugin.currentDls = null;
+    plugin.currentDabStation = null;
+  } finally {
+    await plugin.stop();
+    rec.send = sendWas; rec.toWav = wavWas; rec.now = nowWas;
+    await plugin.saveRecognitionSettings({ show_song_recognition: false, recognise_key: '', recognise_when: 'missing' });
+  }
+  assert.deepStrictEqual(running(), []);
+});
+
 test('FM scan: a tool that cannot read the dongle is a failed scan, and the station list is left alone', async function() {
   plugin.stationsDb.fm = [{ frequency: '100.0', name: 'FM 100.0' }];
   toasts.length = 0;

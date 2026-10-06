@@ -67,6 +67,17 @@ Recogniser.prototype.enabled = function() {
   return this.key !== '' && !this.keyFailed;
 };
 
+// The state in words, for the log and the report
+Recogniser.prototype.said = function() {
+  if (this.key === '') {
+    return 'off: no token';
+  }
+  if (this.keyFailed) {
+    return 'off: the service refused the token';
+  }
+  return 'on, asks ' + (this.when === 'always' ? 'for every song' : 'when the station\'s text names no song');
+};
+
 Recogniser.prototype.reset = function() {
   this.playing = null;
   this.startedAt = 0;

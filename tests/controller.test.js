@@ -1578,11 +1578,13 @@ test('song recognition: with a key, the sound is sent and a song told twice reac
   try {
     // off without a key: nothing is sent, and the report's settings say so
     assert.strictEqual(rec.enabled(), false);
-    assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'off');
+    assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'off: no token');
+    logs.length = 0;
     await plugin.saveRecognitionSettings({ show_song_recognition: true, recognise_key: ' abc123 ', recognise_when: { value: 'missing', label: 'x' } });
     assert.strictEqual(plugin.config.get('recognise_key'), 'abc123');
     assert.strictEqual(rec.enabled(), true);
-    assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'on, missing');
+    assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'on, asks when the station\'s text names no song');
+    assert.ok(logs.some(function(l) { return l === '[RTL-SDR Radio] Song recognition: on, asks when the station\'s text names no song (token …c123)'; }), logs.join('\n'));
     // the Manager's door: the state with the key's tail only, and the same setting written
     var view = JSON.parse((await get('/api/recognition')).text);
     assert.deepStrictEqual([view.enabled, view.when, view.key, view.asked, view.lastSong], [true, 'missing', { set: true, tail: 'c123' }, 0, null]);

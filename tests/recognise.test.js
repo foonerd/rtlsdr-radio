@@ -186,6 +186,20 @@ test('a refused key stops recognition until another is entered; a failed request
   assert.strictEqual(sent, 2);
 });
 
+test('the state in words', async function() {
+  var r = rig({ key: '' });
+  assert.strictEqual(r.recogniser.said(), 'off: no token');
+  r.recogniser.configure({ key: 'k', when: 'missing' });
+  assert.strictEqual(r.recogniser.said(), 'on, asks when the station\'s text names no song');
+  r.recogniser.configure({ key: 'k', when: 'always' });
+  assert.strictEqual(r.recogniser.said(), 'on, asks for every song');
+  r.recogniser.start('rtlsdr://fm/100.0');
+  r.fill();
+  r.answers.push({ status: 'error', error: { error_code: 901, error_message: 'Limit' } });
+  await r.turn(16000);
+  assert.strictEqual(r.recogniser.said(), 'off: the service refused the token');
+});
+
 test('the window is the last twenty seconds, whatever the chunks', function() {
   var r = rig();
   r.recogniser.start('x');

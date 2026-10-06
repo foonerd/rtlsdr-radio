@@ -7319,7 +7319,7 @@ ControllerRtlsdrRadio.prototype.receptionSettings = function() {
     'FM de-emphasis': (self.fmDeemphasisUs() > 0 ? self.fmDeemphasisUs() + ' us' : 'none') +
       (self.fmDeemphasisChoice() === 'region' ? ' (the region\'s)' : ' (chosen)'),
     'FM tuning correction': self.fmCorrection() + ' ppm (found by the last scan; the report measures without it)',
-    'Song recognition': self.recogniser.enabled() ? 'on, ' + self.recogniser.when : 'off',
+    'Song recognition': self.recogniser.said(),
     'DAB gain': self.config.get('dab_gain_auto', true) ? 'automatic' : 'set to ' + self.numberSetting('dab_gain', 80),
     'DAB PPM correction': self.numberSetting('dab_ppm', 0),
     'DAB level': self.levelSetting('dab_level') + ' dB'
@@ -8962,7 +8962,14 @@ ControllerRtlsdrRadio.prototype.setRecognition = function(wanted) {
     self.config.set('recognise_when', wanted.when === 'always' ? 'always' : 'missing');
   }
   self.recogniser.configure({ key: self.config.get('recognise_key', ''), when: self.config.get('recognise_when', 'missing') });
-  self.logger.info('[RTL-SDR Radio] Song recognition: ' + (self.recogniser.enabled() ? 'on, ' + self.recogniser.when : 'off'));
+  self.logger.info('[RTL-SDR Radio] Song recognition: ' + self.recognitionSaid());
+};
+
+// The state in words, with the token's tail: "on, asks when the station's text names
+// no song (token …0c7c)"
+ControllerRtlsdrRadio.prototype.recognitionSaid = function() {
+  var key = String(this.config.get('recognise_key', '') || '');
+  return this.recogniser.said() + (key ? ' (token …' + key.slice(-4) + ')' : '');
 };
 
 // What the Station Manager shows of it: never the key itself, only its last four

@@ -1587,14 +1587,18 @@ test('song recognition: with a key, the sound is sent and a song told twice reac
     assert.ok(logs.some(function(l) { return l === '[RTL-SDR Radio] Song recognition: on, asks when the station\'s text names no song (token …c123)'; }), logs.join('\n'));
     // the Manager's door: the state with the key's tail only, and the same setting written
     var view = JSON.parse((await get('/api/recognition')).text);
-    assert.deepStrictEqual([view.enabled, view.on, view.when, view.key, view.asked, view.lastSong], [true, true, 'missing', { set: true, tail: 'c123' }, 0, null]);
+    assert.deepStrictEqual([view.enabled, view.on, view.when, view.key, view.asked, view.lastSong], [true, true, 'missing', { set: true, tail: 'c123', length: 6 }, 0, null]);
     assert.ok(!JSON.stringify(view).includes('abc123'));
+    // the token itself only on request, and the log says it was shown
+    logs.length = 0;
+    assert.deepStrictEqual(JSON.parse((await get('/api/recognition/key')).text), { key: 'abc123' });
+    assert.ok(logs.includes('[RTL-SDR Radio] Song recognition: the token was shown in the Station Manager'));
     view = JSON.parse((await post('/api/recognition', { when: 'always' })).text);
     assert.deepStrictEqual([view.when, view.key.set, plugin.config.get('recognise_when')], ['always', true, 'always']);
     assert.strictEqual((await post('/api/recognition', { when: 'sometimes' })).status, 400);
     assert.strictEqual((await post('/api/recognition', { key: 5 })).status, 400);
     view = JSON.parse((await post('/api/recognition', { key: '' })).text);
-    assert.deepStrictEqual([view.enabled, view.key], [false, { set: false, tail: null }]);
+    assert.deepStrictEqual([view.enabled, view.key], [false, { set: false, tail: null, length: 0 }]);
     view = JSON.parse((await post('/api/recognition', { key: 'abc123', when: 'missing' })).text);
     assert.strictEqual(view.enabled, true);
     // the switch: off keeps the token and sends nothing; on again needs no new token
@@ -1610,7 +1614,7 @@ test('song recognition: with a key, the sound is sent and a song told twice reac
     var section = page.sections[5];
     assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_on'; }).value, true);
     assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).value, 'abc123');
-    assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).type, 'password');
+    assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).type, 'text', 'in clear: the settings page offers no eye');
     assert.deepStrictEqual(section.content.find(function(i) { return i.id === 'recognise_when'; }).value.value, 'missing');
 
     // a station plays: the sound reaches the recogniser from the chain

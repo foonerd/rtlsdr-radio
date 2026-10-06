@@ -605,7 +605,7 @@
         {
           "id": "recognise_key",
           "element": "input",
-          "type": "password",
+          "type": "text",
           "label": "TRANSLATE.RECOGNISE_KEY",
           "doc": "TRANSLATE.RECOGNISE_KEY_DOC",
           "value": ""

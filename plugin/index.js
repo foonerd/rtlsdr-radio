@@ -1541,6 +1541,12 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
     self.expressApp.get('/api/recognition', function(req, res) {
       res.json(self.recognitionView());
     });
+    // The token itself, for the eye on the Manager's field: given on request only,
+    // never with the state, and the log says it was shown
+    self.expressApp.get('/api/recognition/key', function(req, res) {
+      self.logger.info('[RTL-SDR Radio] Song recognition: the token was shown in the Station Manager');
+      res.json({ key: String(self.config.get('recognise_key', '') || '') });
+    });
     self.expressApp.post('/api/recognition', function(req, res) {
       try {
         var body = req.body || {};
@@ -8994,12 +9000,12 @@ ControllerRtlsdrRadio.prototype.recognitionSaid = function() {
   return this.recogniser.said() + (key ? ' (token …' + key.slice(-4) + ')' : '');
 };
 
-// What the Station Manager shows of it: never the key itself, only its last four
-// characters, that page being open on the home network
+// What the Station Manager shows of it: the token's last four characters and its
+// length, not the token, which the eye on the field asks for separately
 ControllerRtlsdrRadio.prototype.recognitionView = function() {
   var key = String(this.config.get('recognise_key', '') || '');
   var status = this.recogniser.status();
-  status.key = { set: key !== '', tail: key ? key.slice(-4) : null };
+  status.key = { set: key !== '', tail: key ? key.slice(-4) : null, length: key.length };
   return status;
 };
 

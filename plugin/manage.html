@@ -1396,6 +1396,19 @@
       outline: none;
       border-color: #54b948;
     }
+
+    .recog-key-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 420px;
+    }
+
+    .recog-key-row .recog-input {
+      flex: 1;
+      min-width: 0;
+      max-width: none;
+    }
     
     .restore-label {
       display: block;
@@ -2015,7 +2028,10 @@
         </div>
         <div style="margin-bottom: 12px;">
           <label class="restore-label" id="recog-key-label" for="recog-key">AudD API token:</label>
-          <input type="password" id="recog-key" class="recog-input" autocomplete="off" spellcheck="false">
+          <div class="recog-key-row">
+            <input type="password" id="recog-key" class="recog-input" autocomplete="off" spellcheck="false" oninput="recognitionKeyTyped()">
+            <button type="button" class="btn btn-secondary" id="btn-recog-eye" onclick="toggleRecognitionKey()" title="Show the token"><i class="fa fa-eye"></i></button>
+          </div>
         </div>
         <div style="margin-bottom: 12px;">
           <label class="restore-label" id="recog-when-label" for="recog-when">Ask:</label>
@@ -3040,6 +3056,7 @@
       document.getElementById('recog-doc').textContent = t('RECOGNISE_ON_DOC');
       document.getElementById('recog-on-text').textContent = t('RECOG_ON_LABEL');
       document.getElementById('recog-key-label').textContent = t('RECOG_KEY_LABEL');
+      showRecognitionEye(document.getElementById('recog-key').type === 'text');
       document.getElementById('recog-when-label').textContent = t('RECOG_WHEN_LABEL');
       document.getElementById('recog-when-missing').textContent = t('RECOGNISE_WHEN_MISSING');
       document.getElementById('recog-when-always').textContent = t('RECOGNISE_WHEN_ALWAYS');
@@ -5288,10 +5305,15 @@
     
     // ---- Song recognition: the same setting as on the settings page, with its state ----
     
+    let recogKeyStandIn = false;   // the field holds dots standing for the token that is set, not the token
+
     function showRecognition(view) {
       const key = document.getElementById('recog-key');
-      key.value = '';
-      key.placeholder = view.key.set ? t('RECOG_KEY_SET', view.key.tail) : t('RECOG_KEY_PLACEHOLDER');
+      recogKeyStandIn = view.key.set;
+      key.type = 'password';
+      key.value = view.key.set ? '•'.repeat(view.key.length || 8) : '';
+      key.placeholder = t('RECOG_KEY_PLACEHOLDER');
+      showRecognitionEye(false);
       document.getElementById('recog-when').value = view.when;
       document.getElementById('recog-on').checked = view.on;
       document.getElementById('btn-recog-clear').style.display = view.key.set ? '' : 'none';
@@ -5350,8 +5372,8 @@
     async function saveRecognition() {
       const key = document.getElementById('recog-key').value.trim();
       const body = { when: document.getElementById('recog-when').value };
-      if (key) {
-        body.key = key;   // an empty field keeps the token that is set
+      if (key && !recogKeyStandIn) {
+        body.key = key;   // an empty field, or the dots standing for the token, keep the token that is set
       }
       if (await postRecognition(body)) {
         showToast(t('RECOG_SAVED'));
@@ -5371,6 +5393,41 @@
       } else {
         loadRecognition();
       }
+    }
+
+    function showRecognitionEye(open) {
+      const eye = document.getElementById('btn-recog-eye');
+      eye.querySelector('i').className = open ? 'fa fa-eye-slash' : 'fa fa-eye';
+      eye.title = t(open ? 'RECOG_HIDE_KEY' : 'RECOG_SHOW_KEY');
+    }
+
+    // The eye: the token in clear. The token that is set is fetched when the eye is
+    // first opened, and not before
+    async function toggleRecognitionKey() {
+      const key = document.getElementById('recog-key');
+      if (key.type !== 'password') {
+        key.type = 'password';
+        showRecognitionEye(false);
+        return;
+      }
+      if (recogKeyStandIn) {
+        try {
+          const response = await fetch('/api/recognition/key');
+          const got = await response.json();
+          key.value = got.key || '';
+          recogKeyStandIn = false;
+        } catch (e) {
+          showToast(e.message, 'error');
+          return;
+        }
+      }
+      key.type = 'text';
+      showRecognitionEye(true);
+    }
+
+    // Typed over: the field holds what the user wrote, not the dots
+    function recognitionKeyTyped() {
+      recogKeyStandIn = false;
     }
     
     async function loadUpdate() {

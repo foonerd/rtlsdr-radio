@@ -567,3 +567,24 @@ test('what a scan would say of each channel, for the tune dialog', function() {
   assert.strictEqual(stations.length, fmscan.judged(survey, { sensitivity: 8 }).stations.length);
 });
 
+test('a channel beside a stronger one that was refused does not stand in its place', function() {
+  // tests/fixtures/fm-survey-beside.txt: a cheap blue stick's fast survey of the band, the
+  // stations of the player's list named to it. 93.8 MHz is a weak station 300 kHz above a
+  // strong one; on this survey its narrower reading fell and it is refused as spill.
+  var survey = fmscan.parse(fixture('fm-survey-beside.txt'));
+  var known = [89.6, 91.0, 93.5, 94.9, 95.8, 96.7, 96.9, 97.3, 98.3, 98.8, 100.0, 100.6, 101.4, 102.2, 102.8, 103.6, 104.9, 105.4,
+    105.8, 106.2, 106.8, 107.1, 107.3].map(function(m) { return Math.round(m * 1e6); });
+  var said = {};
+  fmscan.said(survey, { sensitivity: 3, known: known }).forEach(function(channel) {
+    said[(channel.freq / 1e6).toFixed(1)] = channel.says;
+  });
+  assert.strictEqual(said['93.8'], 'spill');
+  // the channels either side of it, weaker, are its skirt: not stations in its place
+  assert.strictEqual(said['93.9'], 'beside');
+  assert.strictEqual(said['93.7'], 'spill');
+  assert.ok(!mhz(fmscan.stations(survey, { sensitivity: 3, known: known })).some(function(m) { return m === '93.7' || m === '93.9'; }));
+  // the rest of the band is as before
+  assert.deepStrictEqual(mhz(fmscan.stations(survey, { sensitivity: 8, known: known })),
+    mhz(fmscan.stations(survey, { sensitivity: 8, known: known })).filter(function(m) { return m !== '93.9'; }));
+});
+

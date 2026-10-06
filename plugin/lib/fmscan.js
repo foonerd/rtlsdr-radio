@@ -278,9 +278,18 @@ function judged(survey, options) {
   var needed = threshold(options && options.sensitivity);
   var known = knownIn(options);
   var list = [];
+  // Channels that carry a strong signal the scan refuses as no station of theirs (made
+  // in the tuner, the tuner's mirror; below, what a stronger station spills): what
+  // stands beside one of them and shows the signal less well is its skirt and no station
+  // of its own. Nothing else shadows: a weak station is what is on the air, and is
+  // listed; what is not wanted is the user's to delete.
+  var shadow = [];
   survey.channels.forEach(function(channel) {
     var found = verdict(channel, needed, known(channel));
     if (found.refused) {
+      if (!found.mono && (found.refused === 'made in the tuner' || found.refused === 'mirror') && channel.pilot !== null) {
+        shadow.push({ freq: channel.freq, shows: channel.narrow !== null ? channel.narrow : 100 + channel.pilot });
+      }
       return;
     }
     var held = known(channel) && !!verdict(channel, needed, false).refused;
@@ -323,14 +332,29 @@ function judged(survey, options) {
   // reading that is as good by chance.
   // (A pilot that is not faint has no reading through the narrower filter, and comes
   // before every faint one: the two readings are not on one scale.)
+  // Nor is a channel taken that lies too close to a stronger signal that was refused
+  // (spilt by a stronger station, made in the tuner, the tuner's mirror): the channels
+  // either side of such a signal would otherwise stand in its place.
   function shows(station) {
     return (station.narrow !== null ? station.narrow : 100 + station.pilot) + (known(station) ? HELD_BY : 0);
   }
+  spill.forEach(function(station) {
+    shadow.push({ freq: station.freq, shows: station.narrow !== null ? station.narrow : 100 + station.pilot });
+  });
   var taken = [];
   var beside = [];
   list.slice().sort(function(a, b) { return shows(b) - shows(a) || a.freq - b.freq; }).forEach(function(station) {
-    var close = taken.some(function(other) { return Math.abs(other.freq - station.freq) <= TOO_CLOSE + 1; });
-    (close && !station.ownCarrier ? beside : taken).push(station);
+    var close = taken.some(function(other) { return Math.abs(other.freq - station.freq) <= TOO_CLOSE + 1; }) ||
+      (!station.mono && shadow.some(function(other) { return Math.abs(other.freq - station.freq) <= TOO_CLOSE + 1 && other.shows > shows(station); }));
+    if (close && !station.ownCarrier) {
+      beside.push(station);
+      // and what it shadows in turn, it keeps from standing in its place
+      if (!station.mono) {
+        shadow.push({ freq: station.freq, shows: shows(station) });
+      }
+    } else {
+      taken.push(station);
+    }
   });
   function rising(a, b) { return a.freq - b.freq; }
   function plain(station) {

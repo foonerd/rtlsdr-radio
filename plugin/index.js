@@ -9210,6 +9210,77 @@ ControllerRtlsdrRadio.prototype.tuneEndNow = function() {
   });
 };
 
+// The player keeps its playlists and its favourites as files of entries, each with a
+// service and an address: the entries that are the station at the one frequency are
+// given the other, as the queue's items are
+ControllerRtlsdrRadio.prototype.tuneListsFollow = function(from, to) {
+  var self = this;
+  var folders = [];
+  try {
+    var manager = self.commandRouter.playListManager;
+    [manager.playlistFolder, manager.favouritesPlaylistFolder].forEach(function(folder) {
+      if (typeof folder === 'string' && folder) {
+        folders.push(folder);
+      }
+    });
+  } catch (e) {
+    // the player's own places are used
+  }
+  if (folders.length === 0) {
+    folders = ['/data/playlist/', '/data/favourites/'];
+  }
+  var followed = [];
+  folders.forEach(function(folder) {
+    var names;
+    try {
+      names = fs.readdirSync(folder);
+    } catch (e) {
+      return;
+    }
+    names.forEach(function(name) {
+      var file = folder.replace(/\/?$/, '/') + name;
+      var list;
+      try {
+        if (!fs.statSync(file).isFile()) {
+          return;
+        }
+        list = fs.readJsonSync(file);
+      } catch (e) {
+        return;   // not a list of entries: not the player's, or not readable
+      }
+      if (!Array.isArray(list)) {
+        return;
+      }
+      var changed = 0;
+      list.forEach(function(entry) {
+        if (entry && entry.service === 'rtlsdr_radio' && entry.uri === 'rtlsdr://fm/' + from) {
+          entry.uri = 'rtlsdr://fm/' + to;
+          if (entry.title === 'FM ' + from) {
+            entry.title = 'FM ' + to;
+          }
+          if (entry.artist === from + ' MHz') {
+            entry.artist = to + ' MHz';
+          }
+          changed++;
+        }
+      });
+      if (changed === 0) {
+        return;
+      }
+      try {
+        fs.writeJsonSync(file + '.tmp', list);
+        fs.renameSync(file + '.tmp', file);
+        followed.push(name + ' (' + changed + ')');
+      } catch (e) {
+        self.logger.info('[RTL-SDR Radio] Tune: the player\'s list ' + name + ' could not be written: ' + e);
+      }
+    });
+  });
+  if (followed.length > 0) {
+    self.logger.info('[RTL-SDR Radio] Tune: in the player\'s playlists and favourites ' + from + ' MHz is now ' + to + ' MHz: ' + followed.join(', '));
+  }
+};
+
 // The player's queue knows a station by its frequency: its items for the one go to the other
 ControllerRtlsdrRadio.prototype.tuneQueueFollows = function(from, to) {
   try {
@@ -9262,6 +9333,7 @@ ControllerRtlsdrRadio.prototype.tuneKeep = function(from, to, keep) {
       return { status: 500, error: 'The station list could not be saved' };
     }
     self.tuneQueueFollows(from, to);
+    self.tuneListsFollow(from, to);
     self.logger.info('[RTL-SDR Radio] Tune: ' + from + ' MHz deleted: ' + to + ' MHz holds the station already');
     return { success: true, station: live, removed: from, deleted: true };
   }
@@ -9287,6 +9359,7 @@ ControllerRtlsdrRadio.prototype.tuneKeep = function(from, to, keep) {
   }
   self.logos.retuned({ frequency: from }, { frequency: to });
   self.tuneQueueFollows(from, to);
+  self.tuneListsFollow(from, to);
   
   self.logger.info('[RTL-SDR Radio] Tune: the station at ' + from + ' MHz is now at ' + to + ' MHz' +
     (live ? '; the entry that was there is taken out of the list' : ''));

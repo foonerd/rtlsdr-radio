@@ -684,24 +684,27 @@ test('de-emphasis is the region\'s unless one is chosen, applied to the sound an
     // a region of one's own: 50 microseconds
     plugin.config.set('fm_region', 'custom');
     assert.match((await played()).sox, EU);
-
-    // a country that differs from its region: East Asia's band with 75 microseconds
+    // East Asia: South Korea and Taiwan broadcast with 75 microseconds
     plugin.config.set('fm_region', 'east_asia');
+    assert.match((await played()).sox, US);
+
+    // a country that differs from its region: Australia's band and raster with 75 microseconds
+    plugin.config.set('fm_region', 'australia');
     assert.match((await played()).sox, EU);
     logs.length = 0;
-    await plugin.saveFmRegion({ fm_region: { value: 'east_asia' }, fm_deemphasis_choice: { value: '75', label: 'x' } });
+    await plugin.saveFmRegion({ fm_region: { value: 'australia' }, fm_deemphasis_choice: { value: '75', label: 'x' } });
     assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), '75');
     assert.match((await played()).sox, US);
-    assert.ok(logs.some(function(m) { return /De-emphasis: 75 us \(chosen; region: east_asia\)/.test(m); }), logs.join('\n'));
+    assert.ok(logs.some(function(m) { return /De-emphasis: 75 us \(chosen; region: australia\)/.test(m); }), logs.join('\n'));
     assert.match(plugin.receptionSettings()['FM de-emphasis'], /^75 us \(chosen\)$/);
     // none at all
-    await plugin.saveFmRegion({ fm_region: 'east_asia', fm_deemphasis_choice: 'off' });
+    await plugin.saveFmRegion({ fm_region: 'australia', fm_deemphasis_choice: 'off' });
     assert.match((await played()).sox, NONE);
     // what is no choice is not kept
-    await plugin.saveFmRegion({ fm_region: 'east_asia', fm_deemphasis_choice: { value: '60' } });
+    await plugin.saveFmRegion({ fm_region: 'australia', fm_deemphasis_choice: { value: '60' } });
     assert.strictEqual(plugin.config.get('fm_deemphasis_choice'), 'off');
     // and back to the region's
-    await plugin.saveFmRegion({ fm_region: 'east_asia', fm_deemphasis_choice: { value: 'region' } });
+    await plugin.saveFmRegion({ fm_region: 'australia', fm_deemphasis_choice: { value: 'region' } });
     assert.match((await played()).sox, EU);
     assert.match(plugin.receptionSettings()['FM de-emphasis'], /^50 us \(the region's\)$/);
 
@@ -1475,6 +1478,19 @@ test('tune dialog: a station is given the frequency, with all that is its own', 
   function list() {
     return plugin.stationsDb.fm.map(function(s) { return s.frequency + (s.deleted ? ' deleted' : ''); });
   }
+  // The player's playlists and favourites hold the station by its frequency
+  fs.ensureDirSync('/data/playlist');
+  fs.ensureDirSync('/data/favourites');
+  fs.writeJsonSync('/data/playlist/Radio', [
+    { service: 'rtlsdr_radio', uri: 'rtlsdr://fm/101.3', title: 'Mystery', artist: '101.3 MHz', album: 'FM Radio', albumart: '/albumart?sourceicon=x' },
+    { service: 'webradio', uri: 'http://example/stream', title: 'A stream' },
+    { service: 'rtlsdr_radio', uri: 'rtlsdr://fm/100.9', title: 'Classic', artist: '100.9 MHz' }
+  ]);
+  fs.writeJsonSync('/data/favourites/favourites', [{ service: 'rtlsdr_radio', uri: 'rtlsdr://fm/101.3', title: 'FM 101.3' }]);
+  fs.writeFileSync('/data/favourites/notes.txt', 'not a list');
+  function held(file) {
+    return fs.readJsonSync(file).map(function(entry) { return entry.uri + '|' + (entry.title || '') + '|' + (entry.artist || ''); });
+  }
   try {
     await post('/api/tune/survey', { frequency: '101.3' });
 
@@ -1504,6 +1520,11 @@ test('tune dialog: a station is given the frequency, with all that is its own', 
     assert.deepStrictEqual(player.uris(), ['rtlsdr://fm/101.2', 'music/a.flac']);
     assert.strictEqual(player.queue[0].artist, '101.2 MHz');
     assert.deepStrictEqual(player.did, ['queue pushed', 'queue saved']);
+    // so do the player's playlists and favourites, the other entries untouched
+    assert.deepStrictEqual(held('/data/playlist/Radio'), ['rtlsdr://fm/101.2|Mystery|101.2 MHz', 'http://example/stream|A stream|', 'rtlsdr://fm/100.9|Classic|100.9 MHz']);
+    assert.deepStrictEqual(held('/data/favourites/favourites'), ['rtlsdr://fm/101.2|FM 101.2|']);
+    assert.strictEqual(fs.readFileSync('/data/favourites/notes.txt', 'utf8'), 'not a list');
+    assert.ok(logs.some(function(m) { return /Tune: in the player's playlists and favourites 101\.3 MHz is now 101\.2 MHz: Radio \(1\), favourites \(1\)/.test(m); }), logs.join('\n'));
 
     // onto a frequency another station holds, this one kept: the other leaves the list
     answer = await post('/api/tune/keep', { from: '101.2', to: '101.4', keep: 'this' });
@@ -1519,6 +1540,7 @@ test('tune dialog: a station is given the frequency, with all that is its own', 
     assert.deepStrictEqual([answer.status, kept.removed, kept.deleted, kept.station.customName], [200, '101.4', true, 'Classic']);
     assert.deepStrictEqual(list(), ['100.9', '101.4 deleted', '98.5']);
     assert.deepStrictEqual(player.uris(), ['rtlsdr://fm/100.9', 'music/a.flac']);
+    assert.deepStrictEqual(held('/data/playlist/Radio').slice(0, 1), ['rtlsdr://fm/100.9|Mystery|100.9 MHz']);
 
     // the same frequency again changes nothing; one that is no station's, or deleted, is refused
     answer = await post('/api/tune/keep', { from: '98.5', to: '98.5' });
@@ -1533,6 +1555,8 @@ test('tune dialog: a station is given the frequency, with all that is its own', 
     plugin.logos.index.logos = {};
     plugin.stationsDb.fm = before;
     plugin.saveStations();
+    fs.removeSync('/data/playlist');
+    fs.removeSync('/data/favourites');
   }
   assert.deepStrictEqual(running(), []);
 });

@@ -80,6 +80,26 @@ function sleep(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
 }
 
+// The stand-ins named, once they run: a chain takes a moment to start, and longer on
+// a loaded machine, so it is waited for rather than slept past
+async function untilRunning(names, ms) {
+  var until = Date.now() + (ms || 5000);
+  while (Date.now() < until) {
+    if (JSON.stringify(running()) === JSON.stringify(names)) { return; }
+    await sleep(50);
+  }
+  assert.deepStrictEqual(running(), names);
+}
+
+// As many states pushed as named, within a moment
+async function untilStates(n, ms) {
+  var until = Date.now() + (ms || 5000);
+  while (states.length < n && Date.now() < until) {
+    await sleep(20);
+  }
+  assert.ok(states.length >= n, 'states pushed: ' + states.length + ', not ' + n);
+}
+
 // The names of the running stand-ins
 function running() {
   var names = ['fn-rtl_fm', 'fn-redsea', 'fn-dab', 'fn-dab-scanner', 'fn-rtl_power', 'fn-rtl-gain', 'fn-rtl_test', 'fn-rtl_sdr', 'sox', 'aplay'];
@@ -189,8 +209,7 @@ test('the plugin starts with an empty station list', async function() {
 test('FM: the four processes of the chain run, and the player is told', async function() {
   states.length = 0;
   await plugin.clearAddPlayTrack(fmTrack('94.9'));
-  await sleep(300);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  await untilRunning(['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
   assert.strictEqual(plugin.deviceState, 'playing_fm');
   assert.strictEqual(plugin.tuner.busy(), 'playing_fm');
   assert.ok(states.some(function(s) { return s.status === 'play' && s.uri === 'rtlsdr://fm/94.9'; }));
@@ -319,21 +338,18 @@ test('FM: a station asked for while another\'s gain is being measured takes its 
   plugin.stationsDb.fm = [];
   process.env.FAKE_GAIN_SECONDS = '2';
   var first = Promise.resolve(plugin.clearAddPlayTrack(fmTrack('91.0'))).catch(function() {});
-  await sleep(500);
-  assert.deepStrictEqual(running(), ['fn-rtl-gain']);
+  await untilRunning(['fn-rtl-gain']);
   delete process.env.FAKE_GAIN_SECONDS;
   await plugin.clearAddPlayTrack(fmTrack('102.5'));
   await first;
-  await sleep(300);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  await untilRunning(['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
   assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 102\.5M /);
   plugin.stationsDb.fm = [];
 });
 
 test('DAB straight after FM: the FM chain is gone before the DAB decoder starts', async function() {
   await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
-  await sleep(500);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  await untilRunning(['aplay', 'fn-dab', 'sox']);
   assert.strictEqual(plugin.deviceState, 'playing_dab');
 });
 
@@ -377,8 +393,7 @@ test('three stations asked for at once: the last one plays, alone', async functi
   var b = plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
   var c = plugin.clearAddPlayTrack(fmTrack('97.3'));
   await Promise.all([a, b, c].map(function(p) { return Promise.resolve(p).catch(function() {}); }));
-  await sleep(500);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  await untilRunning(['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
   assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 97\.3M /);
   assert.strictEqual(plugin.deviceState, 'playing_fm');
 });
@@ -398,8 +413,7 @@ test('stop, then play at once: the new station is not caught by the stop', async
   var played = plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
   await stopped;
   await played;
-  await sleep(500);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  await untilRunning(['aplay', 'fn-dab', 'sox']);
 });
 
 test('a decoder that dies is reported, and the player is not left showing "playing"', async function() {
@@ -421,8 +435,7 @@ test('a decoder that dies is reported, and the player is not left showing "playi
 
 test('pause stops the station through Volumio, so that the player shows it as stopped', async function() {
   await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
-  await sleep(500);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  await untilRunning(['aplay', 'fn-dab', 'sox']);
   coreStops = 0;
   coreStopSaw = null;
   await plugin.pause();
@@ -435,8 +448,7 @@ test('pause stops the station through Volumio, so that the player shows it as st
 
   // Paused, it plays again
   await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
-  await sleep(500);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  await untilRunning(['aplay', 'fn-dab', 'sox']);
   await plugin.stop();
 });
 
@@ -477,8 +489,7 @@ test('a dongle that delivers nothing: every wait ends, the player shows stopped,
     toasts.length = 0;
     process.env.FAKE_GAIN_SECONDS = '2';
     var starting = Promise.resolve(plugin.clearAddPlayTrack(fmTrack('97.3'))).catch(function() {});
-    await sleep(300);
-    assert.deepStrictEqual(running(), ['fn-rtl-gain']);
+    await untilRunning(['fn-rtl-gain']);
     await plugin.stop();
     delete process.env.FAKE_GAIN_SECONDS;
     await starting;
@@ -528,12 +539,10 @@ test('a dongle that delivers nothing: every wait ends, the player shows stopped,
   // And a dongle that works is not disturbed by any of it
   toasts.length = 0;
   await plugin.clearAddPlayTrack(fmTrack('97.3'));
-  await sleep(600);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  await untilRunning(['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
   await plugin.stop();
   await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
-  await sleep(600);
-  assert.deepStrictEqual(running(), ['aplay', 'fn-dab', 'sox']);
+  await untilRunning(['aplay', 'fn-dab', 'sox']);
   await plugin.stop();
   assert.strictEqual(toasts.length, 0, JSON.stringify(toasts));
 });
@@ -1329,8 +1338,7 @@ test('tune dialog: a frequency is listened to as an item of the queue, and the p
 
     var answer = await post('/api/tune/listen', { frequency: '101.3' });
     assert.strictEqual(answer.status, 200, answer.text);
-    await sleep(400);
-    assert.deepStrictEqual(running(), ['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+    await untilRunning(['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
     assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), /^-f 101\.3M /);
     assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/101.3']);
     assert.deepStrictEqual([player.position, player.status], [2, 'play']);
@@ -1988,9 +1996,10 @@ test('artwork: a lookup that fails is not taken for an answer, and is made again
 });
 
 test('artwork cool-off: a picture stays its time before another takes its place; the text is never held back', async function() {
+  states.length = 0;
   await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));
   // Past the station's own second push of its starting state, half a second in
-  await sleep(800);
+  await untilStates(2);
   // The states of this test are pushed by hand: the station's own look at its text,
   // which would push states of its own in between, is stopped
   clearInterval(plugin.dlsMonitorInterval);
@@ -2479,8 +2488,7 @@ test('dongle report: without recordings, with no dongle, cancelled, and pushed a
   // Cancelled in the middle of the survey: the tool is stopped and the dongle let go
   process.env.FAKE_GAIN_SECONDS = '5';
   await post('/api/dongle-report/start', {});
-  await sleep(900);
-  assert.deepStrictEqual(running(), ['fn-rtl-gain']);
+  await untilRunning(['fn-rtl-gain']);
   view = JSON.parse((await post('/api/dongle-report/cancel')).text);
   assert.strictEqual(view.phase, 'cancelled');
   assert.strictEqual(view.error.code, 'cancelled');

@@ -1599,7 +1599,7 @@ test('song recognition: with a key, the sound is sent and a song told twice reac
     // the settings page shows the key and the choice
     var page = JSON.parse(fs.readFileSync(__dirname + '/../plugin/UIConfig.json', 'utf8'));
     plugin.populateUIConfig(page);
-    var section = page.sections[7];
+    var section = page.sections[5];
     assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).value, 'abc123');
     assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).type, 'password');
     assert.deepStrictEqual(section.content.find(function(i) { return i.id === 'recognise_when'; }).value.value, 'missing');

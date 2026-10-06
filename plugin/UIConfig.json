@@ -577,6 +577,64 @@
       ]
     },
     {
+      "id": "song_recognition",
+      "element": "section",
+      "label": "TRANSLATE.SECTION_RECOGNITION",
+      "icon": "fa-music",
+      "onSave": {
+        "type": "controller",
+        "endpoint": "music_service/rtlsdr_radio",
+        "method": "saveRecognitionSettings"
+      },
+      "saveButton": {
+        "label": "TRANSLATE.SAVE_RECOGNITION",
+        "data": [
+          "show_song_recognition",
+          "recognise_key",
+          "recognise_when"
+        ]
+      },
+      "content": [
+        {
+          "id": "show_song_recognition",
+          "element": "switch",
+          "label": "TRANSLATE.SHOW_RECOGNITION",
+          "value": false,
+          "doc": "TRANSLATE.SHOW_RECOGNITION_DOC"
+        },
+        {
+          "id": "recognise_key",
+          "element": "input",
+          "type": "password",
+          "label": "TRANSLATE.RECOGNISE_KEY",
+          "doc": "TRANSLATE.RECOGNISE_KEY_DOC",
+          "value": "",
+          "visibleIf": {
+            "field": "show_song_recognition",
+            "value": true
+          }
+        },
+        {
+          "id": "recognise_when",
+          "element": "select",
+          "label": "TRANSLATE.RECOGNISE_WHEN",
+          "doc": "TRANSLATE.RECOGNISE_WHEN_DOC",
+          "value": {
+            "value": "missing",
+            "label": "TRANSLATE.RECOGNISE_WHEN_MISSING"
+          },
+          "options": [
+            {"value": "missing", "label": "TRANSLATE.RECOGNISE_WHEN_MISSING"},
+            {"value": "always", "label": "TRANSLATE.RECOGNISE_WHEN_ALWAYS"}
+          ],
+          "visibleIf": {
+            "field": "show_song_recognition",
+            "value": true
+          }
+        }
+      ]
+    },
+    {
       "id": "artwork_settings",
       "element": "section",
       "label": "TRANSLATE.SECTION_ARTWORK",
@@ -886,64 +944,6 @@
           "description": "TRANSLATE.DIAGNOSTICS_SAVE_EXPLANATION",
           "visibleIf": {
             "field": "show_diagnostics",
-            "value": true
-          }
-        }
-      ]
-    },
-    {
-      "id": "song_recognition",
-      "element": "section",
-      "label": "TRANSLATE.SECTION_RECOGNITION",
-      "icon": "fa-music",
-      "onSave": {
-        "type": "controller",
-        "endpoint": "music_service/rtlsdr_radio",
-        "method": "saveRecognitionSettings"
-      },
-      "saveButton": {
-        "label": "TRANSLATE.SAVE_RECOGNITION",
-        "data": [
-          "show_song_recognition",
-          "recognise_key",
-          "recognise_when"
-        ]
-      },
-      "content": [
-        {
-          "id": "show_song_recognition",
-          "element": "switch",
-          "label": "TRANSLATE.SHOW_RECOGNITION",
-          "value": false,
-          "doc": "TRANSLATE.SHOW_RECOGNITION_DOC"
-        },
-        {
-          "id": "recognise_key",
-          "element": "input",
-          "type": "password",
-          "label": "TRANSLATE.RECOGNISE_KEY",
-          "doc": "TRANSLATE.RECOGNISE_KEY_DOC",
-          "value": "",
-          "visibleIf": {
-            "field": "show_song_recognition",
-            "value": true
-          }
-        },
-        {
-          "id": "recognise_when",
-          "element": "select",
-          "label": "TRANSLATE.RECOGNISE_WHEN",
-          "doc": "TRANSLATE.RECOGNISE_WHEN_DOC",
-          "value": {
-            "value": "missing",
-            "label": "TRANSLATE.RECOGNISE_WHEN_MISSING"
-          },
-          "options": [
-            {"value": "missing", "label": "TRANSLATE.RECOGNISE_WHEN_MISSING"},
-            {"value": "always", "label": "TRANSLATE.RECOGNISE_WHEN_ALWAYS"}
-          ],
-          "visibleIf": {
-            "field": "show_song_recognition",
             "value": true
           }
         }

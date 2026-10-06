@@ -3075,8 +3075,8 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
     }
   }
   
-  // SECTION 8: SONG RECOGNITION
-  var recognitionSection = uiconf.sections[7];
+  // SECTION 6: SONG RECOGNITION
+  var recognitionSection = uiconf.sections[5];
   if (recognitionSection) {
     var showRecognition = findContentItem(recognitionSection, 'show_song_recognition');
     if (showRecognition) {
@@ -3093,9 +3093,9 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
     }
   }
   
-  // SECTION 6: ARTWORK SETTINGS
+  // SECTION 7: ARTWORK SETTINGS
   // ============================
-  var artworkSection = uiconf.sections[5];
+  var artworkSection = uiconf.sections[6];
   if (artworkSection) {
     var showArtworkSettings = findContentItem(artworkSection, 'show_artwork_settings');
     if (showArtworkSettings) {
@@ -3170,9 +3170,9 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
     }
   }
   
-  // SECTION 7: DIAGNOSTICS
+  // SECTION 8: DIAGNOSTICS
   // =======================
-  var diagnosticsSection = uiconf.sections[6];
+  var diagnosticsSection = uiconf.sections[7];
   if (diagnosticsSection) {
     var showDiagnostics = findContentItem(diagnosticsSection, 'show_diagnostics');
     if (showDiagnostics) {

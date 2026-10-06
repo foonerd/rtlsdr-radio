@@ -230,8 +230,9 @@ ControllerRtlsdrRadio.prototype.onVolumioStart = function() {
   self.config = new (require('v-conf'))();
   self.config.loadFile(configFile);
   self.carryDeemphasisOver();
-  self.recogniser.configure({ key: self.config.get('recognise_key', ''), when: self.config.get('recognise_when', 'missing') });
-  
+  self.carryRecognitionOver();
+  self.recogniser.configure(self.recognitionSettings());
+
   // Load FM region data
   try {
     var regionFile = __dirname + '/region.json';
@@ -1549,7 +1550,10 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
         if (body.when !== undefined && body.when !== 'missing' && body.when !== 'always') {
           return res.status(400).json({ error: 'when is missing or always' });
         }
-        self.setRecognition({ key: body.key, when: body.when });
+        if (body.on !== undefined && typeof body.on !== 'boolean') {
+          return res.status(400).json({ error: 'on is true or false' });
+        }
+        self.setRecognition({ on: body.on, key: body.key, when: body.when });
         res.json(self.recognitionView());
       } catch (e) {
         self.logger.error('[RTL-SDR Radio] Song recognition settings: ' + e);
@@ -3078,9 +3082,9 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
   // SECTION 6: SONG RECOGNITION
   var recognitionSection = uiconf.sections[5];
   if (recognitionSection) {
-    var showRecognition = findContentItem(recognitionSection, 'show_song_recognition');
-    if (showRecognition) {
-      showRecognition.value = self.config.get('show_song_recognition', false);
+    var recogniseOn = findContentItem(recognitionSection, 'recognise_on');
+    if (recogniseOn) {
+      recogniseOn.value = self.config.get('recognise_on', true) !== false;
     }
     var recogniseKey = findContentItem(recognitionSection, 'recognise_key');
     if (recogniseKey) {
@@ -7552,6 +7556,17 @@ ControllerRtlsdrRadio.prototype.carryDeemphasisOver = function() {
   this.config.set('fm_deemphasis_choice', !custom ? 'region' : this.config.get('fm_deemphasis', false) ? '50' : 'off');
 };
 
+// 1.4.10 had a switch that only unfolded the fields on the settings page, and a token
+// set then was in use whatever it said: the switch of its own starts as on
+ControllerRtlsdrRadio.prototype.carryRecognitionOver = function() {
+  if (this.config.has('show_song_recognition')) {
+    this.config.delete('show_song_recognition');
+  }
+  if (!this.config.has('recognise_on')) {
+    this.config.set('recognise_on', true);
+  }
+};
+
 // A choice in words, for the settings page
 ControllerRtlsdrRadio.prototype.fmDeemphasisLabel = function(choice) {
   if (choice === '50') {
@@ -8947,22 +8962,29 @@ ControllerRtlsdrRadio.prototype.songRecognised = function(song) {
 };
 
 // The one setting of song recognition, set from the settings page or from the Station
-// Manager: the key (an empty one switches it off) and when to ask. A key entered
-// anywhere shows the section on the settings page.
+// Manager: on or off (off keeps the token), the token (an empty one removes it) and
+// when to ask
 ControllerRtlsdrRadio.prototype.setRecognition = function(wanted) {
   var self = this;
+  if (wanted.on !== undefined) {
+    self.config.set('recognise_on', wanted.on === true || wanted.on === 'true');
+  }
   if (wanted.key !== undefined) {
-    var key = String(wanted.key || '').trim();
-    self.config.set('recognise_key', key);
-    if (key) {
-      self.config.set('show_song_recognition', true);
-    }
+    self.config.set('recognise_key', String(wanted.key || '').trim());
   }
   if (wanted.when !== undefined) {
     self.config.set('recognise_when', wanted.when === 'always' ? 'always' : 'missing');
   }
-  self.recogniser.configure({ key: self.config.get('recognise_key', ''), when: self.config.get('recognise_when', 'missing') });
+  self.recogniser.configure(self.recognitionSettings());
   self.logger.info('[RTL-SDR Radio] Song recognition: ' + self.recognitionSaid());
+};
+
+ControllerRtlsdrRadio.prototype.recognitionSettings = function() {
+  return {
+    on: this.config.get('recognise_on', true) !== false,
+    key: this.config.get('recognise_key', ''),
+    when: this.config.get('recognise_when', 'missing')
+  };
 };
 
 // The state in words, with the token's tail: "on, asks when the station's text names
@@ -8986,10 +9008,8 @@ ControllerRtlsdrRadio.prototype.saveRecognitionSettings = function(data) {
   var self = this;
   var defer = libQ.defer();
   try {
-    if (data.show_song_recognition !== undefined) {
-      self.config.set('show_song_recognition', data.show_song_recognition);
-    }
     self.setRecognition({
+      on: data.recognise_on,
       key: data.recognise_key,
       when: data.recognise_when !== undefined ? (data.recognise_when.value || data.recognise_when) : undefined
     });

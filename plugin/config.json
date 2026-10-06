@@ -119,9 +119,9 @@
     "type": "number",
     "value": 2
   },
-  "show_song_recognition": {
+  "recognise_on": {
     "type": "boolean",
-    "value": false
+    "value": true
   },
   "recognise_key": {
     "type": "string",

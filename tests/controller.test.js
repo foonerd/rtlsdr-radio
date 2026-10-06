@@ -1580,14 +1580,14 @@ test('song recognition: with a key, the sound is sent and a song told twice reac
     assert.strictEqual(rec.enabled(), false);
     assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'off: no token');
     logs.length = 0;
-    await plugin.saveRecognitionSettings({ show_song_recognition: true, recognise_key: ' abc123 ', recognise_when: { value: 'missing', label: 'x' } });
+    await plugin.saveRecognitionSettings({ recognise_on: true, recognise_key: ' abc123 ', recognise_when: { value: 'missing', label: 'x' } });
     assert.strictEqual(plugin.config.get('recognise_key'), 'abc123');
     assert.strictEqual(rec.enabled(), true);
     assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'on, asks when the station\'s text names no song');
     assert.ok(logs.some(function(l) { return l === '[RTL-SDR Radio] Song recognition: on, asks when the station\'s text names no song (token …c123)'; }), logs.join('\n'));
     // the Manager's door: the state with the key's tail only, and the same setting written
     var view = JSON.parse((await get('/api/recognition')).text);
-    assert.deepStrictEqual([view.enabled, view.when, view.key, view.asked, view.lastSong], [true, 'missing', { set: true, tail: 'c123' }, 0, null]);
+    assert.deepStrictEqual([view.enabled, view.on, view.when, view.key, view.asked, view.lastSong], [true, true, 'missing', { set: true, tail: 'c123' }, 0, null]);
     assert.ok(!JSON.stringify(view).includes('abc123'));
     view = JSON.parse((await post('/api/recognition', { when: 'always' })).text);
     assert.deepStrictEqual([view.when, view.key.set, plugin.config.get('recognise_when')], ['always', true, 'always']);
@@ -1597,11 +1597,18 @@ test('song recognition: with a key, the sound is sent and a song told twice reac
     assert.deepStrictEqual([view.enabled, view.key], [false, { set: false, tail: null }]);
     view = JSON.parse((await post('/api/recognition', { key: 'abc123', when: 'missing' })).text);
     assert.strictEqual(view.enabled, true);
-    assert.strictEqual(plugin.config.get('show_song_recognition'), true);
-    // the settings page shows the key and the choice
+    // the switch: off keeps the token and sends nothing; on again needs no new token
+    view = JSON.parse((await post('/api/recognition', { on: false })).text);
+    assert.deepStrictEqual([view.enabled, view.on, view.key.set, rec.enabled(), plugin.config.get('recognise_on'), plugin.config.get('recognise_key')], [false, false, true, false, false, 'abc123']);
+    assert.strictEqual(plugin.receptionSettings()['Song recognition'], 'off: switched off, token kept');
+    assert.strictEqual((await post('/api/recognition', { on: 'yes' })).status, 400);
+    view = JSON.parse((await post('/api/recognition', { on: true })).text);
+    assert.deepStrictEqual([view.enabled, view.on, rec.enabled()], [true, true, true]);
+    // the settings page shows the switch, the key and the choice
     var page = JSON.parse(fs.readFileSync(__dirname + '/../plugin/UIConfig.json', 'utf8'));
     plugin.populateUIConfig(page);
     var section = page.sections[5];
+    assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_on'; }).value, true);
     assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).value, 'abc123');
     assert.strictEqual(section.content.find(function(i) { return i.id === 'recognise_key'; }).type, 'password');
     assert.deepStrictEqual(section.content.find(function(i) { return i.id === 'recognise_when'; }).value.value, 'missing');
@@ -1672,9 +1679,21 @@ test('song recognition: with a key, the sound is sent and a song told twice reac
   } finally {
     await plugin.stop();
     rec.send = sendWas; rec.toWav = wavWas; rec.now = nowWas;
-    await plugin.saveRecognitionSettings({ show_song_recognition: false, recognise_key: '', recognise_when: 'missing' });
+    await plugin.saveRecognitionSettings({ recognise_on: true, recognise_key: '', recognise_when: 'missing' });
   }
   assert.deepStrictEqual(running(), []);
+});
+
+test('song recognition: a 1.4.10 setting is carried over with the switch on', function() {
+  plugin.config.set('show_song_recognition', false);
+  plugin.config.delete('recognise_on');
+  plugin.carryRecognitionOver();
+  assert.deepStrictEqual([plugin.config.has('show_song_recognition'), plugin.config.get('recognise_on')], [false, true]);
+  // a choice already made is left alone
+  plugin.config.set('recognise_on', false);
+  plugin.carryRecognitionOver();
+  assert.strictEqual(plugin.config.get('recognise_on'), false);
+  plugin.config.set('recognise_on', true);
 });
 
 test('FM scan: a tool that cannot read the dongle is a failed scan, and the station list is left alone', async function() {

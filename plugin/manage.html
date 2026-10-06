@@ -2007,6 +2007,12 @@
         <p style="color: #888; font-size: 13px; margin-bottom: 12px;" id="recog-doc"></p>
         <p style="font-size: 14px; margin-bottom: 6px;" id="recog-status"></p>
         <p style="color: #888; font-size: 13px; margin-bottom: 12px;" id="recog-detail"></p>
+        <div class="backup-form-row">
+          <label>
+            <input type="checkbox" id="recog-on" onchange="switchRecognition(this.checked)">
+            <span id="recog-on-text">Song recognition on</span>
+          </label>
+        </div>
         <div style="margin-bottom: 12px;">
           <label class="restore-label" id="recog-key-label" for="recog-key">AudD API token:</label>
           <input type="password" id="recog-key" class="recog-input" autocomplete="off" spellcheck="false">
@@ -3031,7 +3037,8 @@
       document.getElementById('update-channel-preview').textContent = t('UPDATE_CHANNEL_PREVIEW');
       document.getElementById('update-notes-title').textContent = t('UPDATE_NOTES');
       document.getElementById('recog-title').textContent = t('RECOG_TITLE');
-      document.getElementById('recog-doc').textContent = t('SHOW_RECOGNITION_DOC');
+      document.getElementById('recog-doc').textContent = t('RECOGNISE_ON_DOC');
+      document.getElementById('recog-on-text').textContent = t('RECOG_ON_LABEL');
       document.getElementById('recog-key-label').textContent = t('RECOG_KEY_LABEL');
       document.getElementById('recog-when-label').textContent = t('RECOG_WHEN_LABEL');
       document.getElementById('recog-when-missing').textContent = t('RECOGNISE_WHEN_MISSING');
@@ -5286,12 +5293,15 @@
       key.value = '';
       key.placeholder = view.key.set ? t('RECOG_KEY_SET', view.key.tail) : t('RECOG_KEY_PLACEHOLDER');
       document.getElementById('recog-when').value = view.when;
+      document.getElementById('recog-on').checked = view.on;
       document.getElementById('btn-recog-clear').style.display = view.key.set ? '' : 'none';
       let status;
       if (!view.key.set) {
         status = t('RECOG_OFF');
       } else if (view.keyFailed) {
         status = t('RECOG_REFUSED');
+      } else if (!view.on) {
+        status = t('RECOG_OFF_SWITCHED');
       } else {
         status = t('RECOG_ON', t(view.when === 'always' ? 'RECOGNISE_WHEN_ALWAYS' : 'RECOGNISE_WHEN_MISSING'));
       }
@@ -5351,6 +5361,15 @@
     async function clearRecognition() {
       if (await postRecognition({ key: '' })) {
         showToast(t('RECOG_CLEARED'));
+      }
+    }
+
+    // The switch: off keeps the token
+    async function switchRecognition(on) {
+      if (await postRecognition({ on: on })) {
+        showToast(t(on ? 'RECOG_SWITCHED_ON' : 'RECOG_SWITCHED_OFF'));
+      } else {
+        loadRecognition();
       }
     }
     

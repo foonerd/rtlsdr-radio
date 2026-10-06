@@ -193,10 +193,18 @@ test('the state in words', async function() {
   assert.strictEqual(r.recogniser.said(), 'on, asks when the station\'s text names no song');
   r.recogniser.configure({ key: 'k', when: 'always' });
   assert.strictEqual(r.recogniser.said(), 'on, asks for every song');
+  // switched off: the token stays, nothing is sent
+  r.recogniser.configure({ key: 'k', when: 'always', on: false });
+  assert.deepStrictEqual([r.recogniser.said(), r.recogniser.enabled(), r.recogniser.status().on], ['off: switched off, token kept', false, false]);
   r.recogniser.start('rtlsdr://fm/100.0');
   r.fill();
-  r.answers.push({ status: 'error', error: { error_code: 901, error_message: 'Limit' } });
   await r.turn(16000);
+  assert.strictEqual(r.sent.length, 0);
+  r.recogniser.configure({ key: 'k', when: 'always', on: true });
+  assert.strictEqual(r.recogniser.enabled(), true);
+  r.answers.push({ status: 'error', error: { error_code: 901, error_message: 'Limit' } });
+  await r.turn(1000);
+  assert.strictEqual(r.sent.length, 1);
   assert.strictEqual(r.recogniser.said(), 'off: the service refused the token');
 });
 

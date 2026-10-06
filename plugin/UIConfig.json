@@ -589,18 +589,18 @@
       "saveButton": {
         "label": "TRANSLATE.SAVE_RECOGNITION",
         "data": [
-          "show_song_recognition",
+          "recognise_on",
           "recognise_key",
           "recognise_when"
         ]
       },
       "content": [
         {
-          "id": "show_song_recognition",
+          "id": "recognise_on",
           "element": "switch",
-          "label": "TRANSLATE.SHOW_RECOGNITION",
-          "value": false,
-          "doc": "TRANSLATE.SHOW_RECOGNITION_DOC"
+          "label": "TRANSLATE.RECOGNISE_ON",
+          "value": true,
+          "doc": "TRANSLATE.RECOGNISE_ON_DOC"
         },
         {
           "id": "recognise_key",
@@ -608,11 +608,7 @@
           "type": "password",
           "label": "TRANSLATE.RECOGNISE_KEY",
           "doc": "TRANSLATE.RECOGNISE_KEY_DOC",
-          "value": "",
-          "visibleIf": {
-            "field": "show_song_recognition",
-            "value": true
-          }
+          "value": ""
         },
         {
           "id": "recognise_when",
@@ -626,11 +622,7 @@
           "options": [
             {"value": "missing", "label": "TRANSLATE.RECOGNISE_WHEN_MISSING"},
             {"value": "always", "label": "TRANSLATE.RECOGNISE_WHEN_ALWAYS"}
-          ],
-          "visibleIf": {
-            "field": "show_song_recognition",
-            "value": true
-          }
+          ]
         }
       ]
     },

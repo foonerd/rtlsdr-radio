@@ -39,7 +39,8 @@ function Recogniser(options) {
   this.tickMs = options.tick || 5000;
   this.key = '';
   this.when = 'missing';
-  this.configure({ key: options.key, when: options.when });
+  this.on = true;
+  this.configure({ key: options.key, when: options.when, on: options.on });
   this.bytes = SAMPLE_RATE * CHANNELS * 2 * WINDOW;
   this.ring = Buffer.alloc(this.bytes);
   this.filled = 0;
@@ -61,10 +62,12 @@ Recogniser.prototype.configure = function(settings) {
   }
   this.key = key;
   this.when = settings && settings.when === 'always' ? 'always' : 'missing';
+  this.on = !(settings && settings.on === false);
 };
 
+// On: switched on, with a token the service has not refused
 Recogniser.prototype.enabled = function() {
-  return this.key !== '' && !this.keyFailed;
+  return this.on && this.key !== '' && !this.keyFailed;
 };
 
 // The state in words, for the log and the report
@@ -74,6 +77,9 @@ Recogniser.prototype.said = function() {
   }
   if (this.keyFailed) {
     return 'off: the service refused the token';
+  }
+  if (!this.on) {
+    return 'off: switched off, token kept';
   }
   return 'on, asks ' + (this.when === 'always' ? 'for every song' : 'when the station\'s text names no song');
 };
@@ -154,6 +160,7 @@ Recogniser.prototype.window = function() {
 Recogniser.prototype.status = function() {
   return {
     enabled: this.enabled(),
+    on: this.on,
     when: this.when,
     keyFailed: this.keyFailed,
     song: this.song ? { artist: this.song.artist, title: this.song.title } : null,

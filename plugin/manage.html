@@ -3482,9 +3482,9 @@
       document.getElementById('tune-modal').classList.add('show');
       
       try {
-        const status = await (await fetch('/api/status')).json();
-        if (tune && status.fmBand) {
-          tune.band = status.fmBand;
+        const own = await (await fetch('/api/tune')).json();
+        if (tune && own.band) {
+          tune.band = own.band;
           tuneRender();
         }
       } catch (e) {
@@ -3590,28 +3590,33 @@
       tuneListen(khz / 1000);
     }
     
-    // The reception of what is being listened to, as the player reads it
+    // The reception of what is being listened to, as the player reads it. Asking is also
+    // how the page tells the plugin that the dialog is still open.
     async function tuneLevel() {
       if (!tune) return;
-      let status;
+      let own;
       try {
-        status = await (await fetch('/api/status')).json();
+        own = await (await fetch('/api/tune')).json();
       } catch (e) {
         return;
       }
       if (!tune) return;
+      if (own.band) {
+        tune.band = own.band;
+      }
       const level = document.getElementById('tune-level');
-      const signal = status.signal;
-      const mine = status.tune === tune.at && tune.heard === tune.at;
-      if (!mine || !/^playing_fm/.test(status.deviceState || '')) {
+      const signal = own.signal;
+      const mine = own.frequency === tune.at && tune.heard === tune.at;
+      if (!mine || !/^playing_fm/.test(own.deviceState || '')) {
         level.textContent = tune.heard === tune.at && mine ? t('TUNE_STARTING') : t('TUNE_NOT_PLAYING');
       } else if (!signal || signal.type !== 'fm' || Math.abs(parseFloat(signal.frequency) - parseFloat(tune.at)) > 0.005 || signal.db === null) {
         level.textContent = t('TUNE_STARTING');
-      } else if (!signal.level) {
-        level.textContent = t('TUNE_LEVEL_NONE');
+      } else if (!signal.now) {
+        level.textContent = t('TUNE_LEVEL_NONE') + ' (' + signal.db.toFixed(1) + ' dB)';
       } else {
-        level.innerHTML = '<span class="dots">' + tuneDots(signal.level) + '</span>' +
-          escapeHtml(t('TUNE_LEVEL', signal.level, signal.db.toFixed(1)) + (signal.mono ? ' · ' + t('TUNE_NO_PILOT') : ''));
+        // the level of the latest reading, not the one the player holds for a while
+        level.innerHTML = '<span class="dots">' + tuneDots(signal.now) + '</span>' +
+          escapeHtml(t('TUNE_LEVEL', signal.now, signal.db.toFixed(1)) + (signal.mono ? ' \u00b7 ' + t('TUNE_NO_PILOT') : ''));
       }
     }
     

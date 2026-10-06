@@ -891,6 +891,27 @@ test('the level of FM and of DAB can be taken down, and the log says whether the
     delete process.env.FAKE_SOX_CLIPPED;
     assert.ok(soundLine(/Sound of FM 94\.9 MHz, level -6 dB: touched full scale now and then, too seldom to hear \(1 sample in vol\)/), logs.join('\n'));
 
+    // the noise of a weak station reaches full scale too: that is said, not "cut off"
+    process.env.FAKE_SOX_CLIPPED = '150';
+    logs.length = 0;
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(400);
+    plugin.considerFmLevel(8.2, '94.9', 'x', false);
+    await plugin.stop();
+    await sleep(300);
+    delete process.env.FAKE_SOX_CLIPPED;
+    assert.ok(soundLine(/Sound of FM 94\.9 MHz, level -6 dB: reached full scale in the noise of a weak station \(150 samples in vol; reception 8\.2 dB\), which is hiss and not loud sound/), logs.join('\n'));
+    // a station received well that reaches full scale is cut off there
+    process.env.FAKE_SOX_CLIPPED = '150';
+    logs.length = 0;
+    await plugin.clearAddPlayTrack(fmTrack('94.9'));
+    await sleep(400);
+    plugin.considerFmLevel(34, '94.9', 'x', false);
+    await plugin.stop();
+    await sleep(300);
+    delete process.env.FAKE_SOX_CLIPPED;
+    assert.ok(soundLine(/Sound of FM 94\.9 MHz, level -6 dB: cut off at full scale \(150 samples in vol\)/), logs.join('\n'));
+
     // Back at 0 dB FM is where it was, and a station that fitted is said to have fitted
     await plugin.saveFmSettings({ fm_level: { value: 0, label: '0 dB' } });
     assert.strictEqual(plugin.config.get('fm_level'), 0);
@@ -1314,7 +1335,14 @@ test('tune dialog: a frequency is listened to as an item of the queue, and the p
     plugin.considerFmLevel(31.5, '101.3', 'x', false);
     var status = JSON.parse((await get('/api/status')).text);
     assert.strictEqual(status.tune, '101.3');
-    assert.deepStrictEqual([status.signal.type, status.signal.level, status.signal.db, status.signal.mono], ['fm', 4, 31.5, false]);
+    assert.deepStrictEqual([status.signal.type, status.signal.level, status.signal.db, status.signal.now, status.signal.mono], ['fm', 4, 31.5, 4, false]);
+    // the level shown holds for a while; the dialog has the level of the latest reading too
+    plugin.considerFmLevel(9.4, '101.3', 'x', false);
+    var own = JSON.parse((await get('/api/tune')).text);
+    assert.strictEqual(own.frequency, '101.3');
+    assert.deepStrictEqual([own.deviceState, own.signal.level, own.signal.db, own.signal.now, own.band.step_khz], ['playing_fm', 4, 9.4, 1, 100]);
+    plugin.considerFmLevel(2.0, '101.3', 'x', false);
+    assert.deepStrictEqual([JSON.parse((await get('/api/tune')).text).signal.now], [0]);
 
     // a step: the dialog's item is given the next frequency, and nothing is removed for it
     await post('/api/tune/listen', { frequency: 101.2 });
@@ -1394,6 +1422,29 @@ test('tune dialog: a frequency is listened to as an item of the queue, and the p
     assert.deepStrictEqual([player.position, player.status], [0, 'play']);
 
     assert.strictEqual((await post('/api/tune/listen', { frequency: 'loud' })).status, 400);
+
+    // a page gone without a word: while it asks, the frequency plays on; when it has not
+    // asked for a while, the trial ends by itself
+    await coreCommand.volumioStop();
+    var patience = plugin.TUNE_ABANDONED;
+    plugin.TUNE_ABANDONED = 400;
+    try {
+      logs.length = 0;
+      await post('/api/tune/listen', { frequency: '101.3' });
+      for (var asked = 0; asked < 8; asked++) {
+        await sleep(100);
+        await get('/api/tune');
+      }
+      assert.strictEqual(plugin.deviceState, 'playing_fm');
+      assert.strictEqual(player.uris().length, 4);
+      await sleep(900);
+      assert.strictEqual(plugin.deviceState, 'idle');
+      assert.deepStrictEqual(player.uris(), ['music/a.flac', 'music/b.flac', 'rtlsdr://fm/100.9']);
+      assert.strictEqual(JSON.parse((await get('/api/tune')).text).frequency, null);
+      assert.ok(logs.some(function(m) { return /Tune: no page has asked about 101\.3 MHz for 0 minutes: ended/.test(m); }), logs.join('\n'));
+    } finally {
+      plugin.TUNE_ABANDONED = patience;
+    }
   } finally {
     await plugin.tuneEnd();
     await plugin.stop();

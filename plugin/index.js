@@ -183,6 +183,8 @@ function ControllerRtlsdrRadio(context) {
   self.TUNE_STEPS = 5;               // The tune dialog looks this many channels either side of a station
   self.TUNE_SURVEY_TIMEOUT = 120000; // and gives the survey of them this long: seconds on a fast board
   self.TUNE_PLAYER_WAIT = 10000;     // and waits this long for the player to answer a request
+  self.TUNE_ABANDONED = 180000;      // a frequency tried out that no page has asked about for this long is ended
+  self.WEAK_RECEPTION_DB = 12;       // below this reading (level 1 at most) full scale is reached by noise, not by the programme
   self.DAB_SCAN_TIMEOUT = 300000;    // DAB scan timeout (5 minutes)
   self.DAB_DETECTION_TIMEOUT = 30000; // DAB ensemble detection timeout
   self.DAB_NOT_RECEIVED = 22;        // fn-dab's exit code when it finds no ensemble it can read
@@ -293,6 +295,7 @@ ControllerRtlsdrRadio.prototype.onStart = function() {
 
 ControllerRtlsdrRadio.prototype.onStop = function() {
   var self = this;
+  self.tuneWatchStop();
   var defer = libQ.defer();
   
   // Stop all processes; the stop is complete only when they are gone
@@ -1537,6 +1540,18 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       });
     });
     
+    // Tune dialog: what it shows while it is open. Asking is also how the page says it is
+    // still there: a frequency tried out that nobody asks about any more is ended.
+    self.expressApp.get('/api/tune', function(req, res) {
+      self.tuneSeen = Date.now();
+      res.json({
+        frequency: self.tuneTrial ? self.tuneTrial.frequency : null,
+        deviceState: self.deviceState,
+        signal: self.signalNow(),
+        band: self.tuneBand()
+      });
+    });
+    
     // Tune dialog: play a frequency, to be listened to
     self.expressApp.post('/api/tune/listen', function(req, res) {
       var frequency = self.tuneFrequency(req.body && req.body.frequency);
@@ -1647,26 +1662,7 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
           return !s.deleted; 
         }).length : 0;
         
-        // Get current signal info
-        var signalInfo = null;
-        if (self.deviceState === 'playing_fm' && self.currentRds) {
-          signalInfo = {
-            type: 'fm',
-            level: self.currentRds.signalLevel || 0,
-            percent: self.currentRds.signalPercent || 0,
-            // the reading behind the level, once there is one, and whether it is of the carrier
-            db: typeof self.currentRds.receptionDb === 'number' ? self.currentRds.receptionDb : null,
-            mono: !!self.currentRds.mono,
-            frequency: self.currentFmFrequency || null
-          };
-        } else if (self.deviceState === 'playing_dab' && self.currentDabSignal) {
-          signalInfo = {
-            type: 'dab',
-            level: self.currentDabSignal.level || 0,
-            percent: self.currentDabSignal.percent || 0,
-            station: self.currentDabStation || null
-          };
-        }
+        var signalInfo = self.signalNow();
         
         res.json({ 
           deviceState: self.deviceState,
@@ -5289,7 +5285,7 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   }
   var soxStarted = Date.now();
   var soxProcess = job.run('sox', soxArgs, { stdio: ['pipe', 'pipe', 'pipe'] }, function(entry) {
-    self.logClipping('FM ' + freqStr + ' MHz', fmLevel, entry, soxStarted);
+    self.logClipping('FM ' + freqStr + ' MHz', fmLevel, entry, soxStarted, job.reception);
   });
   self.soxProcess = soxProcess;
   
@@ -6787,6 +6783,10 @@ ControllerRtlsdrRadio.prototype.considerFmLevel = function(db, freq, stationName
     rds.signalPercent = rds.blerSmoothed !== undefined ? Math.max(0, Math.round(100 - rds.blerSmoothed)) : 0;
   }
   rds.receptionDb = Math.round(db * 10) / 10;
+  // kept with the play, for the line about its sound when it ends
+  if (self.playingJob) {
+    self.playingJob.reception = { db: rds.receptionDb, level: rds.signalLevel === undefined ? level : rds.signalLevel };
+  }
   
   var now = Date.now();
   var settled = false;
@@ -7321,8 +7321,10 @@ ControllerRtlsdrRadio.prototype.levelFromForm = function(sent) {
 // station stayed below full scale, or how much of it was cut off there and in which
 // stage. It is what a report of loud or distorted sound is read from. A few samples a
 // minute are what a resampler makes of a broadcast that already reaches full scale:
-// they are named, and not as a fault.
-ControllerRtlsdrRadio.prototype.logClipping = function(what, level, entry, startedAt) {
+// they are named, and not as a fault. Nor is what the noise of a weak station reaches
+// (reception: the last reading of the play, where there is one): that is hiss, not
+// loud sound, and the line says so.
+ControllerRtlsdrRadio.prototype.logClipping = function(what, level, entry, startedAt, reception) {
   if (!entry || entry.error) {
     // sox could not be started: there was no sound to report on
     return;
@@ -7337,8 +7339,12 @@ ControllerRtlsdrRadio.prototype.logClipping = function(what, level, entry, start
   }
   var minutes = Math.max((Date.now() - (startedAt || Date.now())) / 60000, 1 / 60);
   var verdict = 'stayed below full scale';
-  if (stages.length > 0) {
-    verdict = (most / minutes < this.CLIPPED_FEW ? 'touched full scale now and then, too seldom to hear (' : 'cut off at full scale (') + stages.join(', ') + ')';
+  if (stages.length > 0 && most / minutes < this.CLIPPED_FEW) {
+    verdict = 'touched full scale now and then, too seldom to hear (' + stages.join(', ') + ')';
+  } else if (stages.length > 0 && reception && typeof reception.db === 'number' && reception.db < this.WEAK_RECEPTION_DB) {
+    verdict = 'reached full scale in the noise of a weak station (' + stages.join(', ') + '; reception ' + reception.db + ' dB), which is hiss and not loud sound';
+  } else if (stages.length > 0) {
+    verdict = 'cut off at full scale (' + stages.join(', ') + ')';
   }
   this.logger.info('[RTL-SDR Radio] Sound of ' + what + ', level ' + level + ' dB: ' + verdict);
 };
@@ -8801,6 +8807,36 @@ ControllerRtlsdrRadio.prototype.mergeStationData = function(existingStation, new
 // FM SCANNING METHODS - Phase 3 Implementation
 // ============================================
 
+// The reception of the station being played, for the Station Manager's status; null when
+// none is played or no reading is there yet
+ControllerRtlsdrRadio.prototype.signalNow = function() {
+  var self = this;
+  if (self.deviceState === 'playing_fm' && self.currentRds) {
+    var db = typeof self.currentRds.receptionDb === 'number' ? self.currentRds.receptionDb : null;
+    return {
+      type: 'fm',
+      // the level shown, which holds for a few seconds before it changes
+      level: self.currentRds.signalLevel || 0,
+      percent: self.currentRds.signalPercent || 0,
+      // the reading behind it, once there is one, the level that reading alone would
+      // give, and whether it is of the carrier of a station without a pilot
+      db: db,
+      now: db === null ? 0 : (FmQuality.level(db) || 0),
+      mono: !!self.currentRds.mono,
+      frequency: self.currentFmFrequency || null
+    };
+  }
+  if (self.deviceState === 'playing_dab' && self.currentDabSignal) {
+    return {
+      type: 'dab',
+      level: self.currentDabSignal.level || 0,
+      percent: self.currentDabSignal.percent || 0,
+      station: self.currentDabStation || null
+    };
+  }
+  return null;
+};
+
 // ---- The tune dialog of the Station Manager: an FM station's frequency, tried out ----
 
 // A frequency as the station list writes it, or null for what is none the receiver takes
@@ -9051,6 +9087,8 @@ ControllerRtlsdrRadio.prototype.tuneListenNow = function(frequency) {
   var earlier = self.tuneTrial;
   var before = earlier ? earlier.before : self.tunePlayerNow();
   self.logger.info('[RTL-SDR Radio] Tune: listening to ' + frequency + ' MHz');
+  self.tuneSeen = Date.now();
+  self.tuneWatchStart();
   
   // The dialog has an item in the queue already: it is given the new frequency. (Taken
   // out and put in again, every step would be told to the user as a removal.)
@@ -9102,10 +9140,38 @@ ControllerRtlsdrRadio.prototype.tuneEnd = function() {
   });
 };
 
+// A page that is closed without a word (the browser gone, the network lost) leaves the
+// frequency it tried playing. The dialog asks about it every second while it is open;
+// when nobody has asked for a while, it is ended as if Cancel had been pressed.
+ControllerRtlsdrRadio.prototype.tuneWatchStart = function() {
+  var self = this;
+  if (self.tuneWatch) {
+    return;
+  }
+  self.tuneWatch = setInterval(function() {
+    if (!self.tuneTrial) {
+      self.tuneWatchStop();
+    } else if (Date.now() - self.tuneSeen > self.TUNE_ABANDONED) {
+      self.logger.info('[RTL-SDR Radio] Tune: no page has asked about ' + self.tuneTrial.frequency + ' MHz for ' +
+        Math.round(self.TUNE_ABANDONED / 60000) + ' minutes: ended');
+      self.tuneEnd();
+    }
+  }, Math.max(100, Math.min(15000, self.TUNE_ABANDONED / 4)));
+  self.tuneWatch.unref();
+};
+
+ControllerRtlsdrRadio.prototype.tuneWatchStop = function() {
+  if (this.tuneWatch) {
+    clearInterval(this.tuneWatch);
+    this.tuneWatch = null;
+  }
+};
+
 ControllerRtlsdrRadio.prototype.tuneEndNow = function() {
   var self = this;
   var router = self.commandRouter;
   var trial = self.tuneTrial;
+  self.tuneWatchStop();
   if (!trial) {
     return Promise.resolve(false);
   }

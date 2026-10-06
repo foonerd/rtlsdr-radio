@@ -111,8 +111,12 @@ test('nothing recognised: asked again after a minute and a half; a song shown is
   await r.turn(30000);
   assert.strictEqual(r.sent.length, 2);
   assert.strictEqual(r.lines.filter(function(m) { return /nothing recognised/.test(m); }).length, 1, 'said once, not at every question');
+  // the second empty answer: asked again after three minutes, not a minute and a half
+  await r.turn(90000);
+  assert.strictEqual(r.sent.length, 2, 'backed off');
   r.answers.push(answer('JADE', 'Backbone', '00:47', 180));
   await r.turn(90000);
+  assert.strictEqual(r.sent.length, 3);
   r.answers.push(answer('JADE', 'Backbone', '01:17', 180));
   await r.turn(30000);
   assert.deepStrictEqual(r.songs, ['JADE - Backbone']);
@@ -120,6 +124,34 @@ test('nothing recognised: asked again after a minute and a half; a song shown is
   await r.turn(120000);
   assert.strictEqual(r.sent.length, 5);
   assert.deepStrictEqual(r.songs, ['JADE - Backbone', null]);
+});
+
+test('talk: a station where nothing is recognised is asked less and less, a song starts over', async function() {
+  var r = rig();
+  r.recogniser.start('rtlsdr://fm/93.5');
+  r.fill();
+  await r.turn(16000);
+  var when = [];
+  for (var i = 0; i < 5; i++) {
+    var sent = r.sent.length;
+    var waited = 0;
+    while (r.sent.length === sent && waited < 1000000) { await r.turn(30000); waited += 30000; }
+    when.push(waited / 1000);
+  }
+  // a minute and a half, three minutes, six, and six from then on
+  assert.deepStrictEqual(when, [90, 180, 360, 360, 360]);
+  // a song recognised: the wait starts again at a minute and a half once it is over
+  r.answers.push(answer('Tate McRae', 'greedy', '00:30', 100));
+  await r.turn(360000);
+  r.answers.push(answer('Tate McRae', 'greedy', '01:00', 100));
+  await r.turn(30000);
+  assert.deepStrictEqual(r.songs, ['Tate McRae - greedy']);
+  await r.turn(60000);
+  var after = r.sent.length;
+  await r.turn(60000);
+  assert.strictEqual(r.sent.length, after, 'not yet');
+  await r.turn(30000);
+  assert.strictEqual(r.sent.length, after + 1, 'a minute and a half after the empty answer that ended the song');
 });
 
 test('the station\'s text, the setting and the key decide whether anything is sent', async function() {

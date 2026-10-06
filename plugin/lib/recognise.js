@@ -24,6 +24,7 @@ var SENT_RATE = 16000;        // sent as mono at this rate: a fifth of the bytes
 var FIRST_AFTER = 15000;      // ms after a station starts before the first question
 var CONFIRM_AFTER = 30000;    // ms between an answer and the question that confirms it
 var LEAST_BETWEEN = 90000;    // ms between questions that found nothing, or after a song's end
+var MOST_BACKOFF = 4;         // the wait after empty answers doubles up to this many times LEAST_BETWEEN
 var SONG_OVER_SLACK = 10000;  // ms after a song's end, by the service's time, before the next question
 var FAILED_WAIT = 300000;     // ms after a failed request (network, service) before another
 var MOST_TRIES = 3;           // answers that disagree before giving up on the song at hand
@@ -95,6 +96,7 @@ Recogniser.prototype.reset = function() {
   this.song = null;
   this.songOverAt = 0;
   this.nothingAt = 0;
+  this.nothings = 0;         // empty answers in a row on this station
   this.saidNothing = false;
   this.filled = 0;
   this.at = 0;
@@ -195,9 +197,16 @@ Recogniser.prototype.consider = function() {
     }
     return;
   }
-  if (now - this.nothingAt >= LEAST_BETWEEN) {
+  if (now - this.nothingAt >= this.waitAfterNothing()) {
     this.ask();
   }
+};
+
+// Talk, however long, must not spend the questions: after each empty answer the wait
+// doubles, a minute and a half, three minutes, six, until a song is recognised or
+// another station plays
+Recogniser.prototype.waitAfterNothing = function() {
+  return LEAST_BETWEEN * Math.min(Math.pow(2, Math.max(0, this.nothings - 1)), MOST_BACKOFF);
 };
 
 Recogniser.prototype.ask = function() {
@@ -256,6 +265,7 @@ Recogniser.prototype.heard = function(answer) {
       this.saidNothing = true;
     }
     this.nothingAt = now;
+    this.nothings++;
     this.candidate = null;
     this.tries = 0;
     if (this.song) {
@@ -278,6 +288,7 @@ Recogniser.prototype.heard = function(answer) {
     this.songOverAt = song.endsAt || now + LEAST_BETWEEN;
     this.candidate = null;
     this.tries = 0;
+    this.nothings = 0;
     this.logger.info('[RTL-SDR Radio] Song recognised: ' + song.artist + ' - ' + song.title +
       (song.timecode !== null ? ' (' + clock(song.timecode) + ' into it)' : ''));
     this.lastSong = { artist: song.artist, title: song.title, at: new Date(now).toISOString() };
@@ -291,6 +302,7 @@ Recogniser.prototype.heard = function(answer) {
     this.candidate = null;
     this.tries = 0;
     this.nothingAt = now;
+    this.nothings++;
     return;
   }
   this.candidate = song;

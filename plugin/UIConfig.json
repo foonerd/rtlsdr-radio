@@ -295,7 +295,6 @@
           "fm_enabled",
           "fm_gain_auto",
           "fm_gain",
-          "fm_oversampling",
           "fm_sample_rate",
           "fm_level",
           "scan_sensitivity",
@@ -387,17 +386,6 @@
             }
           ],
           "doc": "TRANSLATE.FM_SCAN_DEPTH_DOC",
-          "visibleIf": {
-            "field": "fm_enabled",
-            "value": true
-          }
-        },
-        {
-          "id": "fm_oversampling",
-          "element": "switch",
-          "label": "TRANSLATE.FM_OVERSAMPLING",
-          "value": false,
-          "doc": "TRANSLATE.FM_OVERSAMPLING_DOC",
           "visibleIf": {
             "field": "fm_enabled",
             "value": true

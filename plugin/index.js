@@ -185,7 +185,6 @@ function ControllerRtlsdrRadio(context) {
   self.FM_DEEMPHASIS_CHOICES = ['region', '50', '75', 'off']; // the region's own, a curve in microseconds, or none
   self.LEVEL_LOWEST = -12;           // how far the user can take FM or DAB down, in dB
   self.CLIPPED_FEW = 100;            // samples a minute at full scale below which nothing is heard of it
-  self.DONGLE_STEADY_RATE = 2800000; // samples a second a dongle delivers without losing any
   self.FM_SURVEY_TIMEOUT = 600000;   // The FM band survey: under a minute on a fast board, minutes on the slowest
   self.TUNE_STEPS = 5;               // The tune dialog looks this many channels either side of a station
   self.TUNE_SURVEY_TIMEOUT = 120000; // and gives the survey of them this long: seconds on a fast board
@@ -231,6 +230,7 @@ ControllerRtlsdrRadio.prototype.onVolumioStart = function() {
   self.config.loadFile(configFile);
   self.carryDeemphasisOver();
   self.carryRecognitionOver();
+  self.dropOversampling();
   self.recogniser.configure(self.recognitionSettings());
 
   // Load FM region data
@@ -3040,10 +3040,6 @@ ControllerRtlsdrRadio.prototype.populateUIConfig = function(uiconf) {
       };
     }
     
-    var fmOversampling = findContentItem(fmSection, 'fm_oversampling');
-    if (fmOversampling) {
-      fmOversampling.value = self.config.get('fm_oversampling', false);
-    }
     
     var fmSampleRate = findContentItem(fmSection, 'fm_sample_rate');
     if (fmSampleRate) {
@@ -3521,10 +3517,6 @@ ControllerRtlsdrRadio.prototype.saveFmSettings = function(data) {
       self.config.set('fm_level', self.levelFromForm(data.fm_level));
     }
     
-    // Save FM oversampling
-    if (data.fm_oversampling !== undefined) {
-      self.config.set('fm_oversampling', data.fm_oversampling);
-    }
     
     // Save FM sample rate
     if (data.fm_sample_rate !== undefined) {
@@ -5261,7 +5253,6 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   var self = this;
   
   // Get settings from config
-  var fmOversampling = self.config.get('fm_oversampling', false);
   var fmSampleRate = self.config.get('fm_sample_rate', '171k');
   
   // The region, for the log
@@ -5281,23 +5272,12 @@ ControllerRtlsdrRadio.prototype.launchFmReceiver = function(job, freq, freqStr, 
   // Build fn-rtl_fm command for RDS-compatible output
   // -M fm: FM mode without stereo decode (outputs MPX baseband for RDS)
   // -s: Sample rate (171k optimal for RDS, 200k for audio quality)
-  // -o 4: Oversampling (reduces distortion in strong signal areas, may reduce RDS quality)
   // -l 0: Squelch off
   // -A std: Standard audio
   // -F 9: FIR filter size
   var rtlArgs = ['-f', freq + 'M', '-M', 'fm', '-s', fmSampleRate, '-l', '0', '-A', 'std', '-g', String(gain), '-F', '9'];
   // on the station's carrier, where the dongle is known to tune off
   rtlArgs = rtlArgs.concat(self.fmCorrectionArgs());
-  
-  // Add oversampling if enabled (helps with strong signals, may reduce RDS quality).
-  // It asks the dongle for sixteen times the receiver rate: 2.7 million samples a
-  // second at 171k, and more than a dongle delivers at any higher rate, where the
-  // receiver then gives noise at full level. There it is left out.
-  if (fmOversampling && self.fmCanOversample(fmSampleRate)) {
-    rtlArgs.splice(6, 0, '-o', '4');
-  } else if (fmOversampling) {
-    self.logger.info('[RTL-SDR Radio] FM oversampling is not used at ' + fmSampleRate + ': the dongle cannot sample that fast');
-  }
   
   // De-emphasis: a broadcast is sent with its treble raised, by a curve named after a
   // time constant (50 us in most of the world, 75 us in the Americas), and a receiver
@@ -7327,7 +7307,6 @@ ControllerRtlsdrRadio.prototype.receptionSettings = function() {
     'FM scan': self.fmScanDepth(),
     'FM scan offset': self.getRegionSettings().scan_offset_khz + ' kHz',
     'FM sample rate': self.config.get('fm_sample_rate', '171k'),
-    'FM oversampling': self.config.get('fm_oversampling', false) ? 'on' : 'off',
     'FM level': self.levelSetting('fm_level') + ' dB',
     'FM de-emphasis': (self.fmDeemphasisUs() > 0 ? self.fmDeemphasisUs() + ' us' : 'none') +
       (self.fmDeemphasisChoice() === 'region' ? ' (the region\'s)' : ' (chosen)'),
@@ -7454,26 +7433,14 @@ ControllerRtlsdrRadio.prototype.logClipping = function(what, level, entry, start
   this.logger.info('[RTL-SDR Radio] Sound of ' + what + ', level ' + level + ' dB: ' + verdict);
 };
 
-// Whether the dongle can deliver what four times oversampling asks of it at this
-// receiver rate: sixteen times the rate, of the 3.2 million samples a second that are
-// its limit and the 2.8 million it delivers without losing any.
-ControllerRtlsdrRadio.prototype.fmCanOversample = function(rate) {
-  var match = /^(\d+(?:\.\d+)?)(k?)$/i.exec(String(rate).trim());
-  var hz = match ? parseFloat(match[1]) * (match[2] ? 1000 : 1) : 0;
-  return hz > 0 && hz * 16 <= this.DONGLE_STEADY_RATE;
-};
-
 // The samples a second fn-rtl_fm reads the dongle at for a receiver rate ("171k"), as
 // it works that out itself: at least a million, in a power of two times the receiver
-// rate (four times that rate with oversampling). It sets the tuner a quarter of this
-// above the station, so the slice it takes in reaches from a quarter of it below the
-// station to three quarters above: 1.9 MHz at 240k, 2.4 MHz at 300k.
-ControllerRtlsdrRadio.prototype.fmCaptureRate = function(rate, oversampling) {
+// rate. It sets the tuner a quarter of this above the station, so the slice it takes
+// in reaches from a quarter of it below the station to three quarters above: 1.4 MHz
+// at 171k, 1.9 MHz at 240k, 2.4 MHz at 300k.
+ControllerRtlsdrRadio.prototype.fmCaptureRate = function(rate) {
   var match = /^(\d+(?:\.\d+)?)(k?)$/i.exec(String(rate).trim());
   var hz = match ? parseFloat(match[1]) * (match[2] ? 1000 : 1) : 171000;
-  if (oversampling) {
-    hz *= 4;
-  }
   var passes = Math.floor(Math.log2(Math.floor(1000000 / hz) + 1)) + 1;
   return Math.round(hz * Math.pow(2, passes));
 };
@@ -7576,6 +7543,16 @@ ControllerRtlsdrRadio.prototype.carryRecognitionOver = function() {
   }
 };
 
+// FM oversampling (1.4.11 and before) read the dongle at 2.7 MS/s with the station at
+// the edge of what the tuner passes: measured on an RTL-SDR Blog V4, 17 dB of reception
+// lost at a sane gain, and the gain rule driven to the top step. Taken out; a setting
+// left in a configuration is dropped.
+ControllerRtlsdrRadio.prototype.dropOversampling = function() {
+  if (this.config.has('fm_oversampling')) {
+    this.config.delete('fm_oversampling');
+  }
+};
+
 // A choice in words, for the settings page
 ControllerRtlsdrRadio.prototype.fmDeemphasisLabel = function(choice) {
   if (choice === '50') {
@@ -7614,8 +7591,7 @@ ControllerRtlsdrRadio.prototype.fmSurveyArgs = function() {
 
 // The samples a second the receiver reads the dongle at with the settings as they are
 ControllerRtlsdrRadio.prototype.receiverSlice = function() {
-  var rate = this.config.get('fm_sample_rate', '171k');
-  return this.fmCaptureRate(rate, this.config.get('fm_oversampling', false) && this.fmCanOversample(rate));
+  return this.fmCaptureRate(this.config.get('fm_sample_rate', '171k'));
 };
 
 ControllerRtlsdrRadio.prototype.fmGainFor = function(job, freq, station) {

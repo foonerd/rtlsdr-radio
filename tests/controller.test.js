@@ -565,11 +565,10 @@ test('a DAB service that is not found ends the playback with a message', async f
 test('the gain for a station is measured on the slice the receiver reads', async function() {
   // The rate fn-rtl_fm reads the dongle at, as it works it out: a power of two times the
   // receiver rate, at least a million (its own words at 240k: "Sampling at 1920000 S/s")
-  assert.strictEqual(plugin.fmCaptureRate('171k', false), 1368000);
-  assert.strictEqual(plugin.fmCaptureRate('200k', false), 1600000);
-  assert.strictEqual(plugin.fmCaptureRate('240k', false), 1920000);
-  assert.strictEqual(plugin.fmCaptureRate('300k', false), 2400000);
-  assert.strictEqual(plugin.fmCaptureRate('171k', true), 2736000);
+  assert.strictEqual(plugin.fmCaptureRate('171k'), 1368000);
+  assert.strictEqual(plugin.fmCaptureRate('200k'), 1600000);
+  assert.strictEqual(plugin.fmCaptureRate('240k'), 1920000);
+  assert.strictEqual(plugin.fmCaptureRate('300k'), 2400000);
 
   var list = plugin.stationsDb.fm;
   var rate = plugin.config.get('fm_sample_rate');
@@ -629,31 +628,15 @@ test('FM is brought to the level of everything else, whatever the receiver rate'
     plugin.config.set('fm_sample_rate', rate);
   }
 
-  // Oversampling is applied where the dongle can deliver it (171k) and nowhere else:
-  // at a higher rate the receiver would give noise at full level, which this gain
-  // would make louder still
-  assert.strictEqual(plugin.fmCanOversample('171k'), true);
-  assert.strictEqual(plugin.fmCanOversample('200k'), false);
-  assert.strictEqual(plugin.fmCanOversample('240k'), false);
-  assert.strictEqual(plugin.fmCanOversample('300k'), false);
-  var over = plugin.config.get('fm_oversampling');
-  try {
-    plugin.config.set('fm_oversampling', true);
-    plugin.config.set('fm_sample_rate', '240k');
-    await plugin.clearAddPlayTrack(fmTrack('94.9'));
-    await sleep(500);
-    assert.doesNotMatch(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), / -o 4/);
-    assert.ok(logs.some(function(l) { return /FM oversampling is not used at 240k/.test(l); }));
-    await plugin.stop();
-    plugin.config.set('fm_sample_rate', '171k');
-    await plugin.clearAddPlayTrack(fmTrack('94.9'));
-    await sleep(500);
-    assert.match(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), / -s 171k -o 4 /);
-    await plugin.stop();
-  } finally {
-    plugin.config.set('fm_oversampling', over);
-    plugin.config.set('fm_sample_rate', rate);
-  }
+  // Oversampling (1.4.11 and before) is gone: the receiver is never asked for it, and a
+  // setting left in a configuration is dropped
+  plugin.config.set('fm_oversampling', true);
+  plugin.dropOversampling();
+  assert.strictEqual(plugin.config.has('fm_oversampling'), false);
+  await plugin.clearAddPlayTrack(fmTrack('94.9'));
+  await untilRunning(['aplay', 'fn-redsea', 'fn-rtl_fm', 'sox']);
+  assert.doesNotMatch(fs.readFileSync('/tmp/fake-args-fn-rtl_fm', 'utf8'), / -o /);
+  await plugin.stop();
 
   // A DAB station comes at the broadcaster's level and is left there
   await plugin.clearAddPlayTrack(dabTrack(DAB_NAME));

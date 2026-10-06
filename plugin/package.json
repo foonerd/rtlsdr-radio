@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.4.11",
+  "version": "1.4.12",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.4.11 - Song recognition has a switch of its own on the settings page and in the Station Manager, and the token can be seen"
+    "changelog": "v1.4.12 - FM Oversampling removed (it cost reception), song recognition asks less on talk, the FM Sample Rate choices say what the rate does"
   },
   "engines": {
     "node": ">=20",

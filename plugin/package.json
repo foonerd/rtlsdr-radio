@@ -1,6 +1,6 @@
 {
   "name": "rtlsdr_radio",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "description": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
   "main": "index.js",
   "scripts": {
@@ -24,7 +24,7 @@
     "has_configuration": true,
     "has_alsa_contribution": true,
     "details": "Receive FM and DAB/DAB+ radio using RTL-SDR USB tuners.",
-    "changelog": "v1.4.8 - Tune dialog for FM stations in the Station Manager: step and listen, find the best channel, keep or delete"
+    "changelog": "v1.4.9 - East Asia region at 75 us de-emphasis, Volumio playlists and favourites follow a retuned station, the scan lists no skirt of a refused signal"
   },
   "engines": {
     "node": ">=20",

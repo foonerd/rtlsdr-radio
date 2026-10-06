@@ -463,25 +463,37 @@ DongleReport.prototype.start = function(options) {
   self.state = { phase: 'running', step: 0, of: wanted ? 6 : 5, at: null, doing: 'waiting for the dongle', error: null,
     startedAt: new Date().toISOString(), endedAt: null, summary: null, zip: null };
 
+  // The report is 'done' (or 'failed', or 'cancelled') only once the dongle is free
+  // again: what the view says is then true of the dongle too
   self.work = Promise.resolve(self.options.acquire()).then(function(job) {
     self.job = job;
     return self.make(wanted);
   }).then(function(report) {
-    self.state.phase = 'done';
-    self.state.summary = report.summary;
-    self.log('done: ' + self.state.zip.name + ', ' + megabytes(self.state.zip.bytes));
-  }).catch(function(error) {
+    return { phase: 'done', summary: report.summary, error: null };
+  }, function(error) {
     var code = error && error.report ? error.code : (error && error.superseded ? 'superseded' : 'failed');
-    self.state.phase = code === 'cancelled' || code === 'superseded' ? 'cancelled' : 'failed';
-    self.state.error = { code: code, message: String((error && error.message) || error) };
-    self.log(self.state.phase + ': ' + self.state.error.message);
-  }).then(function() {
+    return { phase: code === 'cancelled' || code === 'superseded' ? 'cancelled' : 'failed', summary: null,
+      error: { code: code, message: String((error && error.message) || error) } };
+  }).then(function(outcome) {
+    var job = self.job;
+    self.job = null;
+    return Promise.resolve(job ? job.stop('dongle report ended') : null).then(function() {
+      return outcome;
+    }, function() {
+      return outcome;
+    });
+  }).then(function(outcome) {
     self.state.endedAt = new Date().toISOString();
     self.state.at = null;
     self.state.doing = null;
-    var job = self.job;
-    self.job = null;
-    return job ? job.stop('dongle report ended') : null;
+    self.state.summary = outcome.summary;
+    self.state.error = outcome.error;
+    self.state.phase = outcome.phase;
+    if (outcome.phase === 'done') {
+      self.log('done: ' + self.state.zip.name + ', ' + megabytes(self.state.zip.bytes));
+    } else {
+      self.log(outcome.phase + ': ' + outcome.error.message);
+    }
   });
   return Promise.resolve(self.view());
 };

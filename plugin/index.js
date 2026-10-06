@@ -2405,6 +2405,10 @@ ControllerRtlsdrRadio.prototype.startManagementServer = function() {
       function refuse(code, message) {
         res.status(409).json(Object.assign(self.dongleReport.view(), { error: { code: code, message: message } }));
       }
+      // A report being made comes first: it holds the dongle itself
+      if (self.dongleReport.running()) {
+        return refuse('busy', 'a report is being made');
+      }
       if (self.deviceState.indexOf('playing_') !== 0 && self.tuner.busy()) {
         return refuse('in-use', 'the dongle is in use: ' + self.tuner.busy());
       }
